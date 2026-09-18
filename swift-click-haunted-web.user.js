@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click Haunted Web
 // @namespace    https://swiftclick.com/
-// @version      0.2.1
+// @version      0.3.0
 // @description  A draggable Halloween bat, countdown, and lightweight spooky effects for the web.
 // @author       Swift Click
 // @match        http://*/*
@@ -243,7 +243,7 @@
   function spawnGhost() {
     if (!state.enabled) return;
     const fx = document.getElementById(FX_ID); if (!fx) return;
-    const boxes=[...document.querySelectorAll('article,section,main img,main video')].map(n=>n.getBoundingClientRect()).filter(r=>r.width>140&&r.height>80&&r.top>90&&r.bottom<innerHeight-20&&r.right<innerWidth-20);
+    const boxes=[...document.querySelectorAll('ytd-rich-item-renderer,ytd-video-renderer,ytd-compact-video-renderer,article,section,main img,main video,[role="article"]')].map(n=>n.getBoundingClientRect()).filter(r=>r.width>120&&r.height>70&&r.top>70&&r.top<innerHeight-80&&r.left>10&&r.right<innerWidth-10);
     const box=boxes.length?boxes[Math.floor(Math.random()*boxes.length)]:null;
     const g=el('div',{class:box?'sc-peeker':'sc-ghost'});
     if(box){const head=el('div',{class:'sc-peeker-head'});head.append(el('i',{class:'sc-peeker-eye e1'}),el('i',{class:'sc-peeker-eye e2'}));g.appendChild(head);g.style.left=(box.right-14)+'px';g.style.top=(box.top+20)+'px';}
@@ -251,6 +251,10 @@
     fx.appendChild(g);
     g.addEventListener('animationend', () => g.remove(), { once: true });
   }
+
+  function ensureEffectsOn(){if(!state.enabled){state.enabled=true;GM_setValue(KEY_ON,true);renderState();}}
+  function isTypingTarget(target){return target instanceof Element&&(target.matches('input,textarea,select')||target.isContentEditable);}
+  function handleShortcut(e){if(!e.ctrlKey||!e.altKey||isTypingTarget(e.target))return;const key=e.key.toLowerCase();if(!['g','l','b'].includes(key))return;e.preventDefault();e.stopPropagation();ensureEffectsOn();if(key==='g')spawnGhost();if(key==='l')lightning();if(key==='b')spawnBat();}
 
   function scheduleAmbient() {
     clearTimers();
@@ -320,6 +324,7 @@
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSign(); }
   });
   window.addEventListener('resize', () => { placeRoot(); GM_setValue(KEY_X, Math.round(state.x)); });
+  document.addEventListener('keydown',handleShortcut,true);
 
   updateCountdown();
   placeRoot();

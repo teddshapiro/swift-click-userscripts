@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click Haunted Web
 // @namespace    https://swiftclick.com/
-// @version      0.1.0
+// @version      0.2.0
 // @description  A draggable Halloween bat, countdown, and lightweight spooky effects for the web.
 // @author       Swift Click
 // @match        http://*/*
@@ -23,12 +23,14 @@
   const KEY_X = 'scHauntedWebBatX';
   const KEY_ON = 'scHauntedWebEnabled';
   const KEY_SIGN = 'scHauntedWebSignOpen';
+  const KEY_SOUND = 'scHauntedWebSound';
 
   if (document.getElementById(ROOT_ID)) return;
 
   const state = {
     enabled: Boolean(GM_getValue(KEY_ON, false)),
     signOpen: Boolean(GM_getValue(KEY_SIGN, true)),
+    sound: Boolean(GM_getValue(KEY_SOUND, false)),
     x: Number(GM_getValue(KEY_X, Math.round(window.innerWidth * 0.72))),
     dragging: false,
     moved: false,
@@ -88,6 +90,16 @@
     #${ROOT_ID} .sc-hint{position:absolute;top:122px;left:0;width:150px;text-align:center;color:#ddd;
       font:10px/1.2 Arial,sans-serif;text-shadow:0 1px 2px #000;opacity:0;transition:opacity .2s;pointer-events:none}
     #${ROOT_ID}:hover .sc-hint{opacity:.72}
+    #${ROOT_ID} .sc-sound{position:absolute;top:57px;right:4px;width:27px;height:27px;border:1px solid #76502b;border-radius:50%;background:#241a20;color:#a99a86;font:15px/25px Arial,sans-serif;text-align:center;cursor:pointer;box-shadow:0 2px 5px #000}
+    #${ROOT_ID} .sc-sound.sc-sound-on{color:#ffad43;border-color:#b8782e;text-shadow:0 0 5px #ff7a18}
+    #${ROOT_ID} .sc-cord{position:absolute;top:49px;left:73px;width:4px;height:28px;background:#6f5a42;border-radius:3px;pointer-events:none}
+    #${ROOT_ID} .sc-sign{top:72px}
+    #${FX_ID} .sc-flash{position:absolute;inset:0;background:rgba(225,235,255,.9);opacity:0;animation:scFlash .6s ease-out forwards}
+    #${FX_ID} .sc-bolt{position:absolute;top:-10px;width:6px;height:48vh;background:#f2f5ff;box-shadow:0 0 16px 6px rgba(225,235,255,.75);transform:skew(-14deg);opacity:0;animation:scBolt .6s ease-out forwards}
+    #${FX_ID} .sc-peeker{position:absolute;width:46px;height:55px;opacity:0;animation:scPeeker 5.5s ease-in-out forwards;filter:drop-shadow(0 0 8px rgba(230,225,255,.65))}
+    #${FX_ID} .sc-peeker-head{position:absolute;inset:2px 4px 8px;border-radius:50% 50% 42% 42%;background:rgba(230,228,238,.9)}
+    #${FX_ID} .sc-peeker-eye{position:absolute;top:18px;width:5px;height:8px;border-radius:50%;background:#211927}
+    #${FX_ID} .sc-peeker-eye.e1{left:14px} #${FX_ID} .sc-peeker-eye.e2{left:27px}
     #${FX_ID}{position:fixed;inset:0;z-index:2147483645;pointer-events:none;overflow:hidden;
       background:linear-gradient(180deg,rgba(22,5,30,.08),rgba(31,8,2,.13));}
     #${FX_ID} .sc-vignette{position:absolute;inset:0;box-shadow:inset 0 0 150px 25px rgba(18,0,22,.42)}
@@ -102,6 +114,9 @@
     @keyframes scFog{0%{transform:translateX(0) scale(1)}50%{transform:translateX(70vw) scale(1.15)}100%{transform:translateX(140vw) scale(1)}}
     @keyframes scFly{0%{transform:translate(0,0) rotate(-8deg)}40%{transform:translate(45vw,-45px) rotate(7deg)}
       75%{transform:translate(82vw,25px) rotate(-5deg)}100%{transform:translate(calc(100vw + 100px),-20px) rotate(5deg)}}
+    @keyframes scFlash{0%,12%{opacity:0}18%{opacity:.9}27%{opacity:.05}34%{opacity:.55}55%,100%{opacity:0}}
+    @keyframes scBolt{0%,16%{opacity:0}18%{opacity:1}28%{opacity:0}34%{opacity:.75}48%,100%{opacity:0}}
+    @keyframes scPeeker{0%,10%{opacity:0;transform:translateX(22px)}28%,70%{opacity:.75;transform:translateX(0)}90%,100%{opacity:0;transform:translateX(22px)}}
     @keyframes scGhost{0%{opacity:0;transform:translateY(18px) scale(.8)}22%{opacity:.48}
       70%{opacity:.42;transform:translateY(-16px) scale(1)}100%{opacity:0;transform:translateY(-35px) scale(.9)}}
     html.sc-haunted-active{filter:saturate(.84) sepia(.06)}
@@ -140,12 +155,14 @@
   );
   batWrap.appendChild(svg);
 
+  const cord = el('div', { class: 'sc-cord', 'aria-hidden': 'true' });
+  const sound = el('div', { class: 'sc-sound', role: 'button', tabindex: '0', title: 'Toggle thunder sound', 'aria-label': 'Toggle thunder sound' }, '♬');
   const sign = el('div', { class: 'sc-sign', role: 'button', tabindex: '0', title: 'Click to hide or show the countdown' });
   const days = el('span', { class: 'sc-days' });
   const label = el('span', { class: 'sc-label' });
   sign.append(days, label);
   const hint = el('div', { class: 'sc-hint' }, 'drag bat • click eyes to haunt');
-  root.append(batWrap, sign, hint);
+  root.append(batWrap, cord, sign, sound, hint);
   document.documentElement.appendChild(root);
 
   function halloweenInfo() {
@@ -208,12 +225,29 @@
     b.addEventListener('animationend', () => b.remove(), { once: true });
   }
 
+  function playThunder() {
+    if (!state.sound) return;
+    const AC=window.AudioContext||window.webkitAudioContext; if(!AC)return;
+    const ctx=new AC(), osc=ctx.createOscillator(), gain=ctx.createGain();
+    osc.type='sawtooth'; osc.frequency.setValueAtTime(72,ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(34,ctx.currentTime+1.4);
+    gain.gain.setValueAtTime(.0001,ctx.currentTime); gain.gain.exponentialRampToValueAtTime(.12,ctx.currentTime+.03); gain.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+1.5);
+    osc.connect(gain); gain.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime+1.55);
+  }
+
+  function lightning() {
+    if(!state.enabled)return; const fx=document.getElementById(FX_ID); if(!fx)return;
+    const flash=el('div',{class:'sc-flash'}),bolt=el('div',{class:'sc-bolt'}); bolt.style.left=(15+Math.random()*70)+'vw'; fx.append(flash,bolt);
+    setTimeout(()=>{flash.remove();bolt.remove();},850); state.timers.push(setTimeout(playThunder,350+Math.random()*1100));
+  }
+
   function spawnGhost() {
     if (!state.enabled) return;
     const fx = document.getElementById(FX_ID); if (!fx) return;
-    const g = el('div', { class: 'sc-ghost' }, '👻');
-    g.style.left = (5 + Math.random() * 88) + 'vw';
-    g.style.top = (30 + Math.random() * 55) + 'vh';
+    const boxes=[...document.querySelectorAll('article,section,main img,main video')].map(n=>n.getBoundingClientRect()).filter(r=>r.width>140&&r.height>80&&r.top>90&&r.bottom<innerHeight-20&&r.right<innerWidth-20);
+    const box=boxes.length?boxes[Math.floor(Math.random()*boxes.length)]:null;
+    const g=el('div',{class:box?'sc-peeker':'sc-ghost'});
+    if(box){const head=el('div',{class:'sc-peeker-head'});head.append(el('i',{class:'sc-peeker-eye e1'}),el('i',{class:'sc-peeker-eye e2'}));g.appendChild(head);g.style.left=(box.right-14)+'px';g.style.top=(box.top+20)+'px';}
+    else{g.textContent='👻';g.style.left=(5+Math.random()*88)+'vw';g.style.top=(30+Math.random()*55)+'vh';}
     fx.appendChild(g);
     g.addEventListener('animationend', () => g.remove(), { once: true });
   }
@@ -231,7 +265,9 @@
       state.timers.push(setTimeout(loopGhost, 13000 + Math.random() * 18000));
     };
     state.timers.push(setTimeout(loopBat, 1600));
-    state.timers.push(setTimeout(loopGhost, 4200));
+    const loopLightning=()=>{if(!state.enabled)return;lightning();state.timers.push(setTimeout(loopLightning,18000+Math.random()*26000));};
+    state.timers.push(setTimeout(loopGhost, 3200));
+    state.timers.push(setTimeout(loopLightning, 7000+Math.random()*9000));
   }
 
   function renderState() {
@@ -246,6 +282,8 @@
     GM_setValue(KEY_ON, state.enabled);
     renderState();
   }
+
+  function toggleSound(){state.sound=!state.sound;GM_setValue(KEY_SOUND,state.sound);sound.classList.toggle('sc-sound-on',state.sound);sound.textContent=state.sound?'♪':'♬';sound.setAttribute('aria-pressed',String(state.sound));if(state.sound)playThunder();}
 
   function toggleSign() {
     state.signOpen = !state.signOpen;
@@ -275,6 +313,8 @@
   batWrap.addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleHaunt(); }
   });
+  sound.addEventListener('click',e=>{e.stopPropagation();toggleSound();});
+  sound.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggleSound();}});
   sign.addEventListener('click', e => { e.stopPropagation(); toggleSign(); });
   sign.addEventListener('keydown', e => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSign(); }
@@ -284,5 +324,6 @@
   updateCountdown();
   placeRoot();
   sign.classList.toggle('sc-collapsed', !state.signOpen);
+  sound.classList.toggle('sc-sound-on',state.sound); sound.textContent=state.sound?'♪':'♬'; sound.setAttribute('aria-pressed',String(state.sound));
   renderState();
 })();

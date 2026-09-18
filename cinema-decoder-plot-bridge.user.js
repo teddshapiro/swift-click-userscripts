@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Plot Bridge
 // @namespace    https://cinemadecoder.com/
-// @version      0.4.1
+// @version      0.4.2
 // @description  Capture full plots from The Movie Spoiler, IMDb, and Wikipedia; switch sources; configure a Cinema Decoder request; copy it; and open the Cinema Decoder GPT.
 // @author       Tedd / Cinema Decoder
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/cinema-decoder-plot-bridge.user.js
@@ -1091,6 +1091,16 @@
                 text-underline-offset: 2px;
             }
 
+            .cd-footer-version {
+                margin-top: 7px;
+                text-align: right;
+                font-size: 10px;
+                line-height: 1;
+                color: #8e969c;
+                opacity: .8;
+                user-select: none;
+            }
+
             @media (max-width: 560px) {
                 #${OVERLAY_ID} { padding: 12px; }
 
@@ -1273,6 +1283,7 @@
                         Curious how Cinema Decoder works?
                         <a href="https://cinemadecoder.com/" target="_blank" rel="noopener noreferrer">Learn more at CinemaDecoder.com ↗</a>
                     </div>
+                    <div class="cd-footer-version">v0.4.2</div>
                 </div>
             </div>
         `;

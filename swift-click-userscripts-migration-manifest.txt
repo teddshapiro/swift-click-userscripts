@@ -1,0 +1,24 @@
+Swift Click userscript migration batch
+
+Repository: teddshapiro/swift-click-userscripts
+
+Canonical files:
+- bypass-skimresources-redirect.user.js — v1.1 — No separate UI
+- tivocommunity-external-links.user.js — v5.1 — No separate UI
+- youtube-transcript-copy-contrast.user.js — v3.1 — No separate UI
+- yts-clean-magnet-links.user.js — v0.2 — Visible version added to panel
+- chatgpt-highlight-engagement-tails.user.js — v1.2 — No separate UI
+- cielo-home-climate-snapshot.user.js — v1.7 — Visible version added to card
+- ebay-comps-buttons.user.js — v1.1 — Visible version added to panel
+- hide-facebook-sponsored-posts.user.js — v1.2 — No separate UI
+- reddit-hide-promoted-posts.user.js — v0.7 — Visible version added to banner
+
+All scripts:
+- use stable canonical filenames with no version in the filename
+- include @updateURL and @downloadURL pointing to the raw GitHub main-branch file
+- passed Node --check syntax validation
+
+Compatibility note:
+- No new string-based HTML injection was introduced.
+- eBay legacy innerHTML-clearing calls were replaced with replaceChildren().
+- Cielo still contains its pre-existing large card-rendering innerHTML block; it was left unchanged during this behavior-preserving migration and should be treated as a future hardening/refactor item.

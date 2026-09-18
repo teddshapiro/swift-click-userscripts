@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click GPT Swiss Army Knife
 // @namespace    https://swiftclick.com/
-// @version      0.9.11
+// @version      0.9.12
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-gpt-swiss-army-knife.user.js
 // @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-gpt-swiss-army-knife.user.js
 // @description  Capture useful web content, add intent/context, build reusable prompts, copy them, and launch ChatGPT.
@@ -21,7 +21,7 @@
     'use strict';
 
     const APP_NAME = 'Swift Click GPT Swiss Army Knife';
-    const APP_VERSION = '0.9.11';
+    const APP_VERSION = '0.9.12';
     const CHATGPT_URL = 'https://chatgpt.com/';
 
     const STORAGE = {

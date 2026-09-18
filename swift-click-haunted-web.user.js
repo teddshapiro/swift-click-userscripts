@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click Haunted Web
 // @namespace    https://swiftclick.com/
-// @version      0.2.0
+// @version      0.2.1
 // @description  A draggable Halloween bat, countdown, and lightweight spooky effects for the web.
 // @author       Swift Click
 // @match        http://*/*
@@ -226,7 +226,7 @@
   }
 
   function playThunder() {
-    if (!state.sound) return;
+    if (!state.enabled || !state.sound) return;
     const AC=window.AudioContext||window.webkitAudioContext; if(!AC)return;
     const ctx=new AC(), osc=ctx.createOscillator(), gain=ctx.createGain();
     osc.type='sawtooth'; osc.frequency.setValueAtTime(72,ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(34,ctx.currentTime+1.4);
@@ -283,7 +283,7 @@
     renderState();
   }
 
-  function toggleSound(){state.sound=!state.sound;GM_setValue(KEY_SOUND,state.sound);sound.classList.toggle('sc-sound-on',state.sound);sound.textContent=state.sound?'♪':'♬';sound.setAttribute('aria-pressed',String(state.sound));if(state.sound)playThunder();}
+  function toggleSound(){state.sound=!state.sound;GM_setValue(KEY_SOUND,state.sound);sound.classList.toggle('sc-sound-on',state.sound);sound.textContent=state.sound?'♪':'♬';sound.setAttribute('aria-pressed',String(state.sound));if(state.enabled && state.sound)playThunder();}
 
   function toggleSign() {
     state.signOpen = !state.signOpen;

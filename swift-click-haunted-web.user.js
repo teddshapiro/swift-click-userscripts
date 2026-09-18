@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click Haunted Web
 // @namespace    https://swiftclick.com/
-// @version      0.3.0
+// @version      0.3.1
 // @description  A draggable Halloween bat, countdown, and lightweight spooky effects for the web.
 // @author       Swift Click
 // @match        http://*/*
@@ -228,10 +228,9 @@
   function playThunder() {
     if (!state.enabled || !state.sound) return;
     const AC=window.AudioContext||window.webkitAudioContext; if(!AC)return;
-    const ctx=new AC(), osc=ctx.createOscillator(), gain=ctx.createGain();
-    osc.type='sawtooth'; osc.frequency.setValueAtTime(72,ctx.currentTime); osc.frequency.exponentialRampToValueAtTime(34,ctx.currentTime+1.4);
-    gain.gain.setValueAtTime(.0001,ctx.currentTime); gain.gain.exponentialRampToValueAtTime(.12,ctx.currentTime+.03); gain.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+1.5);
-    osc.connect(gain); gain.connect(ctx.destination); osc.start(); osc.stop(ctx.currentTime+1.55);
+    const ctx=new AC(),dur=3.2,buffer=ctx.createBuffer(1,Math.floor(ctx.sampleRate*dur),ctx.sampleRate),data=buffer.getChannelData(0);let rumble=0;
+    for(let i=0;i<data.length;i++){const t=i/ctx.sampleRate,noise=Math.random()*2-1;rumble=(rumble+.02*noise)/1.02;const crack=t<.09?noise*(1-t/.09):0;data[i]=crack*.65+rumble*2.8*Math.exp(-t*.95);}
+    const src=ctx.createBufferSource(),low=ctx.createBiquadFilter(),gain=ctx.createGain();low.type='lowpass';low.frequency.value=700;gain.gain.value=.28;src.buffer=buffer;src.connect(low);low.connect(gain);gain.connect(ctx.destination);src.start();
   }
 
   function lightning() {

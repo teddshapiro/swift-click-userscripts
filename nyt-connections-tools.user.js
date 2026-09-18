@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      0.4.0
+// @version      0.4.1
 // @description  Send NYT Connections words to your Categories Puzzle Assistant GPT with a confirmation modal
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -12,6 +12,8 @@
 
 (function () {
   'use strict';
+
+  const APP_VERSION = '0.4.1';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -300,13 +302,38 @@
       continueButton
     );
 
+    const footerRow = document.createElement('div');
+
+    Object.assign(footerRow.style, {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'flex-end',
+      gap: '12px',
+      marginTop: '2px'
+    });
+
+    const versionLabel = document.createElement('div');
+    versionLabel.textContent = 'v' + APP_VERSION;
+
+    Object.assign(versionLabel.style, {
+      color: '#888',
+      fontSize: '11px',
+      lineHeight: '1',
+      userSelect: 'none'
+    });
+
+    footerRow.append(
+      versionLabel,
+      buttonRow
+    );
+
     modal.append(
       title,
       intro,
       wordHeading,
       wordGrid,
       instructionsBox,
-      buttonRow
+      footerRow
     );
 
     overlay.appendChild(modal);

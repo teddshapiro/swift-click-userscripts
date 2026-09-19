@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click Haunted Web
 // @namespace    https://swiftclick.com/
-// @version      0.4.0
+// @version      0.5.0
 // @description  A draggable Halloween bat, countdown, and lightweight spooky effects for the web.
 // @author       Swift Click
 // @match        http://*/*
@@ -122,6 +122,10 @@
     #${FX_ID} .sc-cemetery{position:absolute;left:0;bottom:-8px;width:100%;height:150px;opacity:.96;animation:scCemeteryRise .8s ease-out both;filter:drop-shadow(0 -5px 8px rgba(0,0,0,.35))}
     #${FX_ID} .sc-cemetery *{vector-effect:non-scaling-stroke}
     @keyframes scCemeteryRise{from{transform:translateY(65px);opacity:0}to{transform:translateY(0);opacity:.96}}
+    #${FX_ID} .sc-yard-ghost{position:absolute;bottom:70px;width:74px;height:94px;opacity:0;filter:drop-shadow(0 0 10px rgba(220,215,255,.65));animation:scYardGhost 7s ease-in-out forwards}
+    #${FX_ID} .sc-yard-ghost-body{position:absolute;inset:0;background:rgba(218,216,230,.82);border-radius:48% 48% 34% 34%;clip-path:polygon(8% 0,92% 0,100% 75%,84% 100%,67% 82%,50% 100%,33% 82%,15% 100%,0 75%)}
+    #${FX_ID} .sc-yard-ghost-eye{position:absolute;top:30px;width:8px;height:13px;border-radius:50%;background:#17121c;z-index:1}.sc-yard-ghost-eye.e1{left:22px}.sc-yard-ghost-eye.e2{right:22px}
+    @keyframes scYardGhost{0%,8%{opacity:0;transform:translateY(100px)}24%,72%{opacity:.82;transform:translateY(0)}82%{opacity:.82;transform:translateY(4px)}100%{opacity:0;transform:translateY(105px)}}
     html.sc-haunted-active{filter:saturate(.84) sepia(.06)}
     @media (prefers-reduced-motion:reduce){
       #${FX_ID} .sc-fog,#${FX_ID} .sc-flybat,#${FX_ID} .sc-ghost{animation:none!important}
@@ -224,6 +228,12 @@
       svgEl('path',{d:'M1128 112 V83 H1133 V112 M1146 112 V79 H1151 V112 M1164 112 V85 H1169 V112 M1118 88 H1180 V93 H1118Z'}),
       svgEl('path',{d:'M604 132 V102 L610 90 L614 103 L620 84 L625 105 L633 94 L632 116 L642 108 L636 132Z'})
     );
+    near.append(
+      svgEl('path',{d:'M180 136 l5 -18 4 11 6 -22 5 24 8 -14 2 19 M405 136 l4 -15 5 9 5 -20 6 22 7 -13 3 17 M840 136 l4 -19 6 12 5 -25 6 27 8 -15 2 20'}),
+      svgEl('path',{d:'M548 132 V91 L559 79 L570 91 V132 M544 91 H574 L559 66Z'}),
+      svgEl('path',{d:'M666 132 V87 Q666 70 682 68 L696 72 Q704 78 704 91 V132Z'}),
+      svgEl('path',{d:'M960 132 l-8 -45 14 -3 7 46Z'})
+    );
     const raven=svgEl('path',{fill:'#050406',d:'M934 68 q10 -11 22 0 q-8 -3 -10 6 q-7 -8 -12 -6Z'});
     s.append(far,near,raven);return s;
   }
@@ -272,6 +282,13 @@
     setTimeout(()=>{flash.remove();bolt.remove();},850); state.timers.push(setTimeout(playThunder,350+Math.random()*1100));
   }
 
+  function spawnYardGhost(){
+    if(!state.enabled)return;const fx=document.getElementById(FX_ID);if(!fx)return;
+    const g=el('div',{class:'sc-yard-ghost'}),body=el('div',{class:'sc-yard-ghost-body'});
+    g.style.left=(12+Math.random()*76)+'vw';g.append(body,el('i',{class:'sc-yard-ghost-eye e1'}),el('i',{class:'sc-yard-ghost-eye e2'}));fx.appendChild(g);
+    g.addEventListener('animationend',()=>g.remove(),{once:true});
+  }
+
   function spawnGhost() {
     if (!state.enabled) return;
     const fx = document.getElementById(FX_ID); if (!fx) return;
@@ -286,7 +303,7 @@
 
   function ensureEffectsOn(){if(!state.enabled){state.enabled=true;GM_setValue(KEY_ON,true);renderState();}}
   function isTypingTarget(target){return target instanceof Element&&(target.matches('input,textarea,select')||target.isContentEditable);}
-  function handleShortcut(e){if(!e.ctrlKey||!e.altKey||isTypingTarget(e.target))return;const key=e.key.toLowerCase();if(!['g','l','b'].includes(key))return;e.preventDefault();e.stopPropagation();ensureEffectsOn();if(key==='g')spawnGhost();if(key==='l')lightning();if(key==='b')spawnBat();}
+  function handleShortcut(e){if(!e.ctrlKey||!e.altKey||isTypingTarget(e.target))return;const key=e.key.toLowerCase();if(!['g','l','b'].includes(key))return;e.preventDefault();e.stopPropagation();ensureEffectsOn();if(key==='g'){spawnYardGhost();spawnGhost();}if(key==='l')lightning();if(key==='b')spawnBat();}
 
   function scheduleAmbient() {
     clearTimers();
@@ -297,6 +314,7 @@
     };
     const loopGhost = () => {
       if (!state.enabled) return;
+      spawnYardGhost();
       spawnGhost();
       state.timers.push(setTimeout(loopGhost, 13000 + Math.random() * 18000));
     };

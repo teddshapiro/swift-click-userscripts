@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click Haunted Web
 // @namespace    https://swiftclick.com/
-// @version      0.6.0
+// @version      0.7.0
 // @description  A draggable Halloween bat, countdown, and lightweight spooky effects for the web.
 // @author       Swift Click
 // @match        http://*/*
@@ -203,49 +203,43 @@
   }
 
   function makeCemetery(){
-    const s=svgEl('svg',{class:'sc-cemetery',viewBox:'0 0 1200 150',preserveAspectRatio:'none','aria-hidden':'true'});
-    const far=svgEl('g',{fill:'#151219',opacity:'.82'}),near=svgEl('g',{fill:'#070609'});
+    const s=svgEl('svg',{class:'sc-cemetery',viewBox:'0 0 1600 180',preserveAspectRatio:'none','aria-hidden':'true'});
+    const far=svgEl('g',{fill:'#18141c',opacity:'.78'}),mid=svgEl('g',{fill:'#0d0a10',opacity:'.94'}),near=svgEl('g',{fill:'#050407'});
     far.append(
-      svgEl('path',{d:'M0 123 Q70 105 140 119 T290 116 T440 121 T610 114 T790 120 T960 112 T1200 118 L1200 150 L0 150Z'}),
-      svgEl('path',{d:'M70 122 V82 Q70 68 83 68 Q96 68 96 82 V122Z'}),
-      svgEl('path',{d:'M215 122 V72 H230 V57 H239 V72 H254 V82 H239 V122Z'}),
-      svgEl('path',{d:'M350 122 V88 Q350 72 367 72 Q384 72 384 88 V122Z'}),
-      svgEl('path',{d:'M515 120 V77 Q515 62 530 62 Q545 62 545 77 V120Z'}),
-      svgEl('path',{d:'M690 122 V84 Q690 68 708 68 Q726 68 726 84 V122Z'}),
-      svgEl('path',{d:'M890 121 V70 H903 V54 H912 V70 H927 V80 H912 V121Z'}),
-      svgEl('path',{d:'M1050 122 V86 Q1050 71 1066 71 Q1082 71 1082 86 V122Z'})
+      svgEl('path',{d:'M0 145 C90 122 175 139 255 130 C350 119 430 143 520 128 C615 112 690 138 780 126 C875 113 960 140 1050 126 C1140 112 1235 139 1320 127 C1420 113 1510 131 1600 121 L1600 180 L0 180Z'}),
+      svgEl('path',{d:'M92 145 L96 111 Q98 90 118 84 Q138 90 140 111 L144 145Z'}),
+      svgEl('path',{d:'M333 140 L337 106 Q339 91 352 85 L365 92 L370 140Z'}),
+      svgEl('path',{d:'M620 140 L624 102 Q626 83 646 78 Q665 84 667 102 L671 140Z'}),
+      svgEl('path',{d:'M980 140 L984 106 Q987 89 1003 83 Q1020 90 1022 106 L1026 140Z'}),
+      svgEl('path',{d:'M1370 140 L1374 105 Q1376 88 1393 82 Q1410 88 1412 105 L1416 140Z'})
     );
+    const tree=(x,y,scale,flip=1)=>svgEl('path',{transform:`translate(${x} ${y}) scale(${scale*flip} ${scale})`,d:'M0 0 C-5 -23 -3 -42 -12 -60 C-19 -75 -31 -86 -36 -106 C-26 -95 -17 -87 -10 -78 C-13 -101 -8 -123 2 -145 C2 -121 7 -104 14 -91 C20 -113 34 -132 50 -145 C37 -124 31 -107 30 -90 C43 -104 60 -113 79 -116 C59 -105 45 -93 36 -78 C55 -87 75 -88 96 -83 C72 -78 54 -70 39 -59 C58 -62 76 -58 92 -49 C68 -50 49 -45 31 -35 C20 -24 15 -10 13 0Z'});
+    mid.append(tree(92,154,.72),tree(1510,157,.83,-1),tree(1165,151,.48));
+    const stones=[
+      ['M0 0 L3 -47 Q5 -72 29 -78 Q54 -72 56 -47 L60 0Z',205,153,1,-5],
+      ['M0 0 L2 -62 L16 -72 L29 -62 L31 0Z M-5 -62 L16 -91 L37 -62Z',405,154,.9,4],
+      ['M0 0 L4 -52 Q6 -72 25 -77 Q43 -72 46 -52 L50 0Z M15 -59 Q25 -70 35 -59',540,155,.82,-8],
+      ['M0 0 L3 -70 H18 V-91 H29 V-70 H47 V-57 H29 V0Z',735,154,.88,3],
+      ['M0 0 L5 -58 Q7 -80 31 -84 Q54 -79 57 -58 L62 0Z M13 -61 Q31 -78 49 -61',890,155,1.02,-4],
+      ['M0 0 L2 -51 L13 -65 L27 -68 L40 -58 L43 0Z',1080,153,.9,7],
+      ['M0 0 L4 -64 H19 V-86 H30 V-64 H49 V-52 H30 V0Z',1270,155,.8,-6],
+      ['M0 0 L3 -53 Q5 -76 28 -81 Q50 -75 53 -53 L57 0Z',1450,155,.9,5]
+    ];
+    for(const [d,x,y,sc,rot] of stones)mid.append(svgEl('path',{d,transform:`translate(${x} ${y}) rotate(${rot}) scale(${sc})`}));
+    const gate=svgEl('g',{fill:'#08060a'});
+    gate.append(svgEl('path',{d:'M20 158 V92 H29 V158 M1571 158 V92 H1580 V158 M25 98 C230 70 380 102 540 88 C690 75 770 58 800 40 C830 58 910 75 1060 88 C1220 102 1370 70 1575 98 V106 C1370 82 1220 112 1060 98 C900 84 830 69 800 52 C770 69 700 84 540 98 C380 112 230 82 25 106Z'}));
+    for(let x=42;x<1570;x+=44)gate.append(svgEl('path',{d:`M${x} 158 V104 l5 -13 5 13 v54Z`}));
+    gate.append(svgEl('path',{d:'M28 124 H1574 V130 H28Z'}));
     near.append(
-      svgEl('path',{d:'M0 132 Q55 116 110 128 T230 126 T360 131 T500 124 T650 130 T810 123 T970 129 T1090 121 T1200 127 L1200 150 L0 150Z'}),
-      svgEl('path',{d:'M125 134 V83 Q125 64 145 64 Q165 64 165 83 V134Z'}),
-      svgEl('path',{d:'M300 132 V74 H316 V54 H326 V74 H344 V85 H326 V132Z'}),
-      svgEl('path',{d:'M455 134 V94 Q455 76 474 76 Q493 76 493 94 V134Z'}),
-      svgEl('path',{d:'M755 133 V79 Q755 59 777 59 Q799 59 799 79 V133Z'}),
-      svgEl('path',{d:'M1000 133 V91 Q1000 72 1020 72 Q1040 72 1040 91 V133Z'}),
-      svgEl('path',{d:'M0 132 V67 L12 61 L18 43 L25 60 L37 48 L31 68 L47 77 L30 79 L43 95 L23 86 L18 132Z'}),
-      svgEl('path',{d:'M1200 132 V52 L1187 47 L1178 27 L1172 49 L1157 36 L1164 58 L1144 70 L1167 70 L1152 91 L1176 80 L1182 132Z'}),
-      svgEl('path',{d:'M18 112 V83 H23 V112 M36 112 V80 H41 V112 M54 112 V86 H59 V112 M8 88 H68 V93 H8Z'}),
-      svgEl('path',{d:'M1128 112 V83 H1133 V112 M1146 112 V79 H1151 V112 M1164 112 V85 H1169 V112 M1118 88 H1180 V93 H1118Z'}),
-      svgEl('path',{d:'M604 132 V102 L610 90 L614 103 L620 84 L625 105 L633 94 L632 116 L642 108 L636 132Z'})
+      svgEl('path',{d:'M0 157 C105 141 190 159 280 149 C390 137 475 162 575 148 C680 134 765 157 865 147 C975 135 1060 160 1165 147 C1280 132 1390 156 1600 141 L1600 180 L0 180Z'}),
+      svgEl('path',{d:'M250 166 l6 -28 7 17 8 -37 8 40 11 -25 4 33 M680 166 l5 -23 7 13 8 -33 8 36 12 -22 3 29 M1190 166 l6 -27 8 16 7 -39 9 42 12 -24 4 32'}),
+      svgEl('path',{d:'M152 160 q10 -23 20 0 q9 -31 19 0 q10 -19 20 0Z'}),
+      svgEl('path',{d:'M1008 160 q8 -22 17 0 q9 -30 18 0 q8 -18 18 0Z'})
     );
-    near.append(
-      svgEl('path',{d:'M180 136 l5 -18 4 11 6 -22 5 24 8 -14 2 19 M405 136 l4 -15 5 9 5 -20 6 22 7 -13 3 17 M840 136 l4 -19 6 12 5 -25 6 27 8 -15 2 20'}),
-      svgEl('path',{d:'M548 132 V91 L559 79 L570 91 V132 M544 91 H574 L559 66Z'}),
-      svgEl('path',{d:'M666 132 V87 Q666 70 682 68 L696 72 Q704 78 704 91 V132Z'}),
-      svgEl('path',{d:'M960 132 l-8 -45 14 -3 7 46Z'})
-    );
-    near.append(
-      svgEl('path',{d:'M36 132 C39 111 38 91 43 74 C47 60 56 50 61 34 C62 49 58 59 54 69 C66 59 72 45 78 30 C78 48 72 63 62 76 C76 68 87 55 95 43 C91 62 78 76 61 87 C74 83 87 82 101 84 C84 90 71 94 57 98 L55 132Z'}),
-      svgEl('path',{d:'M1148 132 C1145 111 1148 93 1142 75 C1138 61 1127 51 1121 35 C1121 51 1127 63 1133 73 C1119 63 1110 48 1105 31 C1104 51 1112 68 1125 80 C1108 73 1096 61 1087 48 C1092 68 1107 82 1127 91 C1111 88 1097 90 1083 96 C1104 97 1122 101 1137 106 L1139 132Z'}),
-      svgEl('path',{d:'M240 133 l3 -49 q2 -18 19 -24 q17 6 19 24 l3 49Z M248 86 q14 -11 28 0 q-2 -19 -14 -22 q-12 3 -14 22Z'}),
-      svgEl('path',{d:'M724 133 l5 -58 14 -12 15 12 5 58Z M722 77 l21 -24 22 24Z'}),
-      svgEl('path',{d:'M865 134 l-4 -49 q-1 -17 15 -23 q18 5 19 23 l4 49Z M869 82 q11 -14 22 0 l-3 -13 -9 -8 -8 8Z'})
-    );
-    const fence=svgEl('g',{fill:'#09070b',opacity:'.96'});
-    for(let x=90;x<1120;x+=38){fence.append(svgEl('path',{d:`M${x} 136 V98 l5 -9 5 9 v38Z`}));}
-    fence.append(svgEl('path',{d:'M86 108 H1128 V113 H86Z M86 125 H1128 V130 H86Z'}));
-    const raven=svgEl('path',{fill:'#050406',d:'M934 68 q10 -11 22 0 q-8 -3 -10 6 q-7 -8 -12 -6Z'});
-    s.append(far,fence,near,raven);return s;
+    const crypt=svgEl('g',{fill:'#070509'});
+    crypt.append(svgEl('path',{d:'M566 151 V91 H651 V151Z M556 91 L608 51 L661 91Z M584 151 V108 Q584 91 608 91 Q632 91 632 108 V151Z'}),svgEl('path',{d:'M594 83 H622 V89 H594Z'}));
+    const raven=svgEl('path',{fill:'#030204',d:'M1118 87 q11 -13 25 -2 q-10 -2 -12 8 q-7 -9 -13 -6Z'});
+    s.append(far,gate,mid,crypt,near,raven);return s;
   }
 
   function makeFx() {

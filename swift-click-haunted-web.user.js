@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click Haunted Web
 // @namespace    https://swiftclick.com/
-// @version      0.3.1
+// @version      0.4.0
 // @description  A draggable Halloween bat, countdown, and lightweight spooky effects for the web.
 // @author       Swift Click
 // @match        http://*/*
@@ -119,6 +119,9 @@
     @keyframes scPeeker{0%,10%{opacity:0;transform:translateX(22px)}28%,70%{opacity:.75;transform:translateX(0)}90%,100%{opacity:0;transform:translateX(22px)}}
     @keyframes scGhost{0%{opacity:0;transform:translateY(18px) scale(.8)}22%{opacity:.48}
       70%{opacity:.42;transform:translateY(-16px) scale(1)}100%{opacity:0;transform:translateY(-35px) scale(.9)}}
+    #${FX_ID} .sc-cemetery{position:absolute;left:0;bottom:-8px;width:100%;height:150px;opacity:.96;animation:scCemeteryRise .8s ease-out both;filter:drop-shadow(0 -5px 8px rgba(0,0,0,.35))}
+    #${FX_ID} .sc-cemetery *{vector-effect:non-scaling-stroke}
+    @keyframes scCemeteryRise{from{transform:translateY(65px);opacity:0}to{transform:translateY(0);opacity:.96}}
     html.sc-haunted-active{filter:saturate(.84) sepia(.06)}
     @media (prefers-reduced-motion:reduce){
       #${FX_ID} .sc-fog,#${FX_ID} .sc-flybat,#${FX_ID} .sc-ghost{animation:none!important}
@@ -195,10 +198,40 @@
     root.style.left = state.x + 'px';
   }
 
+  function makeCemetery(){
+    const s=svgEl('svg',{class:'sc-cemetery',viewBox:'0 0 1200 150',preserveAspectRatio:'none','aria-hidden':'true'});
+    const far=svgEl('g',{fill:'#151219',opacity:'.82'}),near=svgEl('g',{fill:'#070609'});
+    far.append(
+      svgEl('path',{d:'M0 123 Q70 105 140 119 T290 116 T440 121 T610 114 T790 120 T960 112 T1200 118 L1200 150 L0 150Z'}),
+      svgEl('path',{d:'M70 122 V82 Q70 68 83 68 Q96 68 96 82 V122Z'}),
+      svgEl('path',{d:'M215 122 V72 H230 V57 H239 V72 H254 V82 H239 V122Z'}),
+      svgEl('path',{d:'M350 122 V88 Q350 72 367 72 Q384 72 384 88 V122Z'}),
+      svgEl('path',{d:'M515 120 V77 Q515 62 530 62 Q545 62 545 77 V120Z'}),
+      svgEl('path',{d:'M690 122 V84 Q690 68 708 68 Q726 68 726 84 V122Z'}),
+      svgEl('path',{d:'M890 121 V70 H903 V54 H912 V70 H927 V80 H912 V121Z'}),
+      svgEl('path',{d:'M1050 122 V86 Q1050 71 1066 71 Q1082 71 1082 86 V122Z'})
+    );
+    near.append(
+      svgEl('path',{d:'M0 132 Q55 116 110 128 T230 126 T360 131 T500 124 T650 130 T810 123 T970 129 T1090 121 T1200 127 L1200 150 L0 150Z'}),
+      svgEl('path',{d:'M125 134 V83 Q125 64 145 64 Q165 64 165 83 V134Z'}),
+      svgEl('path',{d:'M300 132 V74 H316 V54 H326 V74 H344 V85 H326 V132Z'}),
+      svgEl('path',{d:'M455 134 V94 Q455 76 474 76 Q493 76 493 94 V134Z'}),
+      svgEl('path',{d:'M755 133 V79 Q755 59 777 59 Q799 59 799 79 V133Z'}),
+      svgEl('path',{d:'M1000 133 V91 Q1000 72 1020 72 Q1040 72 1040 91 V133Z'}),
+      svgEl('path',{d:'M0 132 V67 L12 61 L18 43 L25 60 L37 48 L31 68 L47 77 L30 79 L43 95 L23 86 L18 132Z'}),
+      svgEl('path',{d:'M1200 132 V52 L1187 47 L1178 27 L1172 49 L1157 36 L1164 58 L1144 70 L1167 70 L1152 91 L1176 80 L1182 132Z'}),
+      svgEl('path',{d:'M18 112 V83 H23 V112 M36 112 V80 H41 V112 M54 112 V86 H59 V112 M8 88 H68 V93 H8Z'}),
+      svgEl('path',{d:'M1128 112 V83 H1133 V112 M1146 112 V79 H1151 V112 M1164 112 V85 H1169 V112 M1118 88 H1180 V93 H1118Z'}),
+      svgEl('path',{d:'M604 132 V102 L610 90 L614 103 L620 84 L625 105 L633 94 L632 116 L642 108 L636 132Z'})
+    );
+    const raven=svgEl('path',{fill:'#050406',d:'M934 68 q10 -11 22 0 q-8 -3 -10 6 q-7 -8 -12 -6Z'});
+    s.append(far,near,raven);return s;
+  }
+
   function makeFx() {
     if (document.getElementById(FX_ID)) return;
     const fx = el('div', { id: FX_ID, 'aria-hidden': 'true' });
-    fx.append(el('div', { class: 'sc-vignette' }), el('div', { class: 'sc-fog f1' }), el('div', { class: 'sc-fog f2' }));
+    fx.append(el('div', { class: 'sc-vignette' }), el('div', { class: 'sc-fog f1' }), el('div', { class: 'sc-fog f2' }), makeCemetery());
     document.documentElement.appendChild(fx);
     document.documentElement.classList.add('sc-haunted-active');
     scheduleAmbient();

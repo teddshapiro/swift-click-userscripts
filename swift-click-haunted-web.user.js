@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click Haunted Web
 // @namespace    https://swiftclick.com/
-// @version      0.5.0
+// @version      0.6.0
 // @description  A draggable Halloween bat, countdown, and lightweight spooky effects for the web.
 // @author       Swift Click
 // @match        http://*/*
@@ -234,8 +234,18 @@
       svgEl('path',{d:'M666 132 V87 Q666 70 682 68 L696 72 Q704 78 704 91 V132Z'}),
       svgEl('path',{d:'M960 132 l-8 -45 14 -3 7 46Z'})
     );
+    near.append(
+      svgEl('path',{d:'M36 132 C39 111 38 91 43 74 C47 60 56 50 61 34 C62 49 58 59 54 69 C66 59 72 45 78 30 C78 48 72 63 62 76 C76 68 87 55 95 43 C91 62 78 76 61 87 C74 83 87 82 101 84 C84 90 71 94 57 98 L55 132Z'}),
+      svgEl('path',{d:'M1148 132 C1145 111 1148 93 1142 75 C1138 61 1127 51 1121 35 C1121 51 1127 63 1133 73 C1119 63 1110 48 1105 31 C1104 51 1112 68 1125 80 C1108 73 1096 61 1087 48 C1092 68 1107 82 1127 91 C1111 88 1097 90 1083 96 C1104 97 1122 101 1137 106 L1139 132Z'}),
+      svgEl('path',{d:'M240 133 l3 -49 q2 -18 19 -24 q17 6 19 24 l3 49Z M248 86 q14 -11 28 0 q-2 -19 -14 -22 q-12 3 -14 22Z'}),
+      svgEl('path',{d:'M724 133 l5 -58 14 -12 15 12 5 58Z M722 77 l21 -24 22 24Z'}),
+      svgEl('path',{d:'M865 134 l-4 -49 q-1 -17 15 -23 q18 5 19 23 l4 49Z M869 82 q11 -14 22 0 l-3 -13 -9 -8 -8 8Z'})
+    );
+    const fence=svgEl('g',{fill:'#09070b',opacity:'.96'});
+    for(let x=90;x<1120;x+=38){fence.append(svgEl('path',{d:`M${x} 136 V98 l5 -9 5 9 v38Z`}));}
+    fence.append(svgEl('path',{d:'M86 108 H1128 V113 H86Z M86 125 H1128 V130 H86Z'}));
     const raven=svgEl('path',{fill:'#050406',d:'M934 68 q10 -11 22 0 q-8 -3 -10 6 q-7 -8 -12 -6Z'});
-    s.append(far,near,raven);return s;
+    s.append(far,fence,near,raven);return s;
   }
 
   function makeFx() {

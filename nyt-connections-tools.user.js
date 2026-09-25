@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      0.5.7
+// @version      0.5.8
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '0.5.7';
+  const APP_VERSION = '0.5.8';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -1436,117 +1436,7 @@
     return candidates[0] || null;
   }
 
-  function resetPriorCompactLayout() {
-    document
-      .querySelectorAll(
-        '[data-swiftclick-compact-cluster="true"], [data-swiftclick-compact-stage="true"]'
-      )
-      .forEach(element => {
-        element.style.removeProperty(
-          'translate'
-        );
-
-        element.style.removeProperty(
-          'margin-bottom'
-        );
-
-        element.style.removeProperty(
-          'justify-content'
-        );
-
-        element.style.removeProperty(
-          'align-content'
-        );
-
-        element.style.removeProperty(
-          'min-height'
-        );
-
-        element.style.removeProperty(
-          'height'
-        );
-
-        element.style.removeProperty(
-          'padding-top'
-        );
-
-        element.style.removeProperty(
-          'padding-bottom'
-        );
-
-        element.removeAttribute(
-          'data-swiftclick-compact-cluster'
-        );
-
-        element.removeAttribute(
-          'data-swiftclick-compact-stage'
-        );
-
-        element.removeAttribute(
-          'data-swiftclick-shift'
-        );
-      });
-  }
-
-  function compactElement(element) {
-    if (!element) return;
-
-    element.setAttribute(
-      'data-swiftclick-compact-stage',
-      'true'
-    );
-
-    element.style.setProperty(
-      'min-height',
-      '0',
-      'important'
-    );
-
-    element.style.setProperty(
-      'height',
-      'auto',
-      'important'
-    );
-
-    const style =
-      window.getComputedStyle(element);
-
-    if (
-      style.display === 'flex' ||
-      style.display === 'inline-flex'
-    ) {
-      element.style.setProperty(
-        'justify-content',
-        'flex-start',
-        'important'
-      );
-    }
-
-    if (
-      style.display === 'grid' ||
-      style.display === 'inline-grid'
-    ) {
-      element.style.setProperty(
-        'align-content',
-        'start',
-        'important'
-      );
-    }
-  }
-
-  function applyCompactGameLayout() {
-    resetPriorCompactLayout();
-
-    const wrapper =
-      document.querySelector(
-        '#js-hook-game-wrapper'
-      );
-
-    const gameScreen =
-      document.querySelector(
-        '#js-hook-pz-moment__game'
-      );
-
+  function resetCompactGameShift() {
     const root =
       document.querySelector(
         '#pz-game-root'
@@ -1554,90 +1444,30 @@
 
     if (!root) return;
 
-    compactElement(wrapper);
-    compactElement(gameScreen);
-    compactElement(root);
+    root.style.removeProperty(
+      'position'
+    );
 
-    const instruction =
-      findPuzzleInstruction(root);
+    root.style.removeProperty(
+      'top'
+    );
 
-    if (!instruction) return;
+    root.style.removeProperty(
+      'margin-bottom'
+    );
 
-    let node =
-      instruction.parentElement;
-
-    while (
-      node &&
-      node !== root
-    ) {
-      const rect =
-        node.getBoundingClientRect();
-
-      const childRects =
-        [...node.children]
-          .filter(child =>
-            child.getClientRects().length
-          )
-          .map(child =>
-            child.getBoundingClientRect()
-          );
-
-      const visibleContentHeight =
-        childRects.length
-          ? Math.max(
-              ...childRects.map(
-                rect => rect.bottom
-              )
-            ) -
-            Math.min(
-              ...childRects.map(
-                rect => rect.top
-              )
-            )
-          : 0;
-
-      const excessHeight =
-        rect.height -
-        visibleContentHeight;
-
-      const style =
-        window.getComputedStyle(node);
-
-      const verticallyCentered =
-        style.justifyContent === 'center' ||
-        style.justifyContent ===
-          'space-around' ||
-        style.justifyContent ===
-          'space-evenly' ||
-        style.alignContent === 'center';
-
-      if (
-        excessHeight > 80 ||
-        verticallyCentered
-      ) {
-        compactElement(node);
-      }
-
-      node = node.parentElement;
-    }
-
-    const slot =
-      document.querySelector(
-        '#categories-gpt-tools-slot'
-      );
-
-    if (slot) {
-      slot.style.setProperty(
-        'margin-bottom',
-        '22px',
-        'important'
-      );
-    }
+    root.removeAttribute(
+      'data-swiftclick-root-shift'
+    );
   }
 
-  function updateToolbarPosition() {
+  function applyCompactGameLayout() {
+    resetCompactGameShift();
+
     const root =
-      document.querySelector('#pz-game-root');
+      document.querySelector(
+        '#pz-game-root'
+      );
 
     const slot =
       document.querySelector(
@@ -1646,8 +1476,87 @@
 
     if (!root || !slot) return;
 
-    if (slot.parentNode !== root) {
-      root.prepend(slot);
+    const board =
+      getBoardContainer();
+
+    if (!board) return;
+
+    const boardRect =
+      board.getBoundingClientRect();
+
+    const slotRect =
+      slot.getBoundingClientRect();
+
+    const desiredBoardTop =
+      slotRect.bottom + 68;
+
+    const shift =
+      Math.max(
+        0,
+        Math.round(
+          boardRect.top -
+          desiredBoardTop
+        )
+      );
+
+    if (shift < 8) return;
+
+    root.setAttribute(
+      'data-swiftclick-root-shift',
+      String(shift)
+    );
+
+    root.style.setProperty(
+      'position',
+      'relative',
+      'important'
+    );
+
+    root.style.setProperty(
+      'top',
+      '-' + shift + 'px',
+      'important'
+    );
+
+    root.style.setProperty(
+      'margin-bottom',
+      '-' + shift + 'px',
+      'important'
+    );
+  }
+
+  function updateToolbarPosition() {
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
+    const gameScreen =
+      document.querySelector(
+        '#js-hook-pz-moment__game'
+      );
+
+    const slot =
+      document.querySelector(
+        '#categories-gpt-tools-slot'
+      );
+
+    if (
+      !root ||
+      !gameScreen ||
+      !slot
+    ) {
+      return;
+    }
+
+    if (
+      slot.parentNode !== gameScreen ||
+      slot.nextSibling !== root
+    ) {
+      gameScreen.insertBefore(
+        slot,
+        root
+      );
     }
 
     Object.assign(slot.style, {
@@ -1656,12 +1565,14 @@
       left: '',
       top: '',
       zIndex: '20',
-      margin: '0 auto 10px',
+      margin: '0 auto 18px',
       padding: '0',
       background: '#fff'
     });
 
-    applyCompactGameLayout();
+    window.requestAnimationFrame(
+      applyCompactGameLayout
+    );
   }
 
   function addToolbar() {

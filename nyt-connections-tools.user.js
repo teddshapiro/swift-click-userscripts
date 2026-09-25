@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.0.0
+// @version      1.0.1
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.0.1';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -537,7 +537,7 @@
           'Content-Type': 'application/json'
         },
         data: JSON.stringify(payload),
-        timeout: 120000,
+        timeout: 300000,
 
         onload(response) {
           let body;
@@ -582,7 +582,7 @@
         ontimeout() {
           reject(
             new Error(
-              'The Connections AI request timed out.'
+              'The Connections AI request timed out after five minutes. Please try again; unusually difficult puzzles can take longer to reason through.'
             )
           );
         }

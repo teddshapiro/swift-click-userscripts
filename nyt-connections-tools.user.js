@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      0.6.0
+// @version      0.6.1
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '0.6.0';
+  const APP_VERSION = '0.6.1';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -947,7 +947,7 @@
       document.createElement('div');
 
     heading.textContent =
-      'AI Solution';
+      'AI Best Guess';
 
     Object.assign(heading.style, {
       fontWeight: '800',
@@ -980,105 +980,6 @@
       heading,
       grid
     );
-
-    const usage =
-      solution?.usage;
-
-    if (usage) {
-      const diagnostic =
-        document.createElement('div');
-
-      Object.assign(diagnostic.style, {
-        marginTop: '8px',
-        paddingTop: '7px',
-        borderTop:
-          '1px solid #ececec',
-        color: '#777',
-        fontSize: '10.5px',
-        lineHeight: '1.3'
-      });
-
-      const model =
-        solution?.model ===
-          'gpt-6-luna'
-          ? 'Luna'
-          : (
-              solution?.model ||
-              'AI'
-            );
-
-      const input =
-        formatTokenCount(
-          Number(
-            usage.input_tokens
-          )
-        );
-
-      const output =
-        formatTokenCount(
-          Number(
-            usage.output_tokens
-          )
-        );
-
-      const reasoningValue =
-        Number(
-          usage
-            .output_tokens_details
-            ?.reasoning_tokens
-        ) || 0;
-
-      const reasoning =
-        reasoningValue > 0
-          ? formatTokenCount(
-              reasoningValue
-            )
-          : null;
-
-      const cost =
-        solution?.model ===
-          'gpt-6-luna'
-          ? formatEstimatedCost(
-              estimateLunaCost(
-                usage
-              )
-            )
-          : null;
-
-      const parts = [model];
-
-      if (input) {
-        parts.push(
-          input + ' input'
-        );
-      }
-
-      if (output) {
-        parts.push(
-          output + ' output'
-        );
-      }
-
-      if (reasoning) {
-        parts.push(
-          reasoning +
-          ' reasoning'
-        );
-      }
-
-      if (cost) {
-        parts.push(
-          'est. ' + cost
-        );
-      }
-
-      diagnostic.textContent =
-        parts.join(' · ');
-
-      panel.appendChild(
-        diagnostic
-      );
-    }
 
     toolbar.parentNode.insertBefore(
       panel,

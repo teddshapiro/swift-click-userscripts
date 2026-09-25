@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      0.5.8
+// @version      0.5.9
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '0.5.8';
+  const APP_VERSION = '0.5.9';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -1525,15 +1525,78 @@
     );
   }
 
+  function preserveNytTitleBar() {
+    const titleBar =
+      document.querySelector(
+        '#connections-container .pz-game-title-bar'
+      );
+
+    const titleHeader =
+      document.querySelector(
+        '#portal-game-header'
+      );
+
+    if (titleBar) {
+      titleBar.style.setProperty(
+        'display',
+        'block',
+        'important'
+      );
+
+      titleBar.style.setProperty(
+        'visibility',
+        'visible',
+        'important'
+      );
+
+      titleBar.style.setProperty(
+        'opacity',
+        '1',
+        'important'
+      );
+
+      titleBar.style.setProperty(
+        'position',
+        'relative',
+        'important'
+      );
+
+      titleBar.style.setProperty(
+        'z-index',
+        '30',
+        'important'
+      );
+    }
+
+    if (titleHeader) {
+      titleHeader.style.setProperty(
+        'visibility',
+        'visible',
+        'important'
+      );
+
+      titleHeader.style.setProperty(
+        'opacity',
+        '1',
+        'important'
+      );
+    }
+  }
+
   function updateToolbarPosition() {
     const root =
       document.querySelector(
         '#pz-game-root'
       );
 
-    const gameScreen =
+    const container =
       document.querySelector(
-        '#js-hook-pz-moment__game'
+        '#connections-container'
+      );
+
+    const wrapper =
+      document.querySelector(
+        '#js-hook-game-wrapper'
       );
 
     const slot =
@@ -1543,19 +1606,22 @@
 
     if (
       !root ||
-      !gameScreen ||
+      !container ||
+      !wrapper ||
       !slot
     ) {
       return;
     }
 
+    preserveNytTitleBar();
+
     if (
-      slot.parentNode !== gameScreen ||
-      slot.nextSibling !== root
+      slot.parentNode !== container ||
+      slot.nextSibling !== wrapper
     ) {
-      gameScreen.insertBefore(
+      container.insertBefore(
         slot,
-        root
+        wrapper
       );
     }
 

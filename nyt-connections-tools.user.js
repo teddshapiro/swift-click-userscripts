@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      0.5.6
+// @version      0.5.7
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '0.5.6';
+  const APP_VERSION = '0.5.7';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -1436,14 +1436,26 @@
     return candidates[0] || null;
   }
 
-  function clearLegacyCompactLayout() {
+  function resetPriorCompactLayout() {
     document
       .querySelectorAll(
-        '[data-swiftclick-compact-stage="true"]'
+        '[data-swiftclick-compact-cluster="true"], [data-swiftclick-compact-stage="true"]'
       )
       .forEach(element => {
         element.style.removeProperty(
+          'translate'
+        );
+
+        element.style.removeProperty(
+          'margin-bottom'
+        );
+
+        element.style.removeProperty(
           'justify-content'
+        );
+
+        element.style.removeProperty(
+          'align-content'
         );
 
         element.style.removeProperty(
@@ -1463,114 +1475,164 @@
         );
 
         element.removeAttribute(
+          'data-swiftclick-compact-cluster'
+        );
+
+        element.removeAttribute(
           'data-swiftclick-compact-stage'
+        );
+
+        element.removeAttribute(
+          'data-swiftclick-shift'
         );
       });
   }
 
-  function getGameplayCluster(
-    root,
-    instruction,
-    board
-  ) {
-    const common =
-      getCommonAncestor([
-        instruction,
-        board
-      ]);
+  function compactElement(element) {
+    if (!element) return;
+
+    element.setAttribute(
+      'data-swiftclick-compact-stage',
+      'true'
+    );
+
+    element.style.setProperty(
+      'min-height',
+      '0',
+      'important'
+    );
+
+    element.style.setProperty(
+      'height',
+      'auto',
+      'important'
+    );
+
+    const style =
+      window.getComputedStyle(element);
 
     if (
-      common &&
-      common !== root
+      style.display === 'flex' ||
+      style.display === 'inline-flex'
     ) {
-      return common;
+      element.style.setProperty(
+        'justify-content',
+        'flex-start',
+        'important'
+      );
     }
 
-    return null;
+    if (
+      style.display === 'grid' ||
+      style.display === 'inline-grid'
+    ) {
+      element.style.setProperty(
+        'align-content',
+        'start',
+        'important'
+      );
+    }
   }
 
   function applyCompactGameLayout() {
-    clearLegacyCompactLayout();
+    resetPriorCompactLayout();
+
+    const wrapper =
+      document.querySelector(
+        '#js-hook-game-wrapper'
+      );
+
+    const gameScreen =
+      document.querySelector(
+        '#js-hook-pz-moment__game'
+      );
 
     const root =
-      document.querySelector('#pz-game-root');
+      document.querySelector(
+        '#pz-game-root'
+      );
+
+    if (!root) return;
+
+    compactElement(wrapper);
+    compactElement(gameScreen);
+    compactElement(root);
+
+    const instruction =
+      findPuzzleInstruction(root);
+
+    if (!instruction) return;
+
+    let node =
+      instruction.parentElement;
+
+    while (
+      node &&
+      node !== root
+    ) {
+      const rect =
+        node.getBoundingClientRect();
+
+      const childRects =
+        [...node.children]
+          .filter(child =>
+            child.getClientRects().length
+          )
+          .map(child =>
+            child.getBoundingClientRect()
+          );
+
+      const visibleContentHeight =
+        childRects.length
+          ? Math.max(
+              ...childRects.map(
+                rect => rect.bottom
+              )
+            ) -
+            Math.min(
+              ...childRects.map(
+                rect => rect.top
+              )
+            )
+          : 0;
+
+      const excessHeight =
+        rect.height -
+        visibleContentHeight;
+
+      const style =
+        window.getComputedStyle(node);
+
+      const verticallyCentered =
+        style.justifyContent === 'center' ||
+        style.justifyContent ===
+          'space-around' ||
+        style.justifyContent ===
+          'space-evenly' ||
+        style.alignContent === 'center';
+
+      if (
+        excessHeight > 80 ||
+        verticallyCentered
+      ) {
+        compactElement(node);
+      }
+
+      node = node.parentElement;
+    }
 
     const slot =
       document.querySelector(
         '#categories-gpt-tools-slot'
       );
 
-    if (!root || !slot) return;
-
-    const instruction =
-      findPuzzleInstruction(root);
-
-    const board =
-      getBoardContainer();
-
-    if (!instruction || !board) {
-      return;
+    if (slot) {
+      slot.style.setProperty(
+        'margin-bottom',
+        '22px',
+        'important'
+      );
     }
-
-    const cluster =
-      getGameplayCluster(
-        root,
-        instruction,
-        board
-      );
-
-    if (!cluster) return;
-
-    const previousShift =
-      Number(
-        cluster.getAttribute(
-          'data-swiftclick-shift'
-        )
-      ) || 0;
-
-    const instructionRect =
-      instruction.getBoundingClientRect();
-
-    const slotRect =
-      slot.getBoundingClientRect();
-
-    const unshiftedInstructionTop =
-      instructionRect.top +
-      previousShift;
-
-    const desiredInstructionTop =
-      slotRect.bottom + 28;
-
-    const shift =
-      Math.max(
-        0,
-        Math.round(
-          unshiftedInstructionTop -
-          desiredInstructionTop
-        )
-      );
-
-    cluster.setAttribute(
-      'data-swiftclick-compact-cluster',
-      'true'
-    );
-
-    cluster.setAttribute(
-      'data-swiftclick-shift',
-      String(shift)
-    );
-
-    cluster.style.setProperty(
-      'translate',
-      '0 -' + shift + 'px',
-      'important'
-    );
-
-    cluster.style.setProperty(
-      'margin-bottom',
-      '-' + shift + 'px',
-      'important'
-    );
   }
 
   function updateToolbarPosition() {

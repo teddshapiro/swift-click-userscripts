@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.1.0
+// @version      1.1.1
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.1.0';
+  const APP_VERSION = '1.1.1';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -55,6 +55,8 @@
   let aiFeedbackState = null;
   let pendingNytSubmission = null;
   let feedbackCheckTimer = null;
+  const trackedSelectedWords =
+    new Set();
 
   function getWords() {
     const root = document.querySelector('#pz-game-root');
@@ -80,15 +82,39 @@
   }
 
   function getSelectedWords() {
-    const root = document.querySelector('#pz-game-root');
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
     if (!root) return [];
 
-    return [...root.querySelectorAll(
-      'input[data-testid="card-input"]:checked'
-    )]
-      .map(el => el.value || el.getAttribute('aria-label'))
-      .map(word => word?.trim())
+    const checked = [
+      ...root.querySelectorAll(
+        'input[data-testid="card-input"]:checked'
+      )
+    ]
+      .map(
+        el =>
+          el.value ||
+          el.getAttribute(
+            'aria-label'
+          )
+      )
+      .map(word =>
+        word?.trim()
+      )
       .filter(Boolean);
+
+    if (checked.length) {
+      return [
+        ...new Set(checked)
+      ];
+    }
+
+    return [
+      ...trackedSelectedWords
+    ];
   }
 
   function getTileEntries() {
@@ -672,6 +698,7 @@
 
     aiFeedbackState = null;
     pendingNytSubmission = null;
+    trackedSelectedWords.clear();
 
     if (feedbackCheckTimer) {
       window.clearTimeout(
@@ -1220,6 +1247,237 @@
     );
   }
 
+  function getOriginalAiWords() {
+    if (!aiFeedbackState) {
+      return [];
+    }
+
+    return [
+      ...new Set(
+        Object.values(
+          aiFeedbackState
+            .originalByColor
+        )
+          .flatMap(group =>
+            group.words || []
+          )
+          .filter(Boolean)
+      )
+    ];
+  }
+
+  function scanNytConfirmedGroups() {
+    if (!aiFeedbackState) return;
+
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
+    if (!root) return;
+
+    const originalWords =
+      getOriginalAiWords();
+
+    if (
+      originalWords.length !== 16
+    ) {
+      return;
+    }
+
+    const candidates = [
+      ...root.querySelectorAll(
+        'div, section, article, li'
+      )
+    ]
+      .filter(element =>
+        element.getClientRects().length
+      )
+      .map(element => {
+        const text =
+          normalizeWord(
+            element.textContent
+          );
+
+        const matchedWords =
+          originalWords.filter(
+            word =>
+              text.includes(
+                normalizeWord(word)
+              )
+          );
+
+        if (
+          matchedWords.length !== 4
+        ) {
+          return null;
+        }
+
+        const color =
+          inferNytGroupColor(
+            element
+          );
+
+        if (!color) return null;
+
+        const rect =
+          element
+            .getBoundingClientRect();
+
+        return {
+          element,
+          color,
+          words: matchedWords,
+          label:
+            inferNytGroupLabel(
+              element,
+              matchedWords
+            ),
+          textLength:
+            element.textContent
+              ?.trim()
+              .length || Infinity,
+          area:
+            rect.width *
+            rect.height
+        };
+      })
+      .filter(Boolean);
+
+    const bestByColor = {};
+
+    candidates.forEach(
+      candidate => {
+        const current =
+          bestByColor[
+            candidate.color
+          ];
+
+        if (
+          !current ||
+          candidate.textLength <
+            current.textLength ||
+          (
+            candidate.textLength ===
+              current.textLength &&
+            candidate.area <
+              current.area
+          )
+        ) {
+          bestByColor[
+            candidate.color
+          ] = candidate;
+        }
+      }
+    );
+
+    let changed = false;
+
+    AI_COLOR_ORDER
+      .forEach(color => {
+        const candidate =
+          bestByColor[color];
+
+        if (!candidate) return;
+
+        const existing =
+          aiFeedbackState
+            .confirmedByColor[color];
+
+        const nextKey =
+          wordSetKey(
+            candidate.words
+          );
+
+        const existingKey =
+          existing
+            ? wordSetKey(
+                existing.words
+              )
+            : '';
+
+        if (
+          nextKey !== existingKey ||
+          candidate.label !==
+            existing?.label
+        ) {
+          aiFeedbackState
+            .confirmedByColor[color] = {
+              color,
+              words:
+                [...candidate.words],
+              label:
+                candidate.label
+            };
+
+          changed = true;
+        }
+      });
+
+    if (changed) {
+      rerenderAiFeedback();
+    }
+  }
+
+  function getClickedTileWord(target) {
+    const direct =
+      target?.closest?.(
+        '[data-testid="card-label"][data-flip-id]'
+      );
+
+    if (direct) {
+      return direct
+        .getAttribute(
+          'data-flip-id'
+        )
+        ?.trim() || '';
+    }
+
+    const host =
+      target?.closest?.(
+        'button, [role="button"], label'
+      );
+
+    const nested =
+      host?.querySelector?.(
+        '[data-testid="card-label"][data-flip-id]'
+      );
+
+    if (nested) {
+      return nested
+        .getAttribute(
+          'data-flip-id'
+        )
+        ?.trim() || '';
+    }
+
+    return '';
+  }
+
+  function trackTileSelectionClick(
+    target
+  ) {
+    const word =
+      getClickedTileWord(
+        target
+      );
+
+    if (!word) return false;
+
+    if (
+      trackedSelectedWords
+        .has(word)
+    ) {
+      trackedSelectedWords
+        .delete(word);
+    } else {
+      trackedSelectedWords
+        .add(word);
+    }
+
+    return true;
+  }
+
   function recordNytConfirmedGroup(
     words
   ) {
@@ -1308,6 +1566,7 @@
 
     if (removed.length === 4) {
       pendingNytSubmission = null;
+      trackedSelectedWords.clear();
 
       window.setTimeout(
         () =>
@@ -1335,6 +1594,7 @@
           .words;
 
       pendingNytSubmission = null;
+      trackedSelectedWords.clear();
 
       recordNytRejectedGroup(
         rejected
@@ -2547,17 +2807,35 @@
   document.addEventListener(
     'click',
     event => {
+      trackTileSelectionClick(
+        event.target
+      );
+
       const button =
         event.target?.closest?.(
           'button'
         );
 
-      if (
-        !button ||
+      if (!button) return;
+
+      const buttonText =
         button.textContent
           ?.trim()
-          .toLowerCase() !==
-          'submit'
+          .toLowerCase() || '';
+
+      if (
+        buttonText ===
+        'deselect all'
+      ) {
+        trackedSelectedWords
+          .clear();
+
+        return;
+      }
+
+      if (
+        buttonText !==
+        'submit'
       ) {
         return;
       }
@@ -2576,6 +2854,11 @@
         80
       );
     }
+
+    window.setTimeout(
+      scanNytConfirmedGroups,
+      120
+    );
 
     window.requestAnimationFrame(() => {
       applyCompactGameLayout();

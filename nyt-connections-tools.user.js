@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      0.5.4
+// @version      0.5.5
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '0.5.4';
+  const APP_VERSION = '0.5.5';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -713,7 +713,7 @@
     });
 
     const heading = document.createElement('div');
-    heading.textContent = 'SwiftClick AI solution';
+    heading.textContent = 'AI Solution';
 
     Object.assign(heading.style, {
       fontWeight: '800',
@@ -882,9 +882,10 @@
       toolbar.nextSibling
     );
 
-    window.requestAnimationFrame(
-      updateToolbarPosition
-    );
+    window.requestAnimationFrame(() => {
+      applyCompactGameLayout();
+      updateToolbarPosition();
+    });
   }
 
   function applyAiHints(solution, indexedEntries) {
@@ -1435,6 +1436,137 @@
     return candidates[0] || null;
   }
 
+  function findCenteredGameStage(root, board, instruction) {
+    if (!root || !board || !instruction) {
+      return null;
+    }
+
+    const common =
+      getCommonAncestor([
+        board,
+        instruction
+      ]);
+
+    let node = common;
+
+    while (
+      node &&
+      node !== root &&
+      root.contains(node)
+    ) {
+      const style =
+        window.getComputedStyle(node);
+
+      const rect =
+        node.getBoundingClientRect();
+
+      const boardRect =
+        board.getBoundingClientRect();
+
+      const isFlex =
+        style.display === 'flex' ||
+        style.display === 'inline-flex';
+
+      const centersVertically =
+        style.justifyContent === 'center' ||
+        style.justifyContent === 'space-around' ||
+        style.justifyContent === 'space-evenly';
+
+      if (
+        isFlex &&
+        centersVertically &&
+        rect.height >
+          boardRect.height + 160
+      ) {
+        return node;
+      }
+
+      node = node.parentElement;
+    }
+
+    return null;
+  }
+
+  function applyCompactGameLayout() {
+    const root =
+      document.querySelector('#pz-game-root');
+
+    const instruction =
+      root
+        ? findPuzzleInstruction(root)
+        : null;
+
+    const board =
+      getBoardContainer();
+
+    const slot =
+      document.querySelector(
+        '#categories-gpt-tools-slot'
+      );
+
+    if (
+      !root ||
+      !instruction ||
+      !board
+    ) {
+      return;
+    }
+
+    const stage =
+      findCenteredGameStage(
+        root,
+        board,
+        instruction
+      );
+
+    if (!stage) return;
+
+    stage.setAttribute(
+      'data-swiftclick-compact-stage',
+      'true'
+    );
+
+    const slotHeight =
+      slot?.getBoundingClientRect().height ||
+      0;
+
+    const topSpace =
+      Math.max(
+        54,
+        Math.ceil(slotHeight + 24)
+      );
+
+    stage.style.setProperty(
+      'justify-content',
+      'flex-start',
+      'important'
+    );
+
+    stage.style.setProperty(
+      'min-height',
+      '0',
+      'important'
+    );
+
+    stage.style.setProperty(
+      'height',
+      'auto',
+      'important'
+    );
+
+    stage.style.setProperty(
+      'padding-top',
+      topSpace + 'px',
+      'important'
+    );
+
+    stage.style.setProperty(
+      'padding-bottom',
+      '42px',
+      'important'
+    );
+  }
+
   function updateToolbarPosition() {
     const root =
       document.querySelector('#pz-game-root');
@@ -1445,6 +1577,8 @@
       );
 
     if (!root || !slot) return;
+
+    applyCompactGameLayout();
 
     const instruction =
       findPuzzleInstruction(root);
@@ -1622,9 +1756,10 @@
   const observer = new MutationObserver(() => {
     addToolbar();
 
-    window.requestAnimationFrame(
-      updateToolbarPosition
-    );
+    window.requestAnimationFrame(() => {
+      applyCompactGameLayout();
+      updateToolbarPosition();
+    });
   });
 
   observer.observe(document.documentElement, {

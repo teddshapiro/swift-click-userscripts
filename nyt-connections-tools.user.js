@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      0.5.9
+// @version      0.6.0
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '0.5.9';
+  const APP_VERSION = '0.6.0';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -676,7 +676,234 @@
     }
   }
 
+  function ensureAiSummaryStyles() {
+    if (
+      document.querySelector(
+        '#categories-ai-summary-styles'
+      )
+    ) {
+      return;
+    }
+
+    const style =
+      document.createElement('style');
+
+    style.id =
+      'categories-ai-summary-styles';
+
+    style.textContent = [
+      '#categories-ai-results .swiftclick-ai-summary-grid {',
+      '  display: grid;',
+      '  grid-template-columns: repeat(4, minmax(0, 1fr));',
+      '  gap: 10px;',
+      '}',
+      '#categories-ai-results .swiftclick-ai-summary-card {',
+      '  min-width: 0;',
+      '}',
+      '@media (max-width: 900px) {',
+      '  #categories-ai-results .swiftclick-ai-summary-grid {',
+      '    grid-template-columns: repeat(2, minmax(0, 1fr));',
+      '  }',
+      '}',
+      '@media (max-width: 560px) {',
+      '  #categories-ai-results .swiftclick-ai-summary-grid {',
+      '    grid-template-columns: 1fr;',
+      '  }',
+      '}'
+    ].join('\n');
+
+    document.head.appendChild(style);
+  }
+
+  function hexToRgba(hex, alpha) {
+    const value =
+      String(hex || '')
+        .replace('#', '');
+
+    if (!/^[0-9a-fA-F]{6}$/.test(value)) {
+      return (
+        'rgba(0, 0, 0, ' +
+        alpha +
+        ')'
+      );
+    }
+
+    const red =
+      parseInt(value.slice(0, 2), 16);
+
+    const green =
+      parseInt(value.slice(2, 4), 16);
+
+    const blue =
+      parseInt(value.slice(4, 6), 16);
+
+    return (
+      'rgba(' +
+      red +
+      ', ' +
+      green +
+      ', ' +
+      blue +
+      ', ' +
+      alpha +
+      ')'
+    );
+  }
+
+  function createAiSummaryCard(
+    group,
+    wordById
+  ) {
+    const color =
+      AI_COLORS[group.color] ||
+      '#cccccc';
+
+    const card =
+      document.createElement('section');
+
+    card.className =
+      'swiftclick-ai-summary-card';
+
+    Object.assign(card.style, {
+      border: '1px solid #e2e2e2',
+      borderRadius: '10px',
+      overflow: 'hidden',
+      background: '#fff',
+      display: 'flex',
+      flexDirection: 'column',
+      minWidth: '0'
+    });
+
+    const stripe =
+      document.createElement('div');
+
+    Object.assign(stripe.style, {
+      height: '5px',
+      flex: '0 0 auto',
+      background: color
+    });
+
+    const body =
+      document.createElement('div');
+
+    Object.assign(body.style, {
+      padding: '9px 9px 8px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '6px',
+      minWidth: '0'
+    });
+
+    const colorName =
+      document.createElement('div');
+
+    colorName.textContent =
+      group.color.toUpperCase();
+
+    Object.assign(colorName.style, {
+      color,
+      fontWeight: '850',
+      fontSize: '11px',
+      letterSpacing: '.05em',
+      lineHeight: '1.1'
+    });
+
+    const label =
+      document.createElement('div');
+
+    label.textContent =
+      group.label;
+
+    Object.assign(label.style, {
+      fontWeight: '800',
+      fontSize: '13px',
+      lineHeight: '1.18',
+      minHeight: '31px'
+    });
+
+    const wordGrid =
+      document.createElement('div');
+
+    Object.assign(wordGrid.style, {
+      display: 'grid',
+      gridTemplateColumns:
+        'repeat(2, minmax(0, 1fr))',
+      gridTemplateRows:
+        'repeat(2, auto)',
+      gap: '5px',
+      marginTop: '1px'
+    });
+
+    group.tile_ids.forEach(
+      (id, index) => {
+        const chip =
+          document.createElement('div');
+
+        chip.textContent =
+          wordById.get(id) || id;
+
+        Object.assign(chip.style, {
+          padding: '6px 5px',
+          borderRadius: '7px',
+          border:
+            '1px solid ' + color,
+          background:
+            hexToRgba(color, 0.14),
+          fontWeight: '800',
+          fontSize: '11px',
+          lineHeight: '1.15',
+          textAlign: 'center',
+          minWidth: '0',
+          overflowWrap: 'anywhere'
+        });
+
+        const column =
+          index < 2 ? 1 : 2;
+
+        const row =
+          index % 2 + 1;
+
+        chip.style.gridColumn =
+          String(column);
+
+        chip.style.gridRow =
+          String(row);
+
+        wordGrid.appendChild(chip);
+      }
+    );
+
+    const explanation =
+      document.createElement('div');
+
+    explanation.textContent =
+      group.explanation;
+
+    Object.assign(explanation.style, {
+      color: '#666',
+      fontSize: '10.5px',
+      lineHeight: '1.25',
+      marginTop: '1px'
+    });
+
+    body.append(
+      colorName,
+      label,
+      wordGrid,
+      explanation
+    );
+
+    card.append(
+      stripe,
+      body
+    );
+
+    return card;
+  }
+
   function renderAiSummary(groups, indexedEntries, solution) {
+    ensureAiSummaryStyles();
+
     document
       .querySelector('#categories-ai-results')
       ?.remove();
@@ -696,32 +923,43 @@
       ])
     );
 
-    const panel = document.createElement('div');
-    panel.id = 'categories-ai-results';
+    const panel =
+      document.createElement('div');
+
+    panel.id =
+      'categories-ai-results';
 
     Object.assign(panel.style, {
-      width: 'min(760px, 96%)',
+      width: 'min(980px, 96%)',
       margin: '2px auto 8px',
-      padding: '14px',
+      padding: '11px',
       border: '1px solid #c8c8c8',
       borderRadius: '12px',
       background: '#fff',
       color: '#111',
-      boxShadow: '0 2px 8px rgba(0,0,0,.08)',
+      boxShadow:
+        '0 2px 8px rgba(0,0,0,.08)',
       fontFamily:
         '-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif'
     });
 
-    const heading = document.createElement('div');
-    heading.textContent = 'AI Solution';
+    const heading =
+      document.createElement('div');
+
+    heading.textContent =
+      'AI Solution';
 
     Object.assign(heading.style, {
       fontWeight: '800',
-      fontSize: '16px',
-      marginBottom: '10px'
+      fontSize: '15px',
+      marginBottom: '8px'
     });
 
-    panel.appendChild(heading);
+    const grid =
+      document.createElement('div');
+
+    grid.className =
+      'swiftclick-ai-summary-grid';
 
     [...groups]
       .sort(
@@ -730,80 +968,21 @@
           AI_COLOR_ORDER.indexOf(b.color)
       )
       .forEach(group => {
-        const row = document.createElement('div');
-
-        Object.assign(row.style, {
-          display: 'grid',
-          gridTemplateColumns: '18px 1fr',
-          gap: '9px',
-          alignItems: 'start',
-          padding: '8px 0',
-          borderTop: '1px solid #ececec'
-        });
-
-        const swatch = document.createElement('div');
-
-        Object.assign(swatch.style, {
-          width: '16px',
-          height: '16px',
-          marginTop: '2px',
-          borderRadius: '4px',
-          background: AI_COLORS[group.color],
-          border: '1px solid rgba(0,0,0,.18)'
-        });
-
-        const textWrap = document.createElement('div');
-
-        const label = document.createElement('div');
-        label.textContent =
-          group.color.toUpperCase() +
-          ' — ' +
-          group.label;
-
-        Object.assign(label.style, {
-          fontWeight: '800',
-          fontSize: '14px'
-        });
-
-        const words = document.createElement('div');
-        words.textContent = group.tile_ids
-          .map(id => wordById.get(id) || id)
-          .join(', ');
-
-        Object.assign(words.style, {
-          marginTop: '2px',
-          fontWeight: '650',
-          fontSize: '13px'
-        });
-
-        const explanation =
-          document.createElement('div');
-
-        explanation.textContent =
-          group.explanation;
-
-        Object.assign(explanation.style, {
-          marginTop: '3px',
-          color: '#555',
-          fontSize: '12px',
-          lineHeight: '1.35'
-        });
-
-        textWrap.append(
-          label,
-          words,
-          explanation
+        grid.appendChild(
+          createAiSummaryCard(
+            group,
+            wordById
+          )
         );
-
-        row.append(
-          swatch,
-          textWrap
-        );
-
-        panel.appendChild(row);
       });
 
-    const usage = solution?.usage;
+    panel.append(
+      heading,
+      grid
+    );
+
+    const usage =
+      solution?.usage;
 
     if (usage) {
       const diagnostic =
@@ -811,70 +990,94 @@
 
       Object.assign(diagnostic.style, {
         marginTop: '8px',
-        paddingTop: '8px',
-        borderTop: '1px solid #ececec',
+        paddingTop: '7px',
+        borderTop:
+          '1px solid #ececec',
         color: '#777',
-        fontSize: '11px',
-        lineHeight: '1.4'
+        fontSize: '10.5px',
+        lineHeight: '1.3'
       });
 
       const model =
-        solution?.model === 'gpt-6-luna'
+        solution?.model ===
+          'gpt-6-luna'
           ? 'Luna'
-          : (solution?.model || 'AI');
+          : (
+              solution?.model ||
+              'AI'
+            );
 
       const input =
         formatTokenCount(
-          Number(usage.input_tokens)
+          Number(
+            usage.input_tokens
+          )
         );
 
       const output =
         formatTokenCount(
-          Number(usage.output_tokens)
+          Number(
+            usage.output_tokens
+          )
         );
 
       const reasoningValue =
         Number(
-          usage.output_tokens_details
+          usage
+            .output_tokens_details
             ?.reasoning_tokens
         ) || 0;
 
       const reasoning =
         reasoningValue > 0
-          ? formatTokenCount(reasoningValue)
+          ? formatTokenCount(
+              reasoningValue
+            )
           : null;
 
       const cost =
-        solution?.model === 'gpt-6-luna'
+        solution?.model ===
+          'gpt-6-luna'
           ? formatEstimatedCost(
-              estimateLunaCost(usage)
+              estimateLunaCost(
+                usage
+              )
             )
           : null;
 
       const parts = [model];
 
       if (input) {
-        parts.push(input + ' input');
+        parts.push(
+          input + ' input'
+        );
       }
 
       if (output) {
-        parts.push(output + ' output');
+        parts.push(
+          output + ' output'
+        );
       }
 
       if (reasoning) {
         parts.push(
-          reasoning + ' reasoning'
+          reasoning +
+          ' reasoning'
         );
       }
 
       if (cost) {
-        parts.push('est. ' + cost);
+        parts.push(
+          'est. ' + cost
+        );
       }
 
       diagnostic.textContent =
         parts.join(' · ');
 
-      panel.appendChild(diagnostic);
+      panel.appendChild(
+        diagnostic
+      );
     }
 
     toolbar.parentNode.insertBefore(

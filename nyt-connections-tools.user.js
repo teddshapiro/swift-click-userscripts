@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.2.1
+// @version      1.3.0
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.2.1';
+  const APP_VERSION = '1.3.0';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -545,7 +545,11 @@
     );
   }
 
-  function requestAiSolution(token, indexedEntries) {
+  function requestAiSolution(
+    token,
+    indexedEntries,
+    confirmedGroups = []
+  ) {
     const payload = {
       profile: 'connections-solver-v2',
       request_id: makeRequestId(),
@@ -554,7 +558,13 @@
         tiles: indexedEntries.map(entry => ({
           id: entry.id,
           word: entry.word
-        }))
+        })),
+        confirmed_groups:
+          confirmedGroups.map(group => ({
+            color: group.color,
+            label: group.label,
+            words: [...group.words]
+          }))
       }
     };
 
@@ -620,20 +630,36 @@
     });
   }
 
-  function validateAiSolution(solution, indexedEntries) {
+  function validateAiSolution(
+    solution,
+    indexedEntries,
+    confirmedGroups = []
+  ) {
+    const expectedGroupCount =
+      indexedEntries.length / 4;
+
     if (
       !solution ||
       solution.ok !== true ||
       !Array.isArray(solution.groups) ||
-      solution.groups.length !== 4
+      solution.groups.length !==
+        expectedGroupCount
     ) {
       throw new Error(
-        'The AI service did not return four groups.'
+        'The AI service did not return the expected number of remaining groups.'
       );
     }
 
     const validIds = new Set(
       indexedEntries.map(entry => entry.id)
+    );
+
+    const confirmedColors = new Set(
+      confirmedGroups
+        .map(group => group.color)
+        .filter(color =>
+          AI_COLOR_ORDER.includes(color)
+        )
     );
 
     const seenIds = new Set();
@@ -643,6 +669,7 @@
       if (
         !group ||
         !AI_COLOR_ORDER.includes(group.color) ||
+        confirmedColors.has(group.color) ||
         seenColors.has(group.color)
       ) {
         throw new Error(
@@ -662,7 +689,10 @@
       }
 
       group.tile_ids.forEach(id => {
-        if (!validIds.has(id) || seenIds.has(id)) {
+        if (
+          !validIds.has(id) ||
+          seenIds.has(id)
+        ) {
           throw new Error(
             'The AI service returned an invalid tile assignment.'
           );
@@ -673,11 +703,12 @@
     });
 
     if (
-      seenIds.size !== 16 ||
-      seenColors.size !== 4
+      seenIds.size !== indexedEntries.length ||
+      seenColors.size !==
+        expectedGroupCount
     ) {
       throw new Error(
-        'The AI service returned an incomplete solution.'
+        'The AI service returned an incomplete remaining solution.'
       );
     }
   }
@@ -826,7 +857,8 @@
 
   function initializeAiFeedback(
     groups,
-    indexedEntries
+    indexedEntries,
+    confirmedGroups = []
   ) {
     const wordById =
       new Map(
@@ -848,10 +880,44 @@
       };
     });
 
+    const confirmedByColor = {};
+
+    confirmedGroups.forEach(group => {
+      if (
+        group &&
+        AI_COLOR_ORDER.includes(
+          group.color
+        ) &&
+        Array.isArray(group.words) &&
+        group.words.length === 4
+      ) {
+        confirmedByColor[group.color] = {
+          color: group.color,
+          label:
+            group.label ||
+            'NYT confirmed group',
+          words: [...group.words]
+        };
+      }
+    });
+
     aiFeedbackState = {
       originalByColor,
-      confirmedByColor: {},
-      rejectedKeys: new Set()
+      confirmedByColor,
+      rejectedKeys: new Set(),
+      allPuzzleWords: [
+        ...new Set([
+          ...indexedEntries
+            .map(entry => entry.word)
+            .filter(Boolean),
+          ...Object.values(
+            confirmedByColor
+          )
+            .flatMap(group =>
+              group.words || []
+            )
+        ])
+      ]
     };
   }
 
@@ -1146,17 +1212,26 @@
         };
       }
 
+      if (!original) {
+        return {
+          group: actual,
+          status: 'confirmed',
+          statusText:
+            '✓ NYT CONFIRMED',
+          note:
+            'Already solved by NYT before this AI pass.'
+        };
+      }
+
       return {
         group: actual,
         status: 'corrected',
         statusText:
           'OOPS — NYT ACTUALLY',
         note:
-          original
-            ? 'The AI had guessed “' +
-              original.label +
-              '” for this color.'
-            : 'NYT corrected the AI guess.'
+          'The AI had guessed “' +
+          original.label +
+          '” for this color.'
       };
     }
 
@@ -1253,6 +1328,21 @@
       return [];
     }
 
+    if (
+      Array.isArray(
+        aiFeedbackState
+          .allPuzzleWords
+      ) &&
+      aiFeedbackState
+        .allPuzzleWords
+        .length
+    ) {
+      return [
+        ...aiFeedbackState
+          .allPuzzleWords
+      ];
+    }
+
     return [
       ...new Set(
         Object.values(
@@ -1265,6 +1355,162 @@
           .filter(Boolean)
       )
     ];
+  }
+
+  function extractConfirmedWords(
+    element
+  ) {
+    const textCandidates = [
+      element.innerText || '',
+      ...[
+        ...element.querySelectorAll(
+          '*'
+        )
+      ]
+        .filter(node =>
+          node.getClientRects().length
+        )
+        .map(node =>
+          node.textContent?.trim() ||
+          ''
+        )
+    ]
+      .map(text =>
+        text.trim()
+      )
+      .filter(Boolean);
+
+    for (
+      const text of
+        textCandidates
+    ) {
+      const lines =
+        text.split(/\n+/)
+          .map(line =>
+            line.trim()
+          )
+          .filter(Boolean);
+
+      for (const line of lines) {
+        const words =
+          line.split(',')
+            .map(word =>
+              word.trim()
+            )
+            .filter(Boolean);
+
+        if (
+          words.length === 4 &&
+          words.every(
+            word =>
+              word.length > 0 &&
+              word.length <= 100
+          )
+        ) {
+          return words;
+        }
+      }
+    }
+
+    return [];
+  }
+
+  function getNytConfirmedGroupsFromBoard() {
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
+    if (!root) return [];
+
+    const candidates = [
+      ...root.querySelectorAll(
+        'div, section, article, li'
+      )
+    ]
+      .filter(element =>
+        element.getClientRects().length
+      )
+      .map(element => {
+        const directColor =
+          nearestConnectionsColor(
+            parseRgb(
+              window
+                .getComputedStyle(
+                  element
+                )
+                .backgroundColor
+            )
+          );
+
+        if (!directColor) {
+          return null;
+        }
+
+        const words =
+          extractConfirmedWords(
+            element
+          );
+
+        if (words.length !== 4) {
+          return null;
+        }
+
+        const rect =
+          element
+            .getBoundingClientRect();
+
+        return {
+          element,
+          color: directColor,
+          words,
+          label:
+            inferNytGroupLabel(
+              element,
+              words
+            ),
+          area:
+            rect.width *
+            rect.height
+        };
+      })
+      .filter(Boolean);
+
+    const bestByColor = {};
+
+    candidates.forEach(
+      candidate => {
+        const current =
+          bestByColor[
+            candidate.color
+          ];
+
+        if (
+          !current ||
+          candidate.area >
+            current.area
+        ) {
+          bestByColor[
+            candidate.color
+          ] = candidate;
+        }
+      }
+    );
+
+    return AI_COLOR_ORDER
+      .map(color =>
+        bestByColor[color]
+      )
+      .filter(Boolean)
+      .map(candidate => ({
+        color:
+          candidate.color,
+        label:
+          candidate.label ||
+          'NYT confirmed group',
+        words:
+          [...candidate.words]
+      }));
   }
 
   function scanNytConfirmedGroups() {
@@ -2124,7 +2370,8 @@
     groups,
     indexedEntries,
     solution,
-    preserveFeedbackState = false
+    preserveFeedbackState = false,
+    confirmedGroups = []
   ) {
     ensureAiSummaryStyles();
 
@@ -2150,7 +2397,8 @@
     if (!preserveFeedbackState) {
       initializeAiFeedback(
         groups,
-        indexedEntries
+        indexedEntries,
+        confirmedGroups
       );
     }
 
@@ -2192,22 +2440,27 @@
     grid.className =
       'swiftclick-ai-summary-grid';
 
-    [...groups]
-      .sort(
-        (a, b) =>
-          AI_COLOR_ORDER.indexOf(a.color) -
-          AI_COLOR_ORDER.indexOf(b.color)
-      )
-      .forEach(group => {
+    AI_COLOR_ORDER
+      .forEach(color => {
         const cardState =
           getAiCardState(
-            group.color
+            color
           );
+
+        const group =
+          cardState?.group ||
+          aiFeedbackState
+            ?.originalByColor
+            ?.[color] ||
+          aiFeedbackState
+            ?.confirmedByColor
+            ?.[color];
+
+        if (!group) return;
 
         grid.appendChild(
           createAiSummaryCard(
-            cardState?.group ||
-              group,
+            group,
             wordById,
             cardState
           )
@@ -2230,7 +2483,11 @@
     });
   }
 
-  function applyAiHints(solution, indexedEntries) {
+  function applyAiHints(
+    solution,
+    indexedEntries,
+    confirmedGroups = []
+  ) {
     clearAiHints();
 
     const entryById = new Map(
@@ -2278,7 +2535,9 @@
     renderAiSummary(
       solution.groups,
       indexedEntries,
-      solution
+      solution,
+      false,
+      confirmedGroups
     );
 
     if (clearAiButton) {
@@ -2291,13 +2550,34 @@
   async function solveWithAi(button) {
     const entries = getTileEntries();
 
-    if (entries.length !== 16) {
+    if (
+      ![4, 8, 12, 16]
+        .includes(entries.length)
+    ) {
       alert(
-        'AI Solve needs an untouched 16-tile Connections board. The script currently sees ' +
+        'AI Solve needs 4, 8, 12, or 16 unsolved Connections tiles. The script currently sees ' +
         entries.length +
         ' tile' +
         (entries.length === 1 ? '' : 's') +
         '.'
+      );
+      return;
+    }
+
+    const confirmedGroups =
+      getNytConfirmedGroupsFromBoard();
+
+    const solvedWordCount =
+      confirmedGroups.length * 4;
+
+    if (
+      entries.length < 16 &&
+      entries.length +
+        solvedWordCount !==
+        16
+    ) {
+      alert(
+        'AI Solve can continue an in-progress puzzle, but I could not reliably read all of the NYT groups already solved on this page. Please reload this puzzle and try again.'
       );
       return;
     }
@@ -2332,21 +2612,28 @@
       const solution =
         await requestAiSolution(
           token,
-          indexedEntries
+          indexedEntries,
+          confirmedGroups
         );
 
       validateAiSolution(
         solution,
-        indexedEntries
+        indexedEntries,
+        confirmedGroups
       );
 
       applyAiHints(
         solution,
-        indexedEntries
+        indexedEntries,
+        confirmedGroups
       );
 
       showToast(
-        'AI solution received. No guesses were submitted.'
+        entries.length === 16
+          ? 'AI solution received. No guesses were submitted.'
+          : 'AI picked up the puzzle in progress and solved the remaining ' +
+            entries.length +
+            ' tiles. No guesses were submitted.'
       );
     } catch (error) {
       if (error?.status === 401) {

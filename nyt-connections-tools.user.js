@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.2.0
+// @version      1.2.1
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '1.2.1';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -1537,6 +1537,236 @@
     rerenderAiFeedback();
   }
 
+  function parseCssRgb(value) {
+    const match =
+      String(value || '').match(
+        /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?/
+      );
+
+    if (!match) return null;
+
+    return {
+      red: Number(match[1]),
+      green: Number(match[2]),
+      blue: Number(match[3]),
+      alpha:
+        match[4] === undefined
+          ? 1
+          : Number(match[4])
+    };
+  }
+
+  function getVisuallySelectedWords() {
+    return getTileEntries()
+      .filter(entry => {
+        const host =
+          getTileHost(
+            entry.element
+          );
+
+        if (!host) return false;
+
+        const style =
+          window.getComputedStyle(host);
+
+        const rgb =
+          parseCssRgb(
+            style.backgroundColor
+          );
+
+        if (
+          !rgb ||
+          rgb.alpha <= 0
+        ) {
+          return false;
+        }
+
+        const luminance =
+          (
+            0.2126 * rgb.red +
+            0.7152 * rgb.green +
+            0.0722 * rgb.blue
+          );
+
+        return luminance < 165;
+      })
+      .map(entry =>
+        entry.word?.trim()
+      )
+      .filter(Boolean);
+  }
+
+  function getMistakesRemainingCount() {
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
+    if (!root) return null;
+
+    const elements = [
+      ...root.querySelectorAll('*')
+    ];
+
+    const label =
+      elements.find(element => {
+        const text =
+          element.textContent
+            ?.trim();
+
+        return (
+          text ===
+            'Mistakes Remaining:' ||
+          text ===
+            'Mistakes Remaining'
+        );
+      });
+
+    if (!label) return null;
+
+    const directMatch =
+      label.textContent
+        ?.match(
+          /Mistakes Remaining:\s*(\d+)/
+        );
+
+    if (directMatch) {
+      return Number(
+        directMatch[1]
+      );
+    }
+
+    let node =
+      label.parentElement;
+
+    for (
+      let depth = 0;
+      node &&
+      depth < 4;
+      depth += 1,
+      node = node.parentElement
+    ) {
+      const ariaCandidates = [
+        ...node.querySelectorAll(
+          '[aria-label], [title]'
+        )
+      ];
+
+      for (
+        const candidate of
+          ariaCandidates
+      ) {
+        const text = (
+          candidate.getAttribute(
+            'aria-label'
+          ) ||
+          candidate.getAttribute(
+            'title'
+          ) ||
+          ''
+        );
+
+        const match =
+          text.match(
+            /mistake[^0-9]*(\d+)/i
+          );
+
+        if (match) {
+          return Number(
+            match[1]
+          );
+        }
+      }
+
+      const dots = [
+        ...node.querySelectorAll('*')
+      ]
+        .filter(element => {
+          if (
+            element === label ||
+            element.contains(label)
+          ) {
+            return false;
+          }
+
+          if (
+            !element
+              .getClientRects()
+              .length
+          ) {
+            return false;
+          }
+
+          if (
+            element.children.length
+          ) {
+            return false;
+          }
+
+          const rect =
+            element
+              .getBoundingClientRect();
+
+          if (
+            rect.width < 6 ||
+            rect.width > 24 ||
+            rect.height < 6 ||
+            rect.height > 24 ||
+            Math.abs(
+              rect.width -
+              rect.height
+            ) > 5
+          ) {
+            return false;
+          }
+
+          const style =
+            window.getComputedStyle(
+              element
+            );
+
+          const rgb =
+            parseCssRgb(
+              style.backgroundColor
+            );
+
+          if (
+            !rgb ||
+            rgb.alpha <= 0
+          ) {
+            return false;
+          }
+
+          const radius =
+            parseFloat(
+              style.borderRadius
+            ) || 0;
+
+          return (
+            radius >=
+            Math.min(
+              rect.width,
+              rect.height
+            ) * 0.3
+          );
+        });
+
+      if (
+        dots.length >= 0 &&
+        dots.length <= 4
+      ) {
+        if (
+          dots.length > 0 ||
+          depth >= 1
+        ) {
+          return dots.length;
+        }
+      }
+    }
+
+    return null;
+  }
+
   function processPendingNytSubmission() {
     if (!pendingNytSubmission) {
       return;
@@ -1580,6 +1810,45 @@
       return;
     }
 
+    const currentMistakes =
+      getMistakesRemainingCount();
+
+    const mistakeDropped =
+      Number.isInteger(
+        pendingNytSubmission
+          .beforeMistakes
+      ) &&
+      Number.isInteger(
+        currentMistakes
+      ) &&
+      currentMistakes <
+        pendingNytSubmission
+          .beforeMistakes;
+
+    if (
+      mistakeDropped &&
+      pendingNytSubmission
+        .words
+        .every(word =>
+          currentSet.has(
+            normalizeWord(word)
+          )
+        )
+    ) {
+      const rejected =
+        pendingNytSubmission
+          .words;
+
+      pendingNytSubmission = null;
+      trackedSelectedWords.clear();
+
+      recordNytRejectedGroup(
+        rejected
+      );
+
+      return;
+    }
+
     if (
       elapsed >= 1600 &&
       pendingNytSubmission
@@ -1618,17 +1887,26 @@
   function captureNytSubmission() {
     if (!aiFeedbackState) return;
 
-    const words =
+    let words =
       getSelectedWords();
+
+    if (words.length !== 4) {
+      words =
+        getVisuallySelectedWords();
+    }
 
     if (words.length !== 4) {
       return;
     }
 
     pendingNytSubmission = {
-      words: [...words],
+      words: [
+        ...new Set(words)
+      ],
       beforeWords:
         visiblePuzzleWords(),
+      beforeMistakes:
+        getMistakesRemainingCount(),
       startedAt: Date.now()
     };
 

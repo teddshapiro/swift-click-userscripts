@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      0.5.2
+// @version      0.5.3
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -10,14 +10,14 @@
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
 // @connect      connections-ai-service.tedd-7f4.workers.dev
-// @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/nyt-connections-tools.user.js
-// @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/nyt-connections-tools.user.js
+// @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/connections-ai-mvp/nyt-connections-tools.user.js
+// @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/connections-ai-mvp/nyt-connections-tools.user.js
 // ==/UserScript==
 
 (function () {
   'use strict';
 
-  const APP_VERSION = '0.5.2';
+  const APP_VERSION = '0.5.3';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';

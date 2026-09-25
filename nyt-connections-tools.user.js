@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.3.0
+// @version      1.3.1
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.0';
+  const APP_VERSION = '1.3.1';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -1432,21 +1432,6 @@
         element.getClientRects().length
       )
       .map(element => {
-        const directColor =
-          nearestConnectionsColor(
-            parseRgb(
-              window
-                .getComputedStyle(
-                  element
-                )
-                .backgroundColor
-            )
-          );
-
-        if (!directColor) {
-          return null;
-        }
-
         const words =
           extractConfirmedWords(
             element
@@ -1456,19 +1441,32 @@
           return null;
         }
 
+        const color =
+          inferNytGroupColor(
+            element
+          );
+
+        if (!color) {
+          return null;
+        }
+
         const rect =
           element
             .getBoundingClientRect();
 
         return {
           element,
-          color: directColor,
+          color,
           words,
           label:
             inferNytGroupLabel(
               element,
               words
             ),
+          textLength:
+            element.textContent
+              ?.trim()
+              .length || Infinity,
           area:
             rect.width *
             rect.height
@@ -1487,8 +1485,14 @@
 
         if (
           !current ||
-          candidate.area >
-            current.area
+          candidate.textLength <
+            current.textLength ||
+          (
+            candidate.textLength ===
+              current.textLength &&
+            candidate.area <
+              current.area
+          )
         ) {
           bestByColor[
             candidate.color
@@ -2567,19 +2571,19 @@
     const confirmedGroups =
       getNytConfirmedGroupsFromBoard();
 
-    const solvedWordCount =
-      confirmedGroups.length * 4;
+    const expectedSolvedGroups =
+      (16 - entries.length) / 4;
 
     if (
       entries.length < 16 &&
-      entries.length +
-        solvedWordCount !==
-        16
+      confirmedGroups.length <
+        expectedSolvedGroups
     ) {
-      alert(
-        'AI Solve can continue an in-progress puzzle, but I could not reliably read all of the NYT groups already solved on this page. Please reload this puzzle and try again.'
+      showToast(
+        'Continuing from the ' +
+        entries.length +
+        ' remaining tiles. Some already-solved NYT group details could not be read, so color tracking may be incomplete.'
       );
-      return;
     }
 
     let token = getStoredAiToken();

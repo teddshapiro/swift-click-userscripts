@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      0.5.1
+// @version      0.5.2
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '0.5.1';
+  const APP_VERSION = '0.5.2';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -1401,6 +1401,36 @@
     return button;
   }
 
+  function findPuzzleInstruction(root) {
+    const targetText =
+      'Create four groups of four!';
+
+    const candidates = [
+      ...root.querySelectorAll(
+        'div, p, span'
+      )
+    ]
+      .filter(element => {
+        if (
+          element.textContent?.trim() !==
+          targetText
+        ) {
+          return false;
+        }
+
+        return Boolean(
+          element.getClientRects().length
+        );
+      })
+      .sort(
+        (a, b) =>
+          a.children.length -
+          b.children.length
+      );
+
+    return candidates[0] || null;
+  }
+
   function addToolbar() {
     if (
       document.querySelector('#categories-gpt-tools')
@@ -1426,8 +1456,11 @@
       gap: '8px',
       justifyContent: 'center',
       alignItems: 'center',
-      margin: '0 auto 4px',
-      padding: '2px 8px'
+      margin: '0 auto',
+      padding: '2px 8px 4px',
+      position: 'relative',
+      zIndex: '2',
+      background: '#fff'
     });
 
     const aiSolveButton = makeButton(
@@ -1467,19 +1500,36 @@
       selectedButton
     );
 
-    const board =
-      getBoardContainer();
+    const slot = document.createElement('div');
+    slot.id = 'categories-gpt-tools-slot';
+
+    Object.assign(slot.style, {
+      display: 'block',
+      width: '100%',
+      boxSizing: 'border-box',
+      position: 'relative',
+      zIndex: '20',
+      clear: 'both',
+      margin: '0 auto 10px',
+      padding: '0',
+      background: '#fff'
+    });
+
+    slot.appendChild(toolbar);
+
+    const instruction =
+      findPuzzleInstruction(root);
 
     if (
-      board &&
-      board.parentNode
+      instruction &&
+      instruction.parentNode
     ) {
-      board.parentNode.insertBefore(
-        toolbar,
-        board
+      instruction.parentNode.insertBefore(
+        slot,
+        instruction
       );
     } else {
-      root.prepend(toolbar);
+      root.prepend(slot);
     }
   }
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      0.5.5
+// @version      0.5.6
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '0.5.5';
+  const APP_VERSION = '0.5.6';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -1436,133 +1436,139 @@
     return candidates[0] || null;
   }
 
-  function findCenteredGameStage(root, board, instruction) {
-    if (!root || !board || !instruction) {
-      return null;
-    }
+  function clearLegacyCompactLayout() {
+    document
+      .querySelectorAll(
+        '[data-swiftclick-compact-stage="true"]'
+      )
+      .forEach(element => {
+        element.style.removeProperty(
+          'justify-content'
+        );
 
+        element.style.removeProperty(
+          'min-height'
+        );
+
+        element.style.removeProperty(
+          'height'
+        );
+
+        element.style.removeProperty(
+          'padding-top'
+        );
+
+        element.style.removeProperty(
+          'padding-bottom'
+        );
+
+        element.removeAttribute(
+          'data-swiftclick-compact-stage'
+        );
+      });
+  }
+
+  function getGameplayCluster(
+    root,
+    instruction,
+    board
+  ) {
     const common =
       getCommonAncestor([
-        board,
-        instruction
+        instruction,
+        board
       ]);
 
-    let node = common;
-
-    while (
-      node &&
-      node !== root &&
-      root.contains(node)
+    if (
+      common &&
+      common !== root
     ) {
-      const style =
-        window.getComputedStyle(node);
-
-      const rect =
-        node.getBoundingClientRect();
-
-      const boardRect =
-        board.getBoundingClientRect();
-
-      const isFlex =
-        style.display === 'flex' ||
-        style.display === 'inline-flex';
-
-      const centersVertically =
-        style.justifyContent === 'center' ||
-        style.justifyContent === 'space-around' ||
-        style.justifyContent === 'space-evenly';
-
-      if (
-        isFlex &&
-        centersVertically &&
-        rect.height >
-          boardRect.height + 160
-      ) {
-        return node;
-      }
-
-      node = node.parentElement;
+      return common;
     }
 
     return null;
   }
 
   function applyCompactGameLayout() {
+    clearLegacyCompactLayout();
+
     const root =
       document.querySelector('#pz-game-root');
-
-    const instruction =
-      root
-        ? findPuzzleInstruction(root)
-        : null;
-
-    const board =
-      getBoardContainer();
 
     const slot =
       document.querySelector(
         '#categories-gpt-tools-slot'
       );
 
-    if (
-      !root ||
-      !instruction ||
-      !board
-    ) {
+    if (!root || !slot) return;
+
+    const instruction =
+      findPuzzleInstruction(root);
+
+    const board =
+      getBoardContainer();
+
+    if (!instruction || !board) {
       return;
     }
 
-    const stage =
-      findCenteredGameStage(
+    const cluster =
+      getGameplayCluster(
         root,
-        board,
-        instruction
+        instruction,
+        board
       );
 
-    if (!stage) return;
+    if (!cluster) return;
 
-    stage.setAttribute(
-      'data-swiftclick-compact-stage',
+    const previousShift =
+      Number(
+        cluster.getAttribute(
+          'data-swiftclick-shift'
+        )
+      ) || 0;
+
+    const instructionRect =
+      instruction.getBoundingClientRect();
+
+    const slotRect =
+      slot.getBoundingClientRect();
+
+    const unshiftedInstructionTop =
+      instructionRect.top +
+      previousShift;
+
+    const desiredInstructionTop =
+      slotRect.bottom + 28;
+
+    const shift =
+      Math.max(
+        0,
+        Math.round(
+          unshiftedInstructionTop -
+          desiredInstructionTop
+        )
+      );
+
+    cluster.setAttribute(
+      'data-swiftclick-compact-cluster',
       'true'
     );
 
-    const slotHeight =
-      slot?.getBoundingClientRect().height ||
-      0;
+    cluster.setAttribute(
+      'data-swiftclick-shift',
+      String(shift)
+    );
 
-    const topSpace =
-      Math.max(
-        54,
-        Math.ceil(slotHeight + 24)
-      );
-
-    stage.style.setProperty(
-      'justify-content',
-      'flex-start',
+    cluster.style.setProperty(
+      'translate',
+      '0 -' + shift + 'px',
       'important'
     );
 
-    stage.style.setProperty(
-      'min-height',
-      '0',
-      'important'
-    );
-
-    stage.style.setProperty(
-      'height',
-      'auto',
-      'important'
-    );
-
-    stage.style.setProperty(
-      'padding-top',
-      topSpace + 'px',
-      'important'
-    );
-
-    stage.style.setProperty(
-      'padding-bottom',
-      '42px',
+    cluster.style.setProperty(
+      'margin-bottom',
+      '-' + shift + 'px',
       'important'
     );
   }
@@ -1578,65 +1584,6 @@
 
     if (!root || !slot) return;
 
-    applyCompactGameLayout();
-
-    const instruction =
-      findPuzzleInstruction(root);
-
-    const board =
-      getBoardContainer();
-
-    if (
-      instruction &&
-      board &&
-      instruction.getClientRects().length
-    ) {
-      if (slot.parentNode !== document.body) {
-        document.body.appendChild(slot);
-      }
-
-      Object.assign(slot.style, {
-        position: 'absolute',
-        width: 'min(760px, calc(100vw - 32px))',
-        zIndex: '9999989',
-        margin: '0',
-        padding: '0',
-        background: 'transparent'
-      });
-
-      const instructionRect =
-        instruction.getBoundingClientRect();
-
-      const boardRect =
-        board.getBoundingClientRect();
-
-      const slotRect =
-        slot.getBoundingClientRect();
-
-      const centerX =
-        boardRect.left +
-        boardRect.width / 2;
-
-      const left =
-        window.scrollX +
-        centerX -
-        slotRect.width / 2;
-
-      const top =
-        window.scrollY +
-        instructionRect.top -
-        slotRect.height -
-        12;
-
-      slot.style.left =
-        Math.max(8, Math.round(left)) + 'px';
-
-      slot.style.top =
-        Math.max(8, Math.round(top)) + 'px';
-
-      return;
-    }
-
     if (slot.parentNode !== root) {
       root.prepend(slot);
     }
@@ -1651,6 +1598,8 @@
       padding: '0',
       background: '#fff'
     });
+
+    applyCompactGameLayout();
   }
 
   function addToolbar() {

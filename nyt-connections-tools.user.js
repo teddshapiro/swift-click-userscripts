@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      0.5.3
+// @version      0.5.4
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '0.5.3';
+  const APP_VERSION = '0.5.4';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -881,6 +881,10 @@
       panel,
       toolbar.nextSibling
     );
+
+    window.requestAnimationFrame(
+      updateToolbarPosition
+    );
   }
 
   function applyAiHints(solution, indexedEntries) {
@@ -1431,6 +1435,90 @@
     return candidates[0] || null;
   }
 
+  function updateToolbarPosition() {
+    const root =
+      document.querySelector('#pz-game-root');
+
+    const slot =
+      document.querySelector(
+        '#categories-gpt-tools-slot'
+      );
+
+    if (!root || !slot) return;
+
+    const instruction =
+      findPuzzleInstruction(root);
+
+    const board =
+      getBoardContainer();
+
+    if (
+      instruction &&
+      board &&
+      instruction.getClientRects().length
+    ) {
+      if (slot.parentNode !== document.body) {
+        document.body.appendChild(slot);
+      }
+
+      Object.assign(slot.style, {
+        position: 'absolute',
+        width: 'min(760px, calc(100vw - 32px))',
+        zIndex: '9999989',
+        margin: '0',
+        padding: '0',
+        background: 'transparent'
+      });
+
+      const instructionRect =
+        instruction.getBoundingClientRect();
+
+      const boardRect =
+        board.getBoundingClientRect();
+
+      const slotRect =
+        slot.getBoundingClientRect();
+
+      const centerX =
+        boardRect.left +
+        boardRect.width / 2;
+
+      const left =
+        window.scrollX +
+        centerX -
+        slotRect.width / 2;
+
+      const top =
+        window.scrollY +
+        instructionRect.top -
+        slotRect.height -
+        12;
+
+      slot.style.left =
+        Math.max(8, Math.round(left)) + 'px';
+
+      slot.style.top =
+        Math.max(8, Math.round(top)) + 'px';
+
+      return;
+    }
+
+    if (slot.parentNode !== root) {
+      root.prepend(slot);
+    }
+
+    Object.assign(slot.style, {
+      position: 'relative',
+      width: '100%',
+      left: '',
+      top: '',
+      zIndex: '20',
+      margin: '0 auto 10px',
+      padding: '0',
+      background: '#fff'
+    });
+  }
+
   function addToolbar() {
     if (
       document.querySelector('#categories-gpt-tools')
@@ -1505,36 +1593,38 @@
 
     Object.assign(slot.style, {
       display: 'block',
-      width: '100%',
       boxSizing: 'border-box',
-      position: 'relative',
-      zIndex: '20',
-      clear: 'both',
-      margin: '0 auto 10px',
-      padding: '0',
-      background: '#fff'
+      clear: 'both'
     });
 
     slot.appendChild(toolbar);
+    document.body.appendChild(slot);
 
-    const instruction =
-      findPuzzleInstruction(root);
+    updateToolbarPosition();
 
     if (
-      instruction &&
-      instruction.parentNode
+      typeof ResizeObserver === 'function'
     ) {
-      instruction.parentNode.insertBefore(
-        slot,
-        instruction
-      );
-    } else {
-      root.prepend(slot);
+      const toolbarResizeObserver =
+        new ResizeObserver(
+          updateToolbarPosition
+        );
+
+      toolbarResizeObserver.observe(slot);
     }
+
+    window.addEventListener(
+      'resize',
+      updateToolbarPosition
+    );
   }
 
   const observer = new MutationObserver(() => {
     addToolbar();
+
+    window.requestAnimationFrame(
+      updateToolbarPosition
+    );
   });
 
   observer.observe(document.documentElement, {

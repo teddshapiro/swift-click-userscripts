@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.0.1
+// @version      1.1.0
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -10,14 +10,14 @@
 // @grant        GM_setValue
 // @grant        GM_xmlhttpRequest
 // @connect      connections-ai-service.tedd-7f4.workers.dev
-// @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/nyt-connections-tools.user.js
-// @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/nyt-connections-tools.user.js
+// @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/connections-ai-feedback/nyt-connections-tools.user.js
+// @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/connections-ai-feedback/nyt-connections-tools.user.js
 // ==/UserScript==
 
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.0.1';
+  const APP_VERSION = '1.1.0';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -52,6 +52,9 @@
   let aiProgressOverlay = null;
   let aiProgressAnimationFrame = null;
   let aiProgressResizeObserver = null;
+  let aiFeedbackState = null;
+  let pendingNytSubmission = null;
+  let feedbackCheckTimer = null;
 
   function getWords() {
     const root = document.querySelector('#pz-game-root');
@@ -667,6 +670,16 @@
 
     aiStyledElements.clear();
 
+    aiFeedbackState = null;
+    pendingNytSubmission = null;
+
+    if (feedbackCheckTimer) {
+      window.clearTimeout(
+        feedbackCheckTimer
+      );
+      feedbackCheckTimer = null;
+    }
+
     document
       .querySelector('#categories-ai-results')
       ?.remove();
@@ -752,9 +765,629 @@
     );
   }
 
+  function normalizeWord(value) {
+    return String(value || '')
+      .trim()
+      .toUpperCase();
+  }
+
+  function wordSetKey(words) {
+    return [...words]
+      .map(normalizeWord)
+      .filter(Boolean)
+      .sort()
+      .join('\u0001');
+  }
+
+  function visiblePuzzleWords() {
+    return [
+      ...new Set(
+        getTileEntries()
+          .filter(entry =>
+            entry.element
+              ?.getClientRects()
+              ?.length
+          )
+          .map(entry =>
+            entry.word?.trim()
+          )
+          .filter(Boolean)
+      )
+    ];
+  }
+
+  function initializeAiFeedback(
+    groups,
+    indexedEntries
+  ) {
+    const wordById =
+      new Map(
+        indexedEntries.map(entry => [
+          entry.id,
+          entry.word
+        ])
+      );
+
+    const originalByColor = {};
+
+    groups.forEach(group => {
+      originalByColor[group.color] = {
+        ...group,
+        words: group.tile_ids
+          .map(id =>
+            wordById.get(id) || id
+          )
+      };
+    });
+
+    aiFeedbackState = {
+      originalByColor,
+      confirmedByColor: {},
+      rejectedKeys: new Set()
+    };
+  }
+
+  function parseRgb(value) {
+    const match =
+      String(value || '').match(
+        /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/
+      );
+
+    if (!match) return null;
+
+    return [
+      Number(match[1]),
+      Number(match[2]),
+      Number(match[3])
+    ];
+  }
+
+  function nearestConnectionsColor(rgb) {
+    if (!rgb) return null;
+
+    const targets = {
+      yellow: [249, 223, 109],
+      green: [160, 195, 90],
+      blue: [176, 196, 239],
+      purple: [186, 129, 197]
+    };
+
+    let best = null;
+    let bestDistance = Infinity;
+
+    Object.entries(targets)
+      .forEach(([name, target]) => {
+        const distance =
+          Math.sqrt(
+            Math.pow(
+              rgb[0] - target[0],
+              2
+            ) +
+            Math.pow(
+              rgb[1] - target[1],
+              2
+            ) +
+            Math.pow(
+              rgb[2] - target[2],
+              2
+            )
+          );
+
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = name;
+        }
+      });
+
+    return bestDistance <= 95
+      ? best
+      : null;
+  }
+
+  function inferNytGroupColor(container) {
+    const elements = [
+      container,
+      ...container.querySelectorAll('*')
+    ];
+
+    for (const element of elements) {
+      if (
+        !element.getClientRects().length
+      ) {
+        continue;
+      }
+
+      const color =
+        nearestConnectionsColor(
+          parseRgb(
+            window
+              .getComputedStyle(element)
+              .backgroundColor
+          )
+        );
+
+      if (color) return color;
+    }
+
+    return null;
+  }
+
+  function inferNytGroupLabel(
+    container,
+    words
+  ) {
+    const normalizedWords =
+      new Set(
+        words.map(normalizeWord)
+      );
+
+    const ignored = [
+      'CREATE FOUR GROUPS OF FOUR!',
+      'MISTAKES REMAINING:',
+      'SHUFFLE',
+      'DESELECT ALL',
+      'SUBMIT'
+    ];
+
+    const candidates = [
+      container,
+      ...container.querySelectorAll('*')
+    ]
+      .filter(element =>
+        element.getClientRects().length
+      )
+      .map(element =>
+        element.textContent?.trim()
+      )
+      .filter(Boolean)
+      .filter((text, index, array) =>
+        array.indexOf(text) === index
+      )
+      .filter(text => {
+        const normalized =
+          normalizeWord(text);
+
+        if (
+          normalizedWords.has(
+            normalized
+          )
+        ) {
+          return false;
+        }
+
+        if (
+          ignored.includes(
+            normalized
+          )
+        ) {
+          return false;
+        }
+
+        const wordHits =
+          words.filter(word =>
+            normalized.includes(
+              normalizeWord(word)
+            )
+          ).length;
+
+        return (
+          text.length >= 3 &&
+          text.length <= 120 &&
+          wordHits <= 1
+        );
+      })
+      .sort(
+        (a, b) =>
+          a.length - b.length
+      );
+
+    return (
+      candidates[0] ||
+      'NYT confirmed group'
+    );
+  }
+
+  function findNytSolvedGroupInfo(words) {
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
+    if (!root) {
+      return {
+        color: null,
+        label: 'NYT confirmed group'
+      };
+    }
+
+    const normalizedWords =
+      words.map(normalizeWord);
+
+    const candidates = [
+      ...root.querySelectorAll(
+        'div, section, article, li'
+      )
+    ]
+      .filter(element =>
+        element.getClientRects().length
+      )
+      .filter(element => {
+        const text =
+          normalizeWord(
+            element.textContent
+          );
+
+        return normalizedWords
+          .every(word =>
+            text.includes(word)
+          );
+      })
+      .sort((a, b) => {
+        const aText =
+          a.textContent?.trim()
+            .length || Infinity;
+
+        const bText =
+          b.textContent?.trim()
+            .length || Infinity;
+
+        if (aText !== bText) {
+          return aText - bText;
+        }
+
+        const aRect =
+          a.getBoundingClientRect();
+
+        const bRect =
+          b.getBoundingClientRect();
+
+        return (
+          aRect.width * aRect.height -
+          bRect.width * bRect.height
+        );
+      });
+
+    const container =
+      candidates[0] || root;
+
+    return {
+      color:
+        inferNytGroupColor(
+          container
+        ),
+      label:
+        inferNytGroupLabel(
+          container,
+          words
+        )
+    };
+  }
+
+  function getAiCardState(color) {
+    if (!aiFeedbackState) {
+      return null;
+    }
+
+    const original =
+      aiFeedbackState
+        .originalByColor[color];
+
+    const actual =
+      aiFeedbackState
+        .confirmedByColor[color];
+
+    if (actual) {
+      const actualKey =
+        wordSetKey(actual.words);
+
+      const sourceEntry =
+        Object.entries(
+          aiFeedbackState
+            .originalByColor
+        ).find(([, group]) =>
+          wordSetKey(group.words) ===
+          actualKey
+        );
+
+      const sourceColor =
+        sourceEntry?.[0] || null;
+
+      if (
+        sourceColor === color
+      ) {
+        return {
+          group: actual,
+          status: 'confirmed',
+          statusText:
+            '✓ NYT CONFIRMED',
+          note:
+            'The AI grouping matched the NYT result.'
+        };
+      }
+
+      if (sourceColor) {
+        return {
+          group: actual,
+          status: 'corrected',
+          statusText:
+            'OOPS — NYT ACTUALLY',
+          note:
+            'The AI found these four words but assigned them ' +
+            sourceColor.toUpperCase() +
+            '.'
+        };
+      }
+
+      return {
+        group: actual,
+        status: 'corrected',
+        statusText:
+          'OOPS — NYT ACTUALLY',
+        note:
+          original
+            ? 'The AI had guessed “' +
+              original.label +
+              '” for this color.'
+            : 'NYT corrected the AI guess.'
+      };
+    }
+
+    if (!original) {
+      return null;
+    }
+
+    const originalKey =
+      wordSetKey(
+        original.words
+      );
+
+    const movedEntry =
+      Object.entries(
+        aiFeedbackState
+          .confirmedByColor
+      ).find(([, group]) =>
+        wordSetKey(group.words) ===
+        originalKey
+      );
+
+    if (movedEntry) {
+      return {
+        group: original,
+        status: 'moved',
+        statusText:
+          'GROUP RIGHT · NYT SAYS ' +
+          movedEntry[0].toUpperCase(),
+        note:
+          'The four words were right, but the official NYT color differs.'
+      };
+    }
+
+    if (
+      aiFeedbackState
+        .rejectedKeys
+        .has(originalKey)
+    ) {
+      return {
+        group: original,
+        status: 'rejected',
+        statusText:
+          '✕ REJECTED BY NYT',
+        note:
+          'Oops — NYT rejected this four-word grouping.'
+      };
+    }
+
+    return {
+      group: original,
+      status: 'guess',
+      statusText: '',
+      note:
+        original.explanation
+    };
+  }
+
+  function rerenderAiFeedback() {
+    if (!aiFeedbackState) return;
+
+    const entries =
+      getTileEntries();
+
+    const indexedEntries =
+      Object.values(
+        aiFeedbackState
+          .originalByColor
+      )
+        .flatMap(group =>
+          group.tile_ids.map(
+            (id, index) => ({
+              id,
+              word:
+                group.words[index]
+            })
+          )
+        );
+
+    renderAiSummary(
+      AI_COLOR_ORDER
+        .map(color =>
+          aiFeedbackState
+            .originalByColor[color]
+        )
+        .filter(Boolean),
+      indexedEntries,
+      null,
+      true
+    );
+  }
+
+  function recordNytConfirmedGroup(
+    words
+  ) {
+    if (!aiFeedbackState) return;
+
+    const info =
+      findNytSolvedGroupInfo(
+        words
+      );
+
+    let color =
+      info.color;
+
+    if (!color) {
+      const matchingOriginal =
+        Object.entries(
+          aiFeedbackState
+            .originalByColor
+        ).find(([, group]) =>
+          wordSetKey(group.words) ===
+          wordSetKey(words)
+        );
+
+      color =
+        matchingOriginal?.[0] ||
+        AI_COLOR_ORDER.find(
+          name =>
+            !aiFeedbackState
+              .confirmedByColor[name]
+        );
+    }
+
+    if (!color) return;
+
+    aiFeedbackState
+      .confirmedByColor[color] = {
+        color,
+        words: [...words],
+        label: info.label
+      };
+
+    rerenderAiFeedback();
+  }
+
+  function recordNytRejectedGroup(
+    words
+  ) {
+    if (!aiFeedbackState) return;
+
+    aiFeedbackState
+      .rejectedKeys
+      .add(
+        wordSetKey(words)
+      );
+
+    rerenderAiFeedback();
+  }
+
+  function processPendingNytSubmission() {
+    if (!pendingNytSubmission) {
+      return;
+    }
+
+    const elapsed =
+      Date.now() -
+      pendingNytSubmission.startedAt;
+
+    const currentWords =
+      visiblePuzzleWords();
+
+    const currentSet =
+      new Set(
+        currentWords.map(
+          normalizeWord
+        )
+      );
+
+    const removed =
+      pendingNytSubmission
+        .beforeWords
+        .filter(word =>
+          !currentSet.has(
+            normalizeWord(word)
+          )
+        );
+
+    if (removed.length === 4) {
+      pendingNytSubmission = null;
+
+      window.setTimeout(
+        () =>
+          recordNytConfirmedGroup(
+            removed
+          ),
+        120
+      );
+
+      return;
+    }
+
+    if (
+      elapsed >= 1600 &&
+      pendingNytSubmission
+        .words
+        .every(word =>
+          currentSet.has(
+            normalizeWord(word)
+          )
+        )
+    ) {
+      const rejected =
+        pendingNytSubmission
+          .words;
+
+      pendingNytSubmission = null;
+
+      recordNytRejectedGroup(
+        rejected
+      );
+
+      return;
+    }
+
+    if (elapsed < 4200) {
+      feedbackCheckTimer =
+        window.setTimeout(
+          processPendingNytSubmission,
+          350
+        );
+    } else {
+      pendingNytSubmission = null;
+    }
+  }
+
+  function captureNytSubmission() {
+    if (!aiFeedbackState) return;
+
+    const words =
+      getSelectedWords();
+
+    if (words.length !== 4) {
+      return;
+    }
+
+    pendingNytSubmission = {
+      words: [...words],
+      beforeWords:
+        visiblePuzzleWords(),
+      startedAt: Date.now()
+    };
+
+    if (feedbackCheckTimer) {
+      window.clearTimeout(
+        feedbackCheckTimer
+      );
+    }
+
+    feedbackCheckTimer =
+      window.setTimeout(
+        processPendingNytSubmission,
+        350
+      );
+  }
+
   function createAiSummaryCard(
     group,
-    wordById
+    wordById,
+    cardState = null
   ) {
     const color =
       AI_COLORS[group.color] ||
@@ -796,6 +1429,9 @@
       minWidth: '0'
     });
 
+    const status =
+      cardState?.status || 'guess';
+
     const colorName =
       document.createElement('div');
 
@@ -823,6 +1459,29 @@
       minHeight: '31px'
     });
 
+    const statusLine =
+      document.createElement('div');
+
+    if (cardState?.statusText) {
+      statusLine.textContent =
+        cardState.statusText;
+
+      Object.assign(
+        statusLine.style,
+        {
+          fontWeight: '850',
+          fontSize: '9.5px',
+          letterSpacing: '.025em',
+          lineHeight: '1.15',
+          color:
+            status === 'rejected' ||
+            status === 'corrected'
+              ? '#9b2c2c'
+              : '#555'
+        }
+      );
+    }
+
     const wordGrid =
       document.createElement('div');
 
@@ -836,13 +1495,21 @@
       marginTop: '1px'
     });
 
-    group.tile_ids.forEach(
-      (id, index) => {
+    const displayWords =
+      Array.isArray(group.words)
+        ? group.words
+        : group.tile_ids.map(
+            id =>
+              wordById.get(id) || id
+          );
+
+    displayWords.forEach(
+      (word, index) => {
         const chip =
           document.createElement('div');
 
         chip.textContent =
-          wordById.get(id) || id;
+          word;
 
         Object.assign(chip.style, {
           padding: '6px 5px',
@@ -879,7 +1546,9 @@
       document.createElement('div');
 
     explanation.textContent =
-      group.explanation;
+      cardState?.note ||
+      group.explanation ||
+      '';
 
     Object.assign(explanation.style, {
       color: '#666',
@@ -889,7 +1558,16 @@
     });
 
     body.append(
-      colorName,
+      colorName
+    );
+
+    if (cardState?.statusText) {
+      body.appendChild(
+        statusLine
+      );
+    }
+
+    body.append(
       label,
       wordGrid,
       explanation
@@ -903,7 +1581,12 @@
     return card;
   }
 
-  function renderAiSummary(groups, indexedEntries, solution) {
+  function renderAiSummary(
+    groups,
+    indexedEntries,
+    solution,
+    preserveFeedbackState = false
+  ) {
     ensureAiSummaryStyles();
 
     document
@@ -924,6 +1607,13 @@
         entry.word
       ])
     );
+
+    if (!preserveFeedbackState) {
+      initializeAiFeedback(
+        groups,
+        indexedEntries
+      );
+    }
 
     const panel =
       document.createElement('div');
@@ -970,10 +1660,17 @@
           AI_COLOR_ORDER.indexOf(b.color)
       )
       .forEach(group => {
+        const cardState =
+          getAiCardState(
+            group.color
+          );
+
         grid.appendChild(
           createAiSummaryCard(
-            group,
-            wordById
+            cardState?.group ||
+              group,
+            wordById,
+            cardState
           )
         );
       });
@@ -1847,8 +2544,38 @@
     );
   }
 
+  document.addEventListener(
+    'click',
+    event => {
+      const button =
+        event.target?.closest?.(
+          'button'
+        );
+
+      if (
+        !button ||
+        button.textContent
+          ?.trim()
+          .toLowerCase() !==
+          'submit'
+      ) {
+        return;
+      }
+
+      captureNytSubmission();
+    },
+    true
+  );
+
   const observer = new MutationObserver(() => {
     addToolbar();
+
+    if (pendingNytSubmission) {
+      window.setTimeout(
+        processPendingNytSubmission,
+        80
+      );
+    }
 
     window.requestAnimationFrame(() => {
       applyCompactGameLayout();

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.0.1
+// @version      1.3.12
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.0.1';
+  const APP_VERSION = '1.3.12';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -49,9 +49,126 @@
 
   const aiStyledElements = new Map();
   let clearAiButton = null;
+  let arrangeAiButton = null;
+  let aiArrangementActive = false;
+  const aiArrangementOriginalOrders =
+    new Map();
+  const aiArrangementWordRank =
+    new Map();
   let aiProgressOverlay = null;
   let aiProgressAnimationFrame = null;
   let aiProgressResizeObserver = null;
+  const aiProgressTileOverlays =
+    new Map();
+  let aiProgressTileHosts = [];
+  let aiProgressReducedMotion = false;
+  let aiAudioContext = null;
+  let aiFeedbackState = null;
+  let pendingNytSubmission = null;
+  let feedbackCheckTimer = null;
+  const trackedSelectedWords =
+    new Set();
+
+  let rejectedPuzzleKey = '';
+  const rejectedGroupMemory =
+    new Map();
+
+  function getPuzzleMemoryKey() {
+    const headingText = [
+      ...document.querySelectorAll(
+        'h1, h2'
+      )
+    ]
+      .map(element =>
+        element.textContent
+          ?.trim() || ''
+      )
+      .find(text =>
+        /Connections/i
+          .test(text)
+      );
+
+    return (
+      window.location.pathname +
+      '|' +
+      (headingText || '')
+    );
+  }
+
+  function ensureRejectedPuzzleMemory() {
+    const nextKey =
+      getPuzzleMemoryKey();
+
+    if (
+      rejectedPuzzleKey !==
+      nextKey
+    ) {
+      rejectedPuzzleKey =
+        nextKey;
+
+      rejectedGroupMemory
+        .clear();
+    }
+  }
+
+  function rememberRejectedGroup(
+    words
+  ) {
+    ensureRejectedPuzzleMemory();
+
+    const cleanWords = [
+      ...new Set(
+        words
+          .map(word =>
+            String(word || '')
+              .trim()
+          )
+          .filter(Boolean)
+      )
+    ];
+
+    if (
+      cleanWords.length !== 4
+    ) {
+      return;
+    }
+
+    rejectedGroupMemory.set(
+      wordSetKey(cleanWords),
+      cleanWords
+    );
+  }
+
+  function getRejectedGroupsForEntries(
+    indexedEntries
+  ) {
+    ensureRejectedPuzzleMemory();
+
+    const remainingWords =
+      new Set(
+        indexedEntries.map(
+          entry =>
+            normalizeWord(
+              entry.word
+            )
+        )
+      );
+
+    return [
+      ...rejectedGroupMemory
+        .values()
+    ]
+      .filter(words =>
+        words.every(word =>
+          remainingWords.has(
+            normalizeWord(word)
+          )
+        )
+      )
+      .map(words => [
+        ...words
+      ]);
+  }
 
   function getWords() {
     const root = document.querySelector('#pz-game-root');
@@ -77,15 +194,39 @@
   }
 
   function getSelectedWords() {
-    const root = document.querySelector('#pz-game-root');
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
     if (!root) return [];
 
-    return [...root.querySelectorAll(
-      'input[data-testid="card-input"]:checked'
-    )]
-      .map(el => el.value || el.getAttribute('aria-label'))
-      .map(word => word?.trim())
+    const checked = [
+      ...root.querySelectorAll(
+        'input[data-testid="card-input"]:checked'
+      )
+    ]
+      .map(
+        el =>
+          el.value ||
+          el.getAttribute(
+            'aria-label'
+          )
+      )
+      .map(word =>
+        word?.trim()
+      )
       .filter(Boolean);
+
+    if (checked.length) {
+      return [
+        ...new Set(checked)
+      ];
+    }
+
+    return [
+      ...trackedSelectedWords
+    ];
   }
 
   function getTileEntries() {
@@ -193,6 +334,389 @@
       width: Math.round(rect.width + pad * 2) + 'px',
       height: Math.round(rect.height + pad * 2) + 'px'
     });
+
+    updateAiProgressTileOverlayPositions();
+  }
+
+  function clearAiProgressTileOverlays() {
+    aiProgressTileOverlays.forEach(
+      overlay => {
+        overlay.remove();
+      }
+    );
+
+    aiProgressTileOverlays.clear();
+    aiProgressTileHosts = [];
+  }
+
+  function updateAiProgressTileOverlayPositions() {
+    aiProgressTileOverlays.forEach(
+      (overlay, host) => {
+        if (!host?.isConnected) {
+          overlay.remove();
+          aiProgressTileOverlays.delete(
+            host
+          );
+          return;
+        }
+
+        const rect =
+          host.getBoundingClientRect();
+
+        Object.assign(
+          overlay.style,
+          {
+            left:
+              Math.round(
+                rect.left
+              ) + 'px',
+            top:
+              Math.round(
+                rect.top
+              ) + 'px',
+            width:
+              Math.round(
+                rect.width
+              ) + 'px',
+            height:
+              Math.round(
+                rect.height
+              ) + 'px'
+          }
+        );
+      }
+    );
+  }
+
+  function prepareAiProgressTiles(
+    indexedEntries
+  ) {
+    clearAiProgressTileOverlays();
+
+    aiProgressReducedMotion =
+      Boolean(
+        window.matchMedia?.(
+          '(prefers-reduced-motion: reduce)'
+        )?.matches
+      );
+
+    if (aiProgressReducedMotion) {
+      return;
+    }
+
+    aiProgressTileHosts =
+      indexedEntries
+        .map(entry =>
+          getTileHost(
+            entry.element
+          )
+        )
+        .filter(Boolean);
+
+    aiProgressTileHosts.forEach(
+      host => {
+        if (
+          aiProgressTileOverlays
+            .has(host)
+        ) {
+          return;
+        }
+
+        const overlay =
+          document.createElement(
+            'div'
+          );
+
+        overlay.setAttribute(
+          'aria-hidden',
+          'true'
+        );
+
+        const computed =
+          window.getComputedStyle(
+            host
+          );
+
+        Object.assign(
+          overlay.style,
+          {
+            position: 'fixed',
+            zIndex: '9999989',
+            pointerEvents: 'none',
+            borderRadius:
+              computed.borderRadius ||
+              '6px',
+            backgroundColor:
+              'transparent',
+            opacity: '1',
+            transition:
+              'background-color 120ms linear',
+            willChange:
+              'background-color'
+          }
+        );
+
+        document.body.appendChild(
+          overlay
+        );
+
+        aiProgressTileOverlays.set(
+          host,
+          overlay
+        );
+      }
+    );
+
+    updateAiProgressTileOverlayPositions();
+  }
+
+  function applyAiProgressTileScan(
+    elapsed
+  ) {
+    if (
+      aiProgressReducedMotion ||
+      !aiProgressTileHosts.length
+    ) {
+      return;
+    }
+
+    const count =
+      aiProgressTileHosts.length;
+
+    const columns =
+      Math.min(4, count);
+
+    const rows =
+      Math.ceil(
+        count / columns
+      );
+
+    const phaseDuration = 2400;
+    const cycleDuration =
+      phaseDuration * 4;
+
+    const cycle =
+      Math.floor(
+        elapsed / cycleDuration
+      );
+
+    const cycleElapsed =
+      elapsed % cycleDuration;
+
+    const phase =
+      Math.floor(
+        cycleElapsed /
+          phaseDuration
+      );
+
+    const local =
+      (
+        cycleElapsed %
+          phaseDuration
+      ) /
+      phaseDuration;
+
+    const alphaByIndex =
+      new Array(count).fill(0);
+
+    let colorName = 'purple';
+
+    if (phase === 0) {
+      colorName = 'purple';
+
+      const sweep =
+        local *
+          (columns + 1) -
+        0.5;
+
+      aiProgressTileHosts
+        .forEach(
+          (_, index) => {
+            const column =
+              index % columns;
+
+            const distance =
+              Math.abs(
+                column - sweep
+              );
+
+            alphaByIndex[index] =
+              Math.max(
+                0,
+                0.18 *
+                  (
+                    1 -
+                    distance / 1.35
+                  )
+              );
+          }
+        );
+    } else if (phase === 1) {
+      colorName = 'blue';
+
+      const direction =
+        cycle % 2 === 0
+          ? local
+          : 1 - local;
+
+      const sweep =
+        direction *
+          (rows + 1) -
+        0.5;
+
+      aiProgressTileHosts
+        .forEach(
+          (_, index) => {
+            const row =
+              Math.floor(
+                index / columns
+              );
+
+            const distance =
+              Math.abs(
+                row - sweep
+              );
+
+            alphaByIndex[index] =
+              Math.max(
+                0,
+                0.17 *
+                  (
+                    1 -
+                    distance / 1.25
+                  )
+              );
+          }
+        );
+    } else if (phase === 2) {
+      colorName = 'green';
+
+      const diagonalCount =
+        rows + columns - 1;
+
+      const direction =
+        cycle % 2 === 0
+          ? local
+          : 1 - local;
+
+      const sweep =
+        direction *
+          (diagonalCount + 1) -
+        0.5;
+
+      aiProgressTileHosts
+        .forEach(
+          (_, index) => {
+            const row =
+              Math.floor(
+                index / columns
+              );
+
+            const column =
+              index % columns;
+
+            const diagonal =
+              cycle % 2 === 0
+                ? row + column
+                : row +
+                  (
+                    columns -
+                    1 -
+                    column
+                  );
+
+            const distance =
+              Math.abs(
+                diagonal - sweep
+              );
+
+            alphaByIndex[index] =
+              Math.max(
+                0,
+                0.16 *
+                  (
+                    1 -
+                    distance / 1.25
+                  )
+              );
+          }
+        );
+    } else {
+      colorName = 'yellow';
+
+      const patternStep =
+        Math.floor(
+          local * 4
+        ) % 4;
+
+      const pulse =
+        0.08 +
+        0.09 *
+          (
+            (
+              Math.sin(
+                local *
+                  Math.PI *
+                  8
+              ) +
+              1
+            ) /
+            2
+          );
+
+      aiProgressTileHosts
+        .forEach(
+          (_, index) => {
+            const row =
+              Math.floor(
+                index / columns
+              );
+
+            const column =
+              index % columns;
+
+            const pattern =
+              (
+                row +
+                column * 2 +
+                patternStep +
+                cycle
+              ) %
+              4;
+
+            alphaByIndex[index] =
+              pattern === 0
+                ? pulse
+                : 0;
+          }
+        );
+    }
+
+    const color =
+      AI_COLORS[colorName];
+
+    aiProgressTileHosts
+      .forEach(
+        (host, index) => {
+          const overlay =
+            aiProgressTileOverlays
+              .get(host);
+
+          if (!overlay) return;
+
+          const alpha =
+            alphaByIndex[index];
+
+          overlay.style
+            .backgroundColor =
+            alpha > 0.005
+              ? hexToRgba(
+                  color,
+                  alpha
+                )
+              : 'transparent';
+        }
+      );
   }
 
   function animateAiProgress(timestamp) {
@@ -249,6 +773,10 @@
       color
     );
 
+    applyAiProgressTileScan(
+      elapsed
+    );
+
     aiProgressAnimationFrame =
       window.requestAnimationFrame(
         animateAiProgress
@@ -282,10 +810,16 @@
 
     aiProgressOverlay?.remove();
     aiProgressOverlay = null;
+
+    clearAiProgressTileOverlays();
   }
 
   function startAiProgress(indexedEntries) {
     stopAiProgress();
+
+    prepareAiProgressTiles(
+      indexedEntries
+    );
 
     const board =
       getBoardContainer(indexedEntries);
@@ -427,6 +961,152 @@
       );
   }
 
+  function primeAiCompletionSound() {
+    try {
+      const AudioContextClass =
+        window.AudioContext ||
+        window.webkitAudioContext;
+
+      if (!AudioContextClass) {
+        return;
+      }
+
+      if (!aiAudioContext) {
+        aiAudioContext =
+          new AudioContextClass();
+      }
+
+      if (
+        aiAudioContext.state ===
+        'suspended'
+      ) {
+        aiAudioContext
+          .resume()
+          .catch(() => {});
+      }
+    } catch (_) {
+      aiAudioContext = null;
+    }
+  }
+
+  function playAiCompletionSound() {
+    try {
+      if (
+        !aiAudioContext ||
+        aiAudioContext.state ===
+          'closed'
+      ) {
+        return;
+      }
+
+      if (
+        aiAudioContext.state ===
+        'suspended'
+      ) {
+        aiAudioContext
+          .resume()
+          .catch(() => {});
+      }
+
+      const now =
+        aiAudioContext.currentTime;
+
+      const master =
+        aiAudioContext.createGain();
+
+      master.gain.setValueAtTime(
+        0.0001,
+        now
+      );
+
+      master.gain.exponentialRampToValueAtTime(
+        0.035,
+        now + 0.025
+      );
+
+      master.gain.exponentialRampToValueAtTime(
+        0.0001,
+        now + 0.62
+      );
+
+      master.connect(
+        aiAudioContext.destination
+      );
+
+      [
+        {
+          frequency: 659.25,
+          start: 0,
+          duration: 0.34
+        },
+        {
+          frequency: 880,
+          start: 0.17,
+          duration: 0.38
+        }
+      ].forEach(note => {
+        const oscillator =
+          aiAudioContext
+            .createOscillator();
+
+        const noteGain =
+          aiAudioContext
+            .createGain();
+
+        oscillator.type = 'sine';
+
+        oscillator.frequency
+          .setValueAtTime(
+            note.frequency,
+            now + note.start
+          );
+
+        noteGain.gain
+          .setValueAtTime(
+            0.0001,
+            now + note.start
+          );
+
+        noteGain.gain
+          .exponentialRampToValueAtTime(
+            0.42,
+            now +
+              note.start +
+              0.018
+          );
+
+        noteGain.gain
+          .exponentialRampToValueAtTime(
+            0.0001,
+            now +
+              note.start +
+              note.duration
+          );
+
+        oscillator.connect(
+          noteGain
+        );
+
+        noteGain.connect(
+          master
+        );
+
+        oscillator.start(
+          now + note.start
+        );
+
+        oscillator.stop(
+          now +
+            note.start +
+            note.duration +
+            0.03
+        );
+      });
+    } catch (_) {
+      // A completion sound is optional.
+    }
+  }
+
   function formatTokenCount(value) {
     return Number.isFinite(value)
       ? value.toLocaleString()
@@ -516,15 +1196,31 @@
     );
   }
 
-  function requestAiSolution(token, indexedEntries) {
+  function requestAiSolution(
+    token,
+    indexedEntries,
+    confirmedGroups = [],
+    rejectedGroups = []
+  ) {
     const payload = {
+      profile: 'connections-solver-v2',
       request_id: makeRequestId(),
       subject_ref: 'connections:nyt:live',
       data: {
         tiles: indexedEntries.map(entry => ({
           id: entry.id,
           word: entry.word
-        }))
+        })),
+        confirmed_groups:
+          confirmedGroups.map(group => ({
+            color: group.color,
+            label: group.label,
+            words: [...group.words]
+          })),
+        rejected_groups:
+          rejectedGroups.map(words => ({
+            words: [...words]
+          }))
       }
     };
 
@@ -590,20 +1286,36 @@
     });
   }
 
-  function validateAiSolution(solution, indexedEntries) {
+  function validateAiSolution(
+    solution,
+    indexedEntries,
+    confirmedGroups = []
+  ) {
+    const expectedGroupCount =
+      indexedEntries.length / 4;
+
     if (
       !solution ||
       solution.ok !== true ||
       !Array.isArray(solution.groups) ||
-      solution.groups.length !== 4
+      solution.groups.length !==
+        expectedGroupCount
     ) {
       throw new Error(
-        'The AI service did not return four groups.'
+        'The AI service did not return the expected number of remaining groups.'
       );
     }
 
     const validIds = new Set(
       indexedEntries.map(entry => entry.id)
+    );
+
+    const confirmedColors = new Set(
+      confirmedGroups
+        .map(group => group.color)
+        .filter(color =>
+          AI_COLOR_ORDER.includes(color)
+        )
     );
 
     const seenIds = new Set();
@@ -613,6 +1325,7 @@
       if (
         !group ||
         !AI_COLOR_ORDER.includes(group.color) ||
+        confirmedColors.has(group.color) ||
         seenColors.has(group.color)
       ) {
         throw new Error(
@@ -632,7 +1345,10 @@
       }
 
       group.tile_ids.forEach(id => {
-        if (!validIds.has(id) || seenIds.has(id)) {
+        if (
+          !validIds.has(id) ||
+          seenIds.has(id)
+        ) {
           throw new Error(
             'The AI service returned an invalid tile assignment.'
           );
@@ -643,16 +1359,470 @@
     });
 
     if (
-      seenIds.size !== 16 ||
-      seenColors.size !== 4
+      seenIds.size !== indexedEntries.length ||
+      seenColors.size !==
+        expectedGroupCount
     ) {
       throw new Error(
-        'The AI service returned an incomplete solution.'
+        'The AI service returned an incomplete remaining solution.'
       );
     }
   }
 
+  function setArrangeAiButtonState(
+    enabled
+  ) {
+    if (!arrangeAiButton) return;
+
+    arrangeAiButton.disabled =
+      !enabled;
+
+    arrangeAiButton.style.opacity =
+      enabled
+        ? '1'
+        : '0.55';
+
+    arrangeAiButton.style.cursor =
+      enabled
+        ? 'pointer'
+        : 'default';
+
+    arrangeAiButton.textContent =
+      aiArrangementActive
+        ? 'Restore Puzzle Order'
+        : 'Arrange AI Groups';
+  }
+
+  function getVisualTileEntries() {
+    return getTileEntries()
+      .map((entry, index) => ({
+        entry,
+        index,
+        rect:
+          getTileHost(
+            entry.element
+          )
+            ?.getBoundingClientRect()
+      }))
+      .filter(item =>
+        item.rect
+      )
+      .sort((a, b) => {
+        const rowDelta =
+          a.rect.top -
+          b.rect.top;
+
+        if (
+          Math.abs(rowDelta) > 8
+        ) {
+          return rowDelta;
+        }
+
+        const columnDelta =
+          a.rect.left -
+          b.rect.left;
+
+        if (
+          Math.abs(columnDelta) > 8
+        ) {
+          return columnDelta;
+        }
+
+        return (
+          a.index -
+          b.index
+        );
+      })
+      .map(item =>
+        item.entry
+      );
+  }
+
+  function findAiArrangementLayout(
+    entries
+  ) {
+    const hosts =
+      entries
+        .map(entry =>
+          getTileHost(
+            entry.element
+          )
+        )
+        .filter(Boolean);
+
+    if (
+      !hosts.length ||
+      hosts.length !==
+        entries.length
+    ) {
+      return null;
+    }
+
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
+    let candidate =
+      hosts[0].parentElement;
+
+    while (
+      candidate &&
+      candidate !== root
+    ) {
+      if (
+        hosts.every(host =>
+          candidate.contains(host)
+        )
+      ) {
+        const display =
+          window.getComputedStyle(
+            candidate
+          ).display;
+
+        if (
+          display === 'grid' ||
+          display ===
+            'inline-grid' ||
+          display === 'flex' ||
+          display ===
+            'inline-flex'
+        ) {
+          const items =
+            hosts.map(host => {
+              let item = host;
+
+              while (
+                item.parentElement &&
+                item.parentElement !==
+                  candidate
+              ) {
+                item =
+                  item.parentElement;
+              }
+
+              return (
+                item.parentElement ===
+                  candidate
+                  ? item
+                  : null
+              );
+            });
+
+          if (
+            items.every(Boolean) &&
+            new Set(items).size ===
+              items.length
+          ) {
+            return {
+              board: candidate,
+              items
+            };
+          }
+        }
+      }
+
+      candidate =
+        candidate.parentElement;
+    }
+
+    return null;
+  }
+
+  function getCurrentAiArrangementGroups() {
+    if (!aiFeedbackState) {
+      return [];
+    }
+
+    const visibleWords =
+      new Set(
+        getTileEntries()
+          .map(entry =>
+            normalizeWord(
+              entry.word
+            )
+          )
+      );
+
+    return Object.entries(
+      aiFeedbackState
+        .originalByColor
+    )
+      .map(
+        ([originalColor, group]) => {
+          const state =
+            getAiCardState(
+              originalColor
+            );
+
+          if (!state) return null;
+
+          if (
+            state.status ===
+              'confirmed' ||
+            state.status ===
+              'moved-confirmed'
+          ) {
+            return null;
+          }
+
+          const words =
+            (group.words || [])
+              .filter(word =>
+                visibleWords.has(
+                  normalizeWord(word)
+                )
+              );
+
+          if (
+            words.length !== 4
+          ) {
+            return null;
+          }
+
+          const effectiveColor =
+            state.group?.color ||
+            originalColor;
+
+          return {
+            color:
+              effectiveColor,
+            words
+          };
+        }
+      )
+      .filter(Boolean)
+      .sort((a, b) =>
+        AI_COLOR_ORDER.indexOf(
+          a.color
+        ) -
+        AI_COLOR_ORDER.indexOf(
+          b.color
+        )
+      );
+  }
+
+  function restoreAiPuzzleOrder(
+    announce = false
+  ) {
+    aiArrangementOriginalOrders
+      .forEach(
+        (originalOrder, item) => {
+          if (
+            item?.isConnected
+          ) {
+            item.style.order =
+              originalOrder;
+          }
+        }
+      );
+
+    aiArrangementOriginalOrders
+      .clear();
+
+    aiArrangementWordRank
+      .clear();
+
+    const wasActive =
+      aiArrangementActive;
+
+    aiArrangementActive = false;
+
+    setArrangeAiButtonState(
+      Boolean(
+        aiFeedbackState
+      )
+    );
+
+    if (
+      announce &&
+      wasActive
+    ) {
+      showToast(
+        'Puzzle order restored.'
+      );
+    }
+  }
+
+  function applyAiGroupArrangement(
+    announce = true,
+    captureOriginalOrder = false
+  ) {
+    if (!aiFeedbackState) {
+      return false;
+    }
+
+    const visualEntries =
+      getVisualTileEntries();
+
+    if (
+      ![4, 8, 12, 16]
+        .includes(
+          visualEntries.length
+        )
+    ) {
+      return false;
+    }
+
+    const layout =
+      findAiArrangementLayout(
+        visualEntries
+      );
+
+    if (!layout) {
+      if (announce) {
+        showToast(
+          'Could not safely rearrange this puzzle layout.'
+        );
+      }
+
+      return false;
+    }
+
+    if (
+      captureOriginalOrder ||
+      !aiArrangementWordRank.size
+    ) {
+      aiArrangementWordRank
+        .clear();
+
+      visualEntries.forEach(
+        (entry, index) => {
+          aiArrangementWordRank
+            .set(
+              normalizeWord(
+                entry.word
+              ),
+              index
+            );
+        }
+      );
+    }
+
+    const itemByWord =
+      new Map();
+
+    visualEntries.forEach(
+      (entry, index) => {
+        const item =
+          layout.items[index];
+
+        const word =
+          normalizeWord(
+            entry.word
+          );
+
+        itemByWord.set(
+          word,
+          item
+        );
+
+        if (
+          !aiArrangementOriginalOrders
+            .has(item)
+        ) {
+          aiArrangementOriginalOrders
+            .set(
+              item,
+              item.style.order
+            );
+        }
+      }
+    );
+
+    const groups =
+      getCurrentAiArrangementGroups();
+
+    if (
+      !groups.length ||
+      groups.reduce(
+        (sum, group) =>
+          sum +
+          group.words.length,
+        0
+      ) !==
+        visualEntries.length
+    ) {
+      if (announce) {
+        showToast(
+          'The current AI grouping could not be matched to all remaining tiles.'
+        );
+      }
+
+      return false;
+    }
+
+    let order = 0;
+
+    groups.forEach(group => {
+      [...group.words]
+        .sort((a, b) => {
+          const aRank =
+            aiArrangementWordRank
+              .get(
+                normalizeWord(a)
+              ) ??
+            Number.MAX_SAFE_INTEGER;
+
+          const bRank =
+            aiArrangementWordRank
+              .get(
+                normalizeWord(b)
+              ) ??
+            Number.MAX_SAFE_INTEGER;
+
+          return aRank - bRank;
+        })
+        .forEach(word => {
+          const item =
+            itemByWord.get(
+              normalizeWord(
+                word
+              )
+            );
+
+          if (!item) return;
+
+          item.style.order =
+            String(order);
+
+          order += 1;
+        });
+    });
+
+    aiArrangementActive = true;
+
+    setArrangeAiButtonState(
+      true
+    );
+
+    if (announce) {
+      showToast(
+        'AI groups arranged into rows. Use Restore Puzzle Order to undo it.'
+      );
+    }
+
+    return true;
+  }
+
+  function toggleAiGroupArrangement() {
+    if (aiArrangementActive) {
+      restoreAiPuzzleOrder(
+        true
+      );
+
+      return;
+    }
+
+    applyAiGroupArrangement(
+      true,
+      true
+    );
+  }
+
   function clearAiHints() {
+    restoreAiPuzzleOrder();
+
     aiStyledElements.forEach(
       (original, element) => {
         element.style.boxShadow = original.boxShadow;
@@ -667,6 +1837,17 @@
 
     aiStyledElements.clear();
 
+    aiFeedbackState = null;
+    pendingNytSubmission = null;
+    trackedSelectedWords.clear();
+
+    if (feedbackCheckTimer) {
+      window.clearTimeout(
+        feedbackCheckTimer
+      );
+      feedbackCheckTimer = null;
+    }
+
     document
       .querySelector('#categories-ai-results')
       ?.remove();
@@ -676,6 +1857,10 @@
       clearAiButton.style.opacity = '0.55';
       clearAiButton.style.cursor = 'default';
     }
+
+    setArrangeAiButtonState(
+      false
+    );
   }
 
   function ensureAiSummaryStyles() {
@@ -752,13 +1937,1637 @@
     );
   }
 
+  function normalizeWord(value) {
+    return String(value || '')
+      .trim()
+      .toUpperCase();
+  }
+
+  function wordSetKey(words) {
+    return [...words]
+      .map(normalizeWord)
+      .filter(Boolean)
+      .sort()
+      .join('\u0001');
+  }
+
+  function visiblePuzzleWords() {
+    return [
+      ...new Set(
+        getTileEntries()
+          .filter(entry =>
+            entry.element
+              ?.getClientRects()
+              ?.length
+          )
+          .map(entry =>
+            entry.word?.trim()
+          )
+          .filter(Boolean)
+      )
+    ];
+  }
+
+  function initializeAiFeedback(
+    groups,
+    indexedEntries,
+    confirmedGroups = []
+  ) {
+    const wordById =
+      new Map(
+        indexedEntries.map(entry => [
+          entry.id,
+          entry.word
+        ])
+      );
+
+    const originalByColor = {};
+
+    groups.forEach(group => {
+      originalByColor[group.color] = {
+        ...group,
+        words: group.tile_ids
+          .map(id =>
+            wordById.get(id) || id
+          )
+      };
+    });
+
+    const confirmedByColor = {};
+
+    confirmedGroups.forEach(group => {
+      if (
+        group &&
+        AI_COLOR_ORDER.includes(
+          group.color
+        ) &&
+        Array.isArray(group.words) &&
+        group.words.length === 4
+      ) {
+        confirmedByColor[group.color] = {
+          color: group.color,
+          label:
+            group.label ||
+            'NYT confirmed group',
+          words: [...group.words]
+        };
+      }
+    });
+
+    aiFeedbackState = {
+      originalByColor,
+      confirmedByColor,
+      rejectedKeys: new Set(),
+      allPuzzleWords: [
+        ...new Set([
+          ...indexedEntries
+            .map(entry => entry.word)
+            .filter(Boolean),
+          ...Object.values(
+            confirmedByColor
+          )
+            .flatMap(group =>
+              group.words || []
+            )
+        ])
+      ]
+    };
+  }
+
+  function parseRgb(value) {
+    const match =
+      String(value || '').match(
+        /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/
+      );
+
+    if (!match) return null;
+
+    return [
+      Number(match[1]),
+      Number(match[2]),
+      Number(match[3])
+    ];
+  }
+
+  function nearestConnectionsColor(rgb) {
+    if (!rgb) return null;
+
+    const targets = {
+      yellow: [249, 223, 109],
+      green: [160, 195, 90],
+      blue: [176, 196, 239],
+      purple: [186, 129, 197]
+    };
+
+    let best = null;
+    let bestDistance = Infinity;
+
+    Object.entries(targets)
+      .forEach(([name, target]) => {
+        const distance =
+          Math.sqrt(
+            Math.pow(
+              rgb[0] - target[0],
+              2
+            ) +
+            Math.pow(
+              rgb[1] - target[1],
+              2
+            ) +
+            Math.pow(
+              rgb[2] - target[2],
+              2
+            )
+          );
+
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = name;
+        }
+      });
+
+    return bestDistance <= 95
+      ? best
+      : null;
+  }
+
+  function inferNytGroupColor(container) {
+    const elements = [
+      container,
+      ...container.querySelectorAll('*')
+    ];
+
+    let ancestor =
+      container.parentElement;
+
+    for (
+      let depth = 0;
+      ancestor &&
+      depth < 5;
+      depth += 1,
+      ancestor = ancestor.parentElement
+    ) {
+      elements.push(ancestor);
+    }
+
+    for (const element of elements) {
+      if (
+        !element?.getClientRects?.()
+          .length
+      ) {
+        continue;
+      }
+
+      const color =
+        nearestConnectionsColor(
+          parseRgb(
+            window
+              .getComputedStyle(element)
+              .backgroundColor
+          )
+        );
+
+      if (color) return color;
+    }
+
+    return null;
+  }
+
+  function inferNytGroupLabel(
+    container,
+    words
+  ) {
+    const normalizedWords =
+      new Set(
+        words.map(normalizeWord)
+      );
+
+    const ignored = [
+      'CREATE FOUR GROUPS OF FOUR!',
+      'MISTAKES REMAINING:',
+      'SHUFFLE',
+      'DESELECT ALL',
+      'SUBMIT'
+    ];
+
+    const candidates = [
+      container,
+      ...container.querySelectorAll('*')
+    ]
+      .filter(element =>
+        element.getClientRects().length
+      )
+      .map(element =>
+        element.textContent?.trim()
+      )
+      .filter(Boolean)
+      .filter((text, index, array) =>
+        array.indexOf(text) === index
+      )
+      .filter(text => {
+        const normalized =
+          normalizeWord(text);
+
+        if (
+          normalizedWords.has(
+            normalized
+          )
+        ) {
+          return false;
+        }
+
+        if (
+          ignored.includes(
+            normalized
+          )
+        ) {
+          return false;
+        }
+
+        const wordHits =
+          words.filter(word =>
+            normalized.includes(
+              normalizeWord(word)
+            )
+          ).length;
+
+        return (
+          text.length >= 3 &&
+          text.length <= 120 &&
+          wordHits <= 1
+        );
+      })
+      .sort(
+        (a, b) =>
+          a.length - b.length
+      );
+
+    return (
+      candidates[0] ||
+      'NYT confirmed group'
+    );
+  }
+
+  function findNytSolvedGroupInfo(words) {
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
+    if (!root) {
+      return {
+        color: null,
+        label: 'NYT confirmed group'
+      };
+    }
+
+    const normalizedWords =
+      words.map(normalizeWord);
+
+    const candidates = [
+      ...root.querySelectorAll(
+        'div, section, article, li'
+      )
+    ]
+      .filter(element =>
+        element.getClientRects().length
+      )
+      .filter(element => {
+        const text =
+          normalizeWord(
+            element.textContent
+          );
+
+        return normalizedWords
+          .every(word =>
+            text.includes(word)
+          );
+      })
+      .sort((a, b) => {
+        const aText =
+          a.textContent?.trim()
+            .length || Infinity;
+
+        const bText =
+          b.textContent?.trim()
+            .length || Infinity;
+
+        if (aText !== bText) {
+          return aText - bText;
+        }
+
+        const aRect =
+          a.getBoundingClientRect();
+
+        const bRect =
+          b.getBoundingClientRect();
+
+        return (
+          aRect.width * aRect.height -
+          bRect.width * bRect.height
+        );
+      });
+
+    const container =
+      candidates[0] || root;
+
+    return {
+      color:
+        inferNytGroupColor(
+          container
+        ),
+      label:
+        inferNytGroupLabel(
+          container,
+          words
+        )
+    };
+  }
+
+  function getTentativeColorMap() {
+    const mapping = new Map();
+
+    if (!aiFeedbackState) {
+      return mapping;
+    }
+
+    const confirmedColors =
+      new Set(
+        Object.keys(
+          aiFeedbackState
+            .confirmedByColor
+        )
+      );
+
+    const confirmedGroupKeys =
+      new Set(
+        Object.values(
+          aiFeedbackState
+            .confirmedByColor
+        )
+          .map(group =>
+            wordSetKey(
+              group.words
+            )
+          )
+      );
+
+    const unconfirmed =
+      Object.entries(
+        aiFeedbackState
+          .originalByColor
+      )
+        .filter(([, group]) =>
+          !confirmedGroupKeys.has(
+            wordSetKey(
+              group.words
+            )
+          )
+        );
+
+    const availableColors =
+      AI_COLOR_ORDER
+        .filter(color =>
+          !confirmedColors.has(
+            color
+          )
+        );
+
+    const used =
+      new Set();
+
+    unconfirmed.forEach(
+      ([originalColor]) => {
+        if (
+          availableColors.includes(
+            originalColor
+          ) &&
+          !used.has(
+            originalColor
+          )
+        ) {
+          mapping.set(
+            originalColor,
+            originalColor
+          );
+
+          used.add(
+            originalColor
+          );
+        }
+      }
+    );
+
+    const remainingColors =
+      availableColors
+        .filter(color =>
+          !used.has(color)
+        );
+
+    unconfirmed.forEach(
+      ([originalColor]) => {
+        if (
+          mapping.has(
+            originalColor
+          )
+        ) {
+          return;
+        }
+
+        const nextColor =
+          remainingColors
+            .shift();
+
+        if (nextColor) {
+          mapping.set(
+            originalColor,
+            nextColor
+          );
+        }
+      }
+    );
+
+    return mapping;
+  }
+
+  function getAiCardState(color) {
+    if (!aiFeedbackState) {
+      return null;
+    }
+
+    const original =
+      aiFeedbackState
+        .originalByColor[color];
+
+    const actualAtColor =
+      aiFeedbackState
+        .confirmedByColor[color];
+
+    if (original) {
+      const originalKey =
+        wordSetKey(
+          original.words
+        );
+
+      const confirmedEntry =
+        Object.entries(
+          aiFeedbackState
+            .confirmedByColor
+        ).find(([, group]) =>
+          wordSetKey(group.words) ===
+          originalKey
+        );
+
+      if (confirmedEntry) {
+        const [
+          nytColor,
+          actual
+        ] = confirmedEntry;
+
+        return {
+          group: actual,
+          status:
+            nytColor === color
+              ? 'confirmed'
+              : 'moved-confirmed',
+          statusText:
+            '✓ NYT CONFIRMED',
+          note:
+            nytColor === color
+              ? 'The AI grouping matched the NYT result.'
+              : 'AI originally assigned this group to ' +
+                color.toUpperCase() +
+                '.'
+        };
+      }
+
+      if (
+        aiFeedbackState
+          .rejectedKeys
+          .has(originalKey)
+      ) {
+        return {
+          group: original,
+          status: 'rejected',
+          statusText:
+            '✕ REJECTED BY NYT',
+          note:
+            'Oops — NYT rejected this four-word grouping.'
+        };
+      }
+
+      const tentativeColor =
+        getTentativeColorMap()
+          .get(color) ||
+        color;
+
+      if (
+        tentativeColor !==
+          color
+      ) {
+        return {
+          group: {
+            ...original,
+            color:
+              tentativeColor
+          },
+          status:
+            'tentative-swap',
+          statusText:
+            'TENTATIVE COLOR SWAP',
+          note:
+            'AI originally guessed ' +
+            color.toUpperCase() +
+            '; ' +
+            color.toUpperCase() +
+            ' is now confirmed elsewhere.'
+        };
+      }
+
+      return {
+        group: original,
+        status: 'guess',
+        statusText: '',
+        note:
+          original.explanation
+      };
+    }
+
+    if (actualAtColor) {
+      return {
+        group: actualAtColor,
+        status: 'confirmed',
+        statusText:
+          '✓ NYT CONFIRMED',
+        note:
+          'Already solved by NYT before this AI pass.'
+      };
+    }
+
+    return null;
+  }
+
+  function refreshAiHintStylesFromFeedback() {
+    if (!aiFeedbackState) return;
+
+    const entryByWord =
+      new Map(
+        getTileEntries()
+          .map(entry => [
+            normalizeWord(
+              entry.word
+            ),
+            entry
+          ])
+      );
+
+    Object.entries(
+      aiFeedbackState
+        .originalByColor
+    ).forEach(
+      ([originalColor, group]) => {
+        const state =
+          getAiCardState(
+            originalColor
+          );
+
+        if (!state) return;
+
+        const confirmed =
+          state.status ===
+            'confirmed' ||
+          state.status ===
+            'moved-confirmed';
+
+        if (confirmed) {
+          return;
+        }
+
+        const displayColor =
+          state.group?.color ||
+          originalColor;
+
+        const color =
+          AI_COLORS[
+            displayColor
+          ] ||
+          AI_COLORS[
+            originalColor
+          ];
+
+        const tentative =
+          state.status ===
+            'tentative-swap';
+
+        group.words.forEach(word => {
+          const entry =
+            entryByWord.get(
+              normalizeWord(word)
+            );
+
+          if (!entry) return;
+
+          const host =
+            getTileHost(
+              entry.element
+            );
+
+          if (!host) return;
+
+          host.style.boxShadow =
+            tentative
+              ? (
+                  'inset 0 0 0 3px ' +
+                  hexToRgba(
+                    color,
+                    0.72
+                  )
+                )
+              : (
+                  'inset 0 0 0 4px ' +
+                  color
+                );
+
+          host.style.outline =
+            tentative
+              ? (
+                  '2px dashed ' +
+                  color
+                )
+              : (
+                  '2px solid ' +
+                  color
+                );
+
+          host.style.outlineOffset =
+            '2px';
+
+          host.setAttribute(
+            'data-swiftclick-ai-color',
+            tentative
+              ? (
+                  'tentative-' +
+                  displayColor
+                )
+              : displayColor
+          );
+        });
+      }
+    );
+  }
+
+  function rerenderAiFeedback() {
+    if (!aiFeedbackState) return;
+
+    const entries =
+      getTileEntries();
+
+    const indexedEntries =
+      Object.values(
+        aiFeedbackState
+          .originalByColor
+      )
+        .flatMap(group =>
+          group.tile_ids.map(
+            (id, index) => ({
+              id,
+              word:
+                group.words[index]
+            })
+          )
+        );
+
+    renderAiSummary(
+      AI_COLOR_ORDER
+        .map(color =>
+          aiFeedbackState
+            .originalByColor[color]
+        )
+        .filter(Boolean),
+      indexedEntries,
+      null,
+      true
+    );
+
+    refreshAiHintStylesFromFeedback();
+
+    if (aiArrangementActive) {
+      applyAiGroupArrangement(
+        false,
+        false
+      );
+    }
+  }
+
+  function getOriginalAiWords() {
+    if (!aiFeedbackState) {
+      return [];
+    }
+
+    if (
+      Array.isArray(
+        aiFeedbackState
+          .allPuzzleWords
+      ) &&
+      aiFeedbackState
+        .allPuzzleWords
+        .length
+    ) {
+      return [
+        ...aiFeedbackState
+          .allPuzzleWords
+      ];
+    }
+
+    return [
+      ...new Set(
+        Object.values(
+          aiFeedbackState
+            .originalByColor
+        )
+          .flatMap(group =>
+            group.words || []
+          )
+          .filter(Boolean)
+      )
+    ];
+  }
+
+  function extractConfirmedWords(
+    element
+  ) {
+    const textCandidates = [
+      element.innerText || '',
+      ...[
+        ...element.querySelectorAll(
+          '*'
+        )
+      ]
+        .filter(node =>
+          node.getClientRects().length
+        )
+        .map(node =>
+          node.textContent?.trim() ||
+          ''
+        )
+    ]
+      .map(text =>
+        text.trim()
+      )
+      .filter(Boolean);
+
+    for (
+      const text of
+        textCandidates
+    ) {
+      const lines =
+        text.split(/\n+/)
+          .map(line =>
+            line.trim()
+          )
+          .filter(Boolean);
+
+      for (const line of lines) {
+        const words =
+          line.split(',')
+            .map(word =>
+              word.trim()
+            )
+            .filter(Boolean);
+
+        if (
+          words.length === 4 &&
+          words.every(
+            word =>
+              word.length > 0 &&
+              word.length <= 100
+          )
+        ) {
+          return words;
+        }
+      }
+    }
+
+    return [];
+  }
+
+  function getNytConfirmedGroupsFromBoard() {
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
+    if (!root) return [];
+
+    const visibleElements = [
+      root,
+      ...root.querySelectorAll('*')
+    ]
+      .filter(element =>
+        element.getClientRects().length
+      );
+
+    const candidates = [];
+
+    visibleElements.forEach(
+      element => {
+        const directColor =
+          nearestConnectionsColor(
+            parseRgb(
+              window
+                .getComputedStyle(
+                  element
+                )
+                .backgroundColor
+            )
+          );
+
+        if (!directColor) {
+          return;
+        }
+
+        const searchBlocks = [
+          element
+        ];
+
+        let parent =
+          element.parentElement;
+
+        for (
+          let depth = 0;
+          parent &&
+          parent !== root &&
+          depth < 3;
+          depth += 1,
+          parent =
+            parent.parentElement
+        ) {
+          searchBlocks.push(parent);
+        }
+
+        for (
+          const block of
+            searchBlocks
+        ) {
+          const words =
+            extractConfirmedWords(
+              block
+            );
+
+          if (
+            words.length !== 4
+          ) {
+            continue;
+          }
+
+          const rect =
+            block
+              .getBoundingClientRect();
+
+          candidates.push({
+            element: block,
+            color: directColor,
+            words,
+            label:
+              inferNytGroupLabel(
+                block,
+                words
+              ),
+            textLength:
+              block.textContent
+                ?.trim()
+                .length ||
+              Infinity,
+            area:
+              rect.width *
+              rect.height
+          });
+
+          break;
+        }
+      }
+    );
+
+    // Fallback for NYT markup where the
+    // colored background sits on an
+    // ancestor/descendant separate from
+    // the text block.
+    visibleElements
+      .filter(element =>
+        /div|section|article|li/i
+          .test(
+            element.tagName
+          )
+      )
+      .forEach(element => {
+        const words =
+          extractConfirmedWords(
+            element
+          );
+
+        if (
+          words.length !== 4
+        ) {
+          return;
+        }
+
+        const color =
+          inferNytGroupColor(
+            element
+          );
+
+        if (!color) return;
+
+        const rect =
+          element
+            .getBoundingClientRect();
+
+        candidates.push({
+          element,
+          color,
+          words,
+          label:
+            inferNytGroupLabel(
+              element,
+              words
+            ),
+          textLength:
+            element.textContent
+              ?.trim()
+              .length ||
+            Infinity,
+          area:
+            rect.width *
+            rect.height
+        });
+      });
+
+    const bestByColor = {};
+
+    candidates.forEach(
+      candidate => {
+        const current =
+          bestByColor[
+            candidate.color
+          ];
+
+        if (
+          !current ||
+          candidate.textLength <
+            current.textLength ||
+          (
+            candidate.textLength ===
+              current.textLength &&
+            candidate.area <
+              current.area
+          )
+        ) {
+          bestByColor[
+            candidate.color
+          ] = candidate;
+        }
+      }
+    );
+
+    return AI_COLOR_ORDER
+      .map(color =>
+        bestByColor[color]
+      )
+      .filter(Boolean)
+      .map(candidate => ({
+        color:
+          candidate.color,
+        label:
+          candidate.label ||
+          'NYT confirmed group',
+        words:
+          [...candidate.words]
+      }));
+  }
+
+  function scanNytConfirmedGroups() {
+    if (!aiFeedbackState) return;
+
+    const confirmed =
+      getNytConfirmedGroupsFromBoard();
+
+    if (!confirmed.length) {
+      return;
+    }
+
+    let changed = false;
+
+    confirmed.forEach(group => {
+      const existing =
+        aiFeedbackState
+          .confirmedByColor[
+            group.color
+          ];
+
+      const nextKey =
+        wordSetKey(
+          group.words
+        );
+
+      const existingKey =
+        existing
+          ? wordSetKey(
+              existing.words
+            )
+          : '';
+
+      if (
+        nextKey !== existingKey ||
+        group.label !==
+          existing?.label
+      ) {
+        aiFeedbackState
+          .confirmedByColor[
+            group.color
+          ] = {
+            color:
+              group.color,
+            words:
+              [...group.words],
+            label:
+              group.label
+          };
+
+        aiFeedbackState
+          .rejectedKeys
+          .delete(nextKey);
+
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      rerenderAiFeedback();
+    }
+  }
+
+  function getClickedTileWord(target) {
+    const direct =
+      target?.closest?.(
+        '[data-testid="card-label"][data-flip-id]'
+      );
+
+    if (direct) {
+      return direct
+        .getAttribute(
+          'data-flip-id'
+        )
+        ?.trim() || '';
+    }
+
+    const host =
+      target?.closest?.(
+        'button, [role="button"], label'
+      );
+
+    const nested =
+      host?.querySelector?.(
+        '[data-testid="card-label"][data-flip-id]'
+      );
+
+    if (nested) {
+      return nested
+        .getAttribute(
+          'data-flip-id'
+        )
+        ?.trim() || '';
+    }
+
+    return '';
+  }
+
+  function trackTileSelectionClick(
+    target
+  ) {
+    const word =
+      getClickedTileWord(
+        target
+      );
+
+    if (!word) return false;
+
+    if (
+      trackedSelectedWords
+        .has(word)
+    ) {
+      trackedSelectedWords
+        .delete(word);
+    } else {
+      trackedSelectedWords
+        .add(word);
+    }
+
+    return true;
+  }
+
+  function recordNytConfirmedGroup(
+    words
+  ) {
+    if (!aiFeedbackState) return;
+
+    const key =
+      wordSetKey(words);
+
+    const authoritative =
+      getNytConfirmedGroupsFromBoard()
+        .find(group =>
+          wordSetKey(
+            group.words
+          ) === key
+        );
+
+    const info =
+      authoritative ||
+      findNytSolvedGroupInfo(
+        words
+      );
+
+    let color =
+      info.color;
+
+    if (!color) {
+      const matchingOriginal =
+        Object.entries(
+          aiFeedbackState
+            .originalByColor
+        ).find(([, group]) =>
+          wordSetKey(group.words) ===
+          key
+        );
+
+      color =
+        matchingOriginal?.[0] ||
+        AI_COLOR_ORDER.find(
+          name =>
+            !aiFeedbackState
+              .confirmedByColor[name]
+        );
+    }
+
+    if (!color) return;
+
+    aiFeedbackState
+      .confirmedByColor[color] = {
+        color,
+        words: [...words],
+        label:
+          info.label ||
+          'NYT confirmed group'
+      };
+
+    aiFeedbackState
+      .rejectedKeys
+      .delete(key);
+
+    rerenderAiFeedback();
+  }
+
+  function recordNytRejectedGroup(
+    words
+  ) {
+    rememberRejectedGroup(
+      words
+    );
+
+    if (!aiFeedbackState) {
+      return;
+    }
+
+    aiFeedbackState
+      .rejectedKeys
+      .add(
+        wordSetKey(words)
+      );
+
+    rerenderAiFeedback();
+  }
+
+  function parseCssRgb(value) {
+    const match =
+      String(value || '').match(
+        /rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?/
+      );
+
+    if (!match) return null;
+
+    return {
+      red: Number(match[1]),
+      green: Number(match[2]),
+      blue: Number(match[3]),
+      alpha:
+        match[4] === undefined
+          ? 1
+          : Number(match[4])
+    };
+  }
+
+  function getVisuallySelectedWords() {
+    return getTileEntries()
+      .filter(entry => {
+        const host =
+          getTileHost(
+            entry.element
+          );
+
+        if (!host) return false;
+
+        const style =
+          window.getComputedStyle(host);
+
+        const rgb =
+          parseCssRgb(
+            style.backgroundColor
+          );
+
+        if (
+          !rgb ||
+          rgb.alpha <= 0
+        ) {
+          return false;
+        }
+
+        const luminance =
+          (
+            0.2126 * rgb.red +
+            0.7152 * rgb.green +
+            0.0722 * rgb.blue
+          );
+
+        return luminance < 165;
+      })
+      .map(entry =>
+        entry.word?.trim()
+      )
+      .filter(Boolean);
+  }
+
+  function getMistakesRemainingCount() {
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
+    if (!root) return null;
+
+    const elements = [
+      ...root.querySelectorAll('*')
+    ];
+
+    const label =
+      elements.find(element => {
+        const text =
+          element.textContent
+            ?.trim();
+
+        return (
+          text ===
+            'Mistakes Remaining:' ||
+          text ===
+            'Mistakes Remaining'
+        );
+      });
+
+    if (!label) return null;
+
+    const directMatch =
+      label.textContent
+        ?.match(
+          /Mistakes Remaining:\s*(\d+)/
+        );
+
+    if (directMatch) {
+      return Number(
+        directMatch[1]
+      );
+    }
+
+    let node =
+      label.parentElement;
+
+    for (
+      let depth = 0;
+      node &&
+      depth < 4;
+      depth += 1,
+      node = node.parentElement
+    ) {
+      const ariaCandidates = [
+        ...node.querySelectorAll(
+          '[aria-label], [title]'
+        )
+      ];
+
+      for (
+        const candidate of
+          ariaCandidates
+      ) {
+        const text = (
+          candidate.getAttribute(
+            'aria-label'
+          ) ||
+          candidate.getAttribute(
+            'title'
+          ) ||
+          ''
+        );
+
+        const match =
+          text.match(
+            /mistake[^0-9]*(\d+)/i
+          );
+
+        if (match) {
+          return Number(
+            match[1]
+          );
+        }
+      }
+
+      const dots = [
+        ...node.querySelectorAll('*')
+      ]
+        .filter(element => {
+          if (
+            element === label ||
+            element.contains(label)
+          ) {
+            return false;
+          }
+
+          if (
+            !element
+              .getClientRects()
+              .length
+          ) {
+            return false;
+          }
+
+          if (
+            element.children.length
+          ) {
+            return false;
+          }
+
+          const rect =
+            element
+              .getBoundingClientRect();
+
+          if (
+            rect.width < 6 ||
+            rect.width > 24 ||
+            rect.height < 6 ||
+            rect.height > 24 ||
+            Math.abs(
+              rect.width -
+              rect.height
+            ) > 5
+          ) {
+            return false;
+          }
+
+          const style =
+            window.getComputedStyle(
+              element
+            );
+
+          const rgb =
+            parseCssRgb(
+              style.backgroundColor
+            );
+
+          if (
+            !rgb ||
+            rgb.alpha <= 0
+          ) {
+            return false;
+          }
+
+          const radius =
+            parseFloat(
+              style.borderRadius
+            ) || 0;
+
+          return (
+            radius >=
+            Math.min(
+              rect.width,
+              rect.height
+            ) * 0.3
+          );
+        });
+
+      if (
+        dots.length >= 0 &&
+        dots.length <= 4
+      ) {
+        if (
+          dots.length > 0 ||
+          depth >= 1
+        ) {
+          return dots.length;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function processPendingNytSubmission() {
+    if (!pendingNytSubmission) {
+      return;
+    }
+
+    const elapsed =
+      Date.now() -
+      pendingNytSubmission.startedAt;
+
+    const pendingWords =
+      pendingNytSubmission
+        .words;
+
+    const pendingKey =
+      wordSetKey(
+        pendingWords
+      );
+
+    // Accepted NYT groups are
+    // authoritative. Check for a solved
+    // colored block before inferring a
+    // rejection from any other signal.
+    const solvedGroup =
+      getNytConfirmedGroupsFromBoard()
+        .find(group =>
+          wordSetKey(
+            group.words
+          ) === pendingKey
+        );
+
+    if (solvedGroup) {
+      pendingNytSubmission = null;
+      trackedSelectedWords.clear();
+
+      aiFeedbackState
+        .confirmedByColor[
+          solvedGroup.color
+        ] = {
+          color:
+            solvedGroup.color,
+          words:
+            [...solvedGroup.words],
+          label:
+            solvedGroup.label
+        };
+
+      aiFeedbackState
+        .rejectedKeys
+        .delete(pendingKey);
+
+      rerenderAiFeedback();
+      return;
+    }
+
+    const currentWords =
+      visiblePuzzleWords();
+
+    const currentSet =
+      new Set(
+        currentWords.map(
+          normalizeWord
+        )
+      );
+
+    const removed =
+      pendingNytSubmission
+        .beforeWords
+        .filter(word =>
+          !currentSet.has(
+            normalizeWord(word)
+          )
+        );
+
+    if (removed.length === 4) {
+      pendingNytSubmission = null;
+      trackedSelectedWords.clear();
+
+      window.setTimeout(
+        () =>
+          recordNytConfirmedGroup(
+            removed
+          ),
+        120
+      );
+
+      return;
+    }
+
+    const currentMistakes =
+      getMistakesRemainingCount();
+
+    const mistakeDropped =
+      Number.isInteger(
+        pendingNytSubmission
+          .beforeMistakes
+      ) &&
+      Number.isInteger(
+        currentMistakes
+      ) &&
+      currentMistakes <
+        pendingNytSubmission
+          .beforeMistakes;
+
+    if (mistakeDropped) {
+      const rejected =
+        pendingNytSubmission
+          .words;
+
+      pendingNytSubmission = null;
+      trackedSelectedWords.clear();
+
+      recordNytRejectedGroup(
+        rejected
+      );
+
+      return;
+    }
+
+    // No time-based rejection fallback:
+    // accepted groups can remain visible
+    // while NYT animates them into the
+    // solved-area block.
+    if (elapsed < 6500) {
+      feedbackCheckTimer =
+        window.setTimeout(
+          processPendingNytSubmission,
+          300
+        );
+    } else {
+      pendingNytSubmission = null;
+      trackedSelectedWords.clear();
+
+      // One last authoritative scan in
+      // case NYT's animation settled late.
+      scanNytConfirmedGroups();
+    }
+  }
+
+  function captureNytSubmission() {
+    if (!aiFeedbackState) return;
+
+    let words =
+      getSelectedWords();
+
+    if (words.length !== 4) {
+      words =
+        getVisuallySelectedWords();
+    }
+
+    if (words.length !== 4) {
+      return;
+    }
+
+    pendingNytSubmission = {
+      words: [
+        ...new Set(words)
+      ],
+      beforeWords:
+        visiblePuzzleWords(),
+      beforeMistakes:
+        getMistakesRemainingCount(),
+      startedAt: Date.now()
+    };
+
+    if (feedbackCheckTimer) {
+      window.clearTimeout(
+        feedbackCheckTimer
+      );
+    }
+
+    feedbackCheckTimer =
+      window.setTimeout(
+        processPendingNytSubmission,
+        350
+      );
+  }
+
   function createAiSummaryCard(
     group,
-    wordById
+    wordById,
+    cardState = null
   ) {
-    const color =
+    const status =
+      cardState?.status || 'guess';
+
+    const baseColor =
       AI_COLORS[group.color] ||
       '#cccccc';
+
+    const color =
+      baseColor;
 
     const card =
       document.createElement('section');
@@ -767,14 +3576,35 @@
       'swiftclick-ai-summary-card';
 
     Object.assign(card.style, {
-      border: '1px solid #e2e2e2',
+      border:
+        status === 'tentative-swap'
+          ? (
+              '1px dashed ' +
+              color
+            )
+          : '1px solid #e2e2e2',
       borderRadius: '10px',
       overflow: 'hidden',
-      background: '#fff',
+      background:
+        status === 'tentative-swap'
+          ? hexToRgba(
+              color,
+              0.045
+            )
+          : '#fff',
       display: 'flex',
       flexDirection: 'column',
-      minWidth: '0'
+      minWidth: '0',
+      opacity: '1'
     });
+
+    const displayWords =
+      Array.isArray(group.words)
+        ? group.words
+        : group.tile_ids.map(
+            id =>
+              wordById.get(id) || id
+          );
 
     const stripe =
       document.createElement('div');
@@ -782,7 +3612,11 @@
     Object.assign(stripe.style, {
       height: '5px',
       flex: '0 0 auto',
-      background: color
+      background: color,
+      opacity:
+        status === 'tentative-swap'
+          ? '0.58'
+          : '1'
     });
 
     const body =
@@ -823,6 +3657,31 @@
       minHeight: '31px'
     });
 
+    const statusLine =
+      document.createElement('div');
+
+    if (cardState?.statusText) {
+      statusLine.textContent =
+        cardState.statusText;
+
+      Object.assign(
+        statusLine.style,
+        {
+          fontWeight: '850',
+          fontSize: '9.5px',
+          letterSpacing: '.025em',
+          lineHeight: '1.15',
+          color:
+            status === 'rejected' ||
+            status === 'corrected'
+              ? '#9b2c2c'
+              : status === 'tentative-swap'
+                ? '#7a5b00'
+                : '#555'
+        }
+      );
+    }
+
     const wordGrid =
       document.createElement('div');
 
@@ -836,13 +3695,13 @@
       marginTop: '1px'
     });
 
-    group.tile_ids.forEach(
-      (id, index) => {
+    displayWords.forEach(
+      (word, index) => {
         const chip =
           document.createElement('div');
 
         chip.textContent =
-          wordById.get(id) || id;
+          word;
 
         Object.assign(chip.style, {
           padding: '6px 5px',
@@ -879,19 +3738,43 @@
       document.createElement('div');
 
     explanation.textContent =
-      group.explanation;
+      cardState?.note ||
+      group.explanation ||
+      '';
 
     Object.assign(explanation.style, {
-      color: '#666',
+      color:
+        status === 'tentative-swap'
+          ? '#555'
+          : '#666',
       fontSize: '10.5px',
+      fontWeight:
+        status === 'tentative-swap'
+          ? '650'
+          : '400',
       lineHeight: '1.25',
       marginTop: '1px'
     });
 
     body.append(
-      colorName,
-      label,
-      wordGrid,
+      colorName
+    );
+
+    if (cardState?.statusText) {
+      body.appendChild(
+        statusLine
+      );
+    }
+
+    body.appendChild(
+      label
+    );
+
+    body.appendChild(
+      wordGrid
+    );
+
+    body.appendChild(
       explanation
     );
 
@@ -903,7 +3786,13 @@
     return card;
   }
 
-  function renderAiSummary(groups, indexedEntries, solution) {
+  function renderAiSummary(
+    groups,
+    indexedEntries,
+    solution,
+    preserveFeedbackState = false,
+    confirmedGroups = []
+  ) {
     ensureAiSummaryStyles();
 
     document
@@ -924,6 +3813,14 @@
         entry.word
       ])
     );
+
+    if (!preserveFeedbackState) {
+      initializeAiFeedback(
+        groups,
+        indexedEntries,
+        confirmedGroups
+      );
+    }
 
     const panel =
       document.createElement('div');
@@ -963,20 +3860,152 @@
     grid.className =
       'swiftclick-ai-summary-grid';
 
-    [...groups]
-      .sort(
-        (a, b) =>
-          AI_COLOR_ORDER.indexOf(a.color) -
-          AI_COLOR_ORDER.indexOf(b.color)
-      )
-      .forEach(group => {
+    const cardDescriptors = [];
+    const renderedGroupKeys =
+      new Set();
+
+    const addCardDescriptor = (
+      group,
+      cardState
+    ) => {
+      if (!group) return;
+
+      const displayWords =
+        Array.isArray(group.words)
+          ? group.words
+          : (
+              Array.isArray(
+                group.tile_ids
+              )
+                ? group.tile_ids
+                    .map(id =>
+                      wordById.get(id) ||
+                      id
+                    )
+                : []
+            );
+
+      const key =
+        wordSetKey(
+          displayWords
+        );
+
+      if (
+        !key ||
+        renderedGroupKeys.has(key)
+      ) {
+        return;
+      }
+
+      renderedGroupKeys.add(key);
+
+      cardDescriptors.push({
+        group,
+        cardState
+      });
+    };
+
+    AI_COLOR_ORDER
+      .forEach(originalColor => {
+        const original =
+          aiFeedbackState
+            ?.originalByColor
+            ?.[originalColor];
+
+        if (!original) return;
+
+        const cardState =
+          getAiCardState(
+            originalColor
+          );
+
+        addCardDescriptor(
+          cardState?.group ||
+            original,
+          cardState
+        );
+      });
+
+    const originalWords =
+      new Set(
+        Object.values(
+          aiFeedbackState
+            ?.originalByColor ||
+            {}
+        )
+          .flatMap(group =>
+            group.words || []
+          )
+          .map(word =>
+            normalizeWord(word)
+          )
+      );
+
+    AI_COLOR_ORDER
+      .forEach(color => {
+        const confirmed =
+          aiFeedbackState
+            ?.confirmedByColor
+            ?.[color];
+
+        if (!confirmed) return;
+
+        const key =
+          wordSetKey(
+            confirmed.words || []
+          );
+
+        if (
+          !key ||
+          renderedGroupKeys.has(key)
+        ) {
+          return;
+        }
+
+        const preSolved =
+          (confirmed.words || [])
+            .every(word =>
+              !originalWords.has(
+                normalizeWord(word)
+              )
+            );
+
+        addCardDescriptor(
+          confirmed,
+          {
+            group: confirmed,
+            status: 'confirmed',
+            statusText:
+              '✓ NYT CONFIRMED',
+            note:
+              preSolved
+                ? 'Already solved by NYT before this AI pass.'
+                : 'NYT confirmed this group.'
+          }
+        );
+      });
+
+    cardDescriptors.sort(
+      (a, b) =>
+        AI_COLOR_ORDER.indexOf(
+          a.group.color
+        ) -
+        AI_COLOR_ORDER.indexOf(
+          b.group.color
+        )
+    );
+
+    cardDescriptors.forEach(
+      ({ group, cardState }) => {
         grid.appendChild(
           createAiSummaryCard(
             group,
-            wordById
+            wordById,
+            cardState
           )
         );
-      });
+      }
+    );
 
     panel.append(
       heading,
@@ -994,7 +4023,11 @@
     });
   }
 
-  function applyAiHints(solution, indexedEntries) {
+  function applyAiHints(
+    solution,
+    indexedEntries,
+    confirmedGroups = []
+  ) {
     clearAiHints();
 
     const entryById = new Map(
@@ -1042,7 +4075,9 @@
     renderAiSummary(
       solution.groups,
       indexedEntries,
-      solution
+      solution,
+      false,
+      confirmedGroups
     );
 
     if (clearAiButton) {
@@ -1050,20 +4085,45 @@
       clearAiButton.style.opacity = '1';
       clearAiButton.style.cursor = 'pointer';
     }
+
+    setArrangeAiButtonState(
+      true
+    );
   }
 
   async function solveWithAi(button) {
     const entries = getTileEntries();
 
-    if (entries.length !== 16) {
+    if (
+      ![4, 8, 12, 16]
+        .includes(entries.length)
+    ) {
       alert(
-        'AI Solve needs an untouched 16-tile Connections board. The script currently sees ' +
+        'AI Solve needs 4, 8, 12, or 16 unsolved Connections tiles. The script currently sees ' +
         entries.length +
         ' tile' +
         (entries.length === 1 ? '' : 's') +
         '.'
       );
       return;
+    }
+
+    const confirmedGroups =
+      getNytConfirmedGroupsFromBoard();
+
+    const expectedSolvedGroups =
+      (16 - entries.length) / 4;
+
+    if (
+      entries.length < 16 &&
+      confirmedGroups.length <
+        expectedSolvedGroups
+    ) {
+      showToast(
+        'Continuing from the ' +
+        entries.length +
+        ' remaining tiles. Some already-solved NYT group details could not be read, so color tracking may be incomplete.'
+      );
     }
 
     let token = getStoredAiToken();
@@ -1083,6 +4143,11 @@
       })
     );
 
+    const rejectedGroups =
+      getRejectedGroupsForEntries(
+        indexedEntries
+      );
+
     const originalText = button.textContent;
 
     button.disabled = true;
@@ -1090,27 +4155,56 @@
     button.style.opacity = '0.7';
     button.style.cursor = 'wait';
 
+    primeAiCompletionSound();
     startAiProgress(indexedEntries);
 
     try {
       const solution =
         await requestAiSolution(
           token,
-          indexedEntries
+          indexedEntries,
+          confirmedGroups,
+          rejectedGroups
         );
+
+      stopAiProgress();
 
       validateAiSolution(
         solution,
-        indexedEntries
+        indexedEntries,
+        confirmedGroups
       );
 
       applyAiHints(
         solution,
-        indexedEntries
+        indexedEntries,
+        confirmedGroups
       );
 
+      playAiCompletionSound();
+
       showToast(
-        'AI solution received. No guesses were submitted.'
+        (
+          entries.length === 16
+            ? 'AI solution received.'
+            : 'AI picked up the puzzle in progress and solved the remaining ' +
+              entries.length +
+              ' tiles.'
+        ) +
+        (
+          rejectedGroups.length
+            ? ' It avoided ' +
+              rejectedGroups.length +
+              ' NYT-rejected grouping' +
+              (
+                rejectedGroups.length === 1
+                  ? ''
+                  : 's'
+              ) +
+              '.'
+            : ''
+        ) +
+        ' No guesses were submitted.'
       );
     } catch (error) {
       if (error?.status === 401) {
@@ -1793,6 +4887,15 @@
     clearAiButton.style.opacity = '0.55';
     clearAiButton.style.cursor = 'default';
 
+    arrangeAiButton = makeButton(
+      'Arrange AI Groups',
+      toggleAiGroupArrangement
+    );
+
+    arrangeAiButton.disabled = true;
+    arrangeAiButton.style.opacity = '0.55';
+    arrangeAiButton.style.cursor = 'default';
+
     const solveButton = makeButton(
       'Ask GPT',
       () => showConfirmationModal('normal')
@@ -1811,6 +4914,7 @@
     toolbar.append(
       aiSolveButton,
       clearAiButton,
+      arrangeAiButton,
       solveButton,
       reverseButton,
       selectedButton
@@ -1847,8 +4951,61 @@
     );
   }
 
+  document.addEventListener(
+    'click',
+    event => {
+      trackTileSelectionClick(
+        event.target
+      );
+
+      const button =
+        event.target?.closest?.(
+          'button'
+        );
+
+      if (!button) return;
+
+      const buttonText =
+        button.textContent
+          ?.trim()
+          .toLowerCase() || '';
+
+      if (
+        buttonText ===
+        'deselect all'
+      ) {
+        trackedSelectedWords
+          .clear();
+
+        return;
+      }
+
+      if (
+        buttonText !==
+        'submit'
+      ) {
+        return;
+      }
+
+      captureNytSubmission();
+    },
+    true
+  );
+
   const observer = new MutationObserver(() => {
     addToolbar();
+
+    if (pendingNytSubmission) {
+      window.setTimeout(
+        processPendingNytSubmission,
+        80
+      );
+    }
+
+    window.setTimeout(
+      scanNytConfirmedGroups,
+      120
+    );
 
     window.requestAnimationFrame(() => {
       applyCompactGameLayout();

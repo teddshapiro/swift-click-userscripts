@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.3.7
+// @version      1.3.8
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.7';
+  const APP_VERSION = '1.3.8';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -49,6 +49,12 @@
 
   const aiStyledElements = new Map();
   let clearAiButton = null;
+  let arrangeAiButton = null;
+  let aiArrangementActive = false;
+  const aiArrangementOriginalOrders =
+    new Map();
+  const aiArrangementWordRank =
+    new Map();
   let aiProgressOverlay = null;
   let aiProgressAnimationFrame = null;
   let aiProgressResizeObserver = null;
@@ -1363,7 +1369,460 @@
     }
   }
 
+  function setArrangeAiButtonState(
+    enabled
+  ) {
+    if (!arrangeAiButton) return;
+
+    arrangeAiButton.disabled =
+      !enabled;
+
+    arrangeAiButton.style.opacity =
+      enabled
+        ? '1'
+        : '0.55';
+
+    arrangeAiButton.style.cursor =
+      enabled
+        ? 'pointer'
+        : 'default';
+
+    arrangeAiButton.textContent =
+      aiArrangementActive
+        ? 'Restore Puzzle Order'
+        : 'Arrange AI Groups';
+  }
+
+  function getVisualTileEntries() {
+    return getTileEntries()
+      .map((entry, index) => ({
+        entry,
+        index,
+        rect:
+          getTileHost(
+            entry.element
+          )
+            ?.getBoundingClientRect()
+      }))
+      .filter(item =>
+        item.rect
+      )
+      .sort((a, b) => {
+        const rowDelta =
+          a.rect.top -
+          b.rect.top;
+
+        if (
+          Math.abs(rowDelta) > 8
+        ) {
+          return rowDelta;
+        }
+
+        const columnDelta =
+          a.rect.left -
+          b.rect.left;
+
+        if (
+          Math.abs(columnDelta) > 8
+        ) {
+          return columnDelta;
+        }
+
+        return (
+          a.index -
+          b.index
+        );
+      })
+      .map(item =>
+        item.entry
+      );
+  }
+
+  function findAiArrangementLayout(
+    entries
+  ) {
+    const hosts =
+      entries
+        .map(entry =>
+          getTileHost(
+            entry.element
+          )
+        )
+        .filter(Boolean);
+
+    if (
+      !hosts.length ||
+      hosts.length !==
+        entries.length
+    ) {
+      return null;
+    }
+
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
+    let candidate =
+      hosts[0].parentElement;
+
+    while (
+      candidate &&
+      candidate !== root
+    ) {
+      if (
+        hosts.every(host =>
+          candidate.contains(host)
+        )
+      ) {
+        const display =
+          window.getComputedStyle(
+            candidate
+          ).display;
+
+        if (
+          display === 'grid' ||
+          display ===
+            'inline-grid' ||
+          display === 'flex' ||
+          display ===
+            'inline-flex'
+        ) {
+          const items =
+            hosts.map(host => {
+              let item = host;
+
+              while (
+                item.parentElement &&
+                item.parentElement !==
+                  candidate
+              ) {
+                item =
+                  item.parentElement;
+              }
+
+              return (
+                item.parentElement ===
+                  candidate
+                  ? item
+                  : null
+              );
+            });
+
+          if (
+            items.every(Boolean) &&
+            new Set(items).size ===
+              items.length
+          ) {
+            return {
+              board: candidate,
+              items
+            };
+          }
+        }
+      }
+
+      candidate =
+        candidate.parentElement;
+    }
+
+    return null;
+  }
+
+  function getCurrentAiArrangementGroups() {
+    if (!aiFeedbackState) {
+      return [];
+    }
+
+    const visibleWords =
+      new Set(
+        getTileEntries()
+          .map(entry =>
+            normalizeWord(
+              entry.word
+            )
+          )
+      );
+
+    return Object.entries(
+      aiFeedbackState
+        .originalByColor
+    )
+      .map(
+        ([originalColor, group]) => {
+          const state =
+            getAiCardState(
+              originalColor
+            );
+
+          if (!state) return null;
+
+          if (
+            state.status ===
+              'confirmed' ||
+            state.status ===
+              'moved-confirmed'
+          ) {
+            return null;
+          }
+
+          const words =
+            (group.words || [])
+              .filter(word =>
+                visibleWords.has(
+                  normalizeWord(word)
+                )
+              );
+
+          if (
+            words.length !== 4
+          ) {
+            return null;
+          }
+
+          const effectiveColor =
+            state.group?.color ||
+            originalColor;
+
+          return {
+            color:
+              effectiveColor,
+            words
+          };
+        }
+      )
+      .filter(Boolean)
+      .sort((a, b) =>
+        AI_COLOR_ORDER.indexOf(
+          a.color
+        ) -
+        AI_COLOR_ORDER.indexOf(
+          b.color
+        )
+      );
+  }
+
+  function restoreAiPuzzleOrder(
+    announce = false
+  ) {
+    aiArrangementOriginalOrders
+      .forEach(
+        (originalOrder, item) => {
+          if (
+            item?.isConnected
+          ) {
+            item.style.order =
+              originalOrder;
+          }
+        }
+      );
+
+    aiArrangementOriginalOrders
+      .clear();
+
+    aiArrangementWordRank
+      .clear();
+
+    const wasActive =
+      aiArrangementActive;
+
+    aiArrangementActive = false;
+
+    setArrangeAiButtonState(
+      Boolean(
+        aiFeedbackState
+      )
+    );
+
+    if (
+      announce &&
+      wasActive
+    ) {
+      showToast(
+        'Puzzle order restored.'
+      );
+    }
+  }
+
+  function applyAiGroupArrangement(
+    announce = true,
+    captureOriginalOrder = false
+  ) {
+    if (!aiFeedbackState) {
+      return false;
+    }
+
+    const visualEntries =
+      getVisualTileEntries();
+
+    if (
+      ![4, 8, 12, 16]
+        .includes(
+          visualEntries.length
+        )
+    ) {
+      return false;
+    }
+
+    const layout =
+      findAiArrangementLayout(
+        visualEntries
+      );
+
+    if (!layout) {
+      if (announce) {
+        showToast(
+          'Could not safely rearrange this puzzle layout.'
+        );
+      }
+
+      return false;
+    }
+
+    if (
+      captureOriginalOrder ||
+      !aiArrangementWordRank.size
+    ) {
+      aiArrangementWordRank
+        .clear();
+
+      visualEntries.forEach(
+        (entry, index) => {
+          aiArrangementWordRank
+            .set(
+              normalizeWord(
+                entry.word
+              ),
+              index
+            );
+        }
+      );
+    }
+
+    const itemByWord =
+      new Map();
+
+    visualEntries.forEach(
+      (entry, index) => {
+        const item =
+          layout.items[index];
+
+        const word =
+          normalizeWord(
+            entry.word
+          );
+
+        itemByWord.set(
+          word,
+          item
+        );
+
+        if (
+          !aiArrangementOriginalOrders
+            .has(item)
+        ) {
+          aiArrangementOriginalOrders
+            .set(
+              item,
+              item.style.order
+            );
+        }
+      }
+    );
+
+    const groups =
+      getCurrentAiArrangementGroups();
+
+    if (
+      !groups.length ||
+      groups.reduce(
+        (sum, group) =>
+          sum +
+          group.words.length,
+        0
+      ) !==
+        visualEntries.length
+    ) {
+      if (announce) {
+        showToast(
+          'The current AI grouping could not be matched to all remaining tiles.'
+        );
+      }
+
+      return false;
+    }
+
+    let order = 0;
+
+    groups.forEach(group => {
+      [...group.words]
+        .sort((a, b) => {
+          const aRank =
+            aiArrangementWordRank
+              .get(
+                normalizeWord(a)
+              ) ??
+            Number.MAX_SAFE_INTEGER;
+
+          const bRank =
+            aiArrangementWordRank
+              .get(
+                normalizeWord(b)
+              ) ??
+            Number.MAX_SAFE_INTEGER;
+
+          return aRank - bRank;
+        })
+        .forEach(word => {
+          const item =
+            itemByWord.get(
+              normalizeWord(
+                word
+              )
+            );
+
+          if (!item) return;
+
+          item.style.order =
+            String(order);
+
+          order += 1;
+        });
+    });
+
+    aiArrangementActive = true;
+
+    setArrangeAiButtonState(
+      true
+    );
+
+    if (announce) {
+      showToast(
+        'AI groups arranged into rows. Use Restore Puzzle Order to undo it.'
+      );
+    }
+
+    return true;
+  }
+
+  function toggleAiGroupArrangement() {
+    if (aiArrangementActive) {
+      restoreAiPuzzleOrder(
+        true
+      );
+
+      return;
+    }
+
+    applyAiGroupArrangement(
+      true,
+      true
+    );
+  }
+
   function clearAiHints() {
+    restoreAiPuzzleOrder();
+
     aiStyledElements.forEach(
       (original, element) => {
         element.style.boxShadow = original.boxShadow;
@@ -1398,6 +1857,10 @@
       clearAiButton.style.opacity = '0.55';
       clearAiButton.style.cursor = 'default';
     }
+
+    setArrangeAiButtonState(
+      false
+    );
   }
 
   function ensureAiSummaryStyles() {
@@ -2187,6 +2650,13 @@
     );
 
     refreshAiHintStylesFromFeedback();
+
+    if (aiArrangementActive) {
+      applyAiGroupArrangement(
+        false,
+        false
+      );
+    }
   }
 
   function getOriginalAiWords() {
@@ -3495,6 +3965,10 @@
       clearAiButton.style.opacity = '1';
       clearAiButton.style.cursor = 'pointer';
     }
+
+    setArrangeAiButtonState(
+      true
+    );
   }
 
   async function solveWithAi(button) {
@@ -4293,6 +4767,15 @@
     clearAiButton.style.opacity = '0.55';
     clearAiButton.style.cursor = 'default';
 
+    arrangeAiButton = makeButton(
+      'Arrange AI Groups',
+      toggleAiGroupArrangement
+    );
+
+    arrangeAiButton.disabled = true;
+    arrangeAiButton.style.opacity = '0.55';
+    arrangeAiButton.style.cursor = 'default';
+
     const solveButton = makeButton(
       'Ask GPT',
       () => showConfirmationModal('normal')
@@ -4311,6 +4794,7 @@
     toolbar.append(
       aiSolveButton,
       clearAiButton,
+      arrangeAiButton,
       solveButton,
       reverseButton,
       selectedButton

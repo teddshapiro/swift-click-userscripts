@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.3.9
+// @version      1.3.10
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.9';
+  const APP_VERSION = '1.3.10';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -3570,9 +3570,84 @@
     );
   }
 
-  function clickNativeTileHost(
-    host
+  function getNativeTileInput(
+    entry,
+    normalizedWord
   ) {
+    const root =
+      document.querySelector(
+        '#pz-game-root'
+      );
+
+    if (!root) return null;
+
+    if (
+      entry?.element?.matches?.(
+        'input[data-testid="card-input"]'
+      )
+    ) {
+      return entry.element;
+    }
+
+    const host =
+      getTileHost(
+        entry?.element
+      );
+
+    const nearby =
+      host?.querySelector?.(
+        'input[data-testid="card-input"]'
+      ) ||
+      entry?.element
+        ?.closest?.('label')
+        ?.querySelector?.(
+          'input[data-testid="card-input"]'
+        );
+
+    if (nearby) {
+      return nearby;
+    }
+
+    return [
+      ...root.querySelectorAll(
+        'input[data-testid="card-input"]'
+      )
+    ].find(input =>
+      normalizeWord(
+        input.value ||
+        input.getAttribute(
+          'aria-label'
+        ) ||
+        ''
+      ) === normalizedWord
+    ) || null;
+  }
+
+  function clickNativeTileControl(
+    entry,
+    normalizedWord
+  ) {
+    const input =
+      getNativeTileInput(
+        entry,
+        normalizedWord
+      );
+
+    if (
+      input &&
+      !input.disabled &&
+      typeof input.click ===
+        'function'
+    ) {
+      input.click();
+      return true;
+    }
+
+    const host =
+      getTileHost(
+        entry?.element
+      );
+
     if (
       !host ||
       typeof host.click !==
@@ -3669,14 +3744,10 @@
       const entry =
         entryByWord.get(word);
 
-      const host =
-        getTileHost(
-          entry?.element
-        );
-
       if (
-        clickNativeTileHost(
-          host
+        clickNativeTileControl(
+          entry,
+          word
         )
       ) {
         changed += 1;
@@ -3687,10 +3758,45 @@
       return;
     }
 
-    showToast(
-      onlyTargetSelected
-        ? 'AI group deselected.'
-        : 'AI group selected. Review it, then use NYT Submit when ready.'
+    window.setTimeout(
+      () => {
+        const selectedNow =
+          getCurrentSelectedWordSet();
+
+        const allTargetsSelected =
+          targetWords.every(word =>
+            selectedNow.has(word)
+          );
+
+        const noTargetsSelected =
+          targetWords.every(word =>
+            !selectedNow.has(word)
+          );
+
+        if (
+          (
+            !onlyTargetSelected &&
+            allTargetsSelected
+          ) ||
+          (
+            onlyTargetSelected &&
+            noTargetsSelected
+          )
+        ) {
+          showToast(
+            onlyTargetSelected
+              ? 'AI group deselected.'
+              : 'AI group selected. Review it, then use NYT Submit when ready.'
+          );
+
+          return;
+        }
+
+        showToast(
+          'The NYT tiles did not all change selection state. Try the card again or select them manually.'
+        );
+      },
+      80
     );
   }
 

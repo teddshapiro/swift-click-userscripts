@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.3.4
+// @version      1.3.5
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.4';
+  const APP_VERSION = '1.3.5';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -57,6 +57,107 @@
   let feedbackCheckTimer = null;
   const trackedSelectedWords =
     new Set();
+
+  let rejectedPuzzleKey = '';
+  const rejectedGroupMemory =
+    new Map();
+
+  function getPuzzleMemoryKey() {
+    const headingText = [
+      ...document.querySelectorAll(
+        'h1, h2'
+      )
+    ]
+      .map(element =>
+        element.textContent
+          ?.trim() || ''
+      )
+      .find(text =>
+        /Connections/i
+          .test(text)
+      );
+
+    return (
+      window.location.pathname +
+      '|' +
+      (headingText || '')
+    );
+  }
+
+  function ensureRejectedPuzzleMemory() {
+    const nextKey =
+      getPuzzleMemoryKey();
+
+    if (
+      rejectedPuzzleKey !==
+      nextKey
+    ) {
+      rejectedPuzzleKey =
+        nextKey;
+
+      rejectedGroupMemory
+        .clear();
+    }
+  }
+
+  function rememberRejectedGroup(
+    words
+  ) {
+    ensureRejectedPuzzleMemory();
+
+    const cleanWords = [
+      ...new Set(
+        words
+          .map(word =>
+            String(word || '')
+              .trim()
+          )
+          .filter(Boolean)
+      )
+    ];
+
+    if (
+      cleanWords.length !== 4
+    ) {
+      return;
+    }
+
+    rejectedGroupMemory.set(
+      wordSetKey(cleanWords),
+      cleanWords
+    );
+  }
+
+  function getRejectedGroupsForEntries(
+    indexedEntries
+  ) {
+    ensureRejectedPuzzleMemory();
+
+    const remainingWords =
+      new Set(
+        indexedEntries.map(
+          entry =>
+            normalizeWord(
+              entry.word
+            )
+        )
+      );
+
+    return [
+      ...rejectedGroupMemory
+        .values()
+    ]
+      .filter(words =>
+        words.every(word =>
+          remainingWords.has(
+            normalizeWord(word)
+          )
+        )
+      )
+      .map(words => [
+        ...words
+      ]);
+  }
 
   function getWords() {
     const root = document.querySelector('#pz-game-root');
@@ -548,7 +649,8 @@
   function requestAiSolution(
     token,
     indexedEntries,
-    confirmedGroups = []
+    confirmedGroups = [],
+    rejectedGroups = []
   ) {
     const payload = {
       profile: 'connections-solver-v2',
@@ -564,6 +666,10 @@
             color: group.color,
             label: group.label,
             words: [...group.words]
+          })),
+        rejected_groups:
+          rejectedGroups.map(words => ({
+            words: [...words]
           }))
       }
     };
@@ -1871,7 +1977,13 @@
   function recordNytRejectedGroup(
     words
   ) {
-    if (!aiFeedbackState) return;
+    rememberRejectedGroup(
+      words
+    );
+
+    if (!aiFeedbackState) {
+      return;
+    }
 
     aiFeedbackState
       .rejectedKeys
@@ -2746,6 +2858,11 @@
       })
     );
 
+    const rejectedGroups =
+      getRejectedGroupsForEntries(
+        indexedEntries
+      );
+
     const originalText = button.textContent;
 
     button.disabled = true;
@@ -2760,7 +2877,8 @@
         await requestAiSolution(
           token,
           indexedEntries,
-          confirmedGroups
+          confirmedGroups,
+          rejectedGroups
         );
 
       validateAiSolution(
@@ -2776,11 +2894,27 @@
       );
 
       showToast(
-        entries.length === 16
-          ? 'AI solution received. No guesses were submitted.'
-          : 'AI picked up the puzzle in progress and solved the remaining ' +
-            entries.length +
-            ' tiles. No guesses were submitted.'
+        (
+          entries.length === 16
+            ? 'AI solution received.'
+            : 'AI picked up the puzzle in progress and solved the remaining ' +
+              entries.length +
+              ' tiles.'
+        ) +
+        (
+          rejectedGroups.length
+            ? ' It avoided ' +
+              rejectedGroups.length +
+              ' NYT-rejected grouping' +
+              (
+                rejectedGroups.length === 1
+                  ? ''
+                  : 's'
+              ) +
+              '.'
+            : ''
+        ) +
+        ' No guesses were submitted.'
       );
     } catch (error) {
       if (error?.status === 401) {

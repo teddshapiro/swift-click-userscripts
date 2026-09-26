@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.3.1
+// @version      1.3.2
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.1';
+  const APP_VERSION = '1.3.2';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -984,9 +984,23 @@
       ...container.querySelectorAll('*')
     ];
 
+    let ancestor =
+      container.parentElement;
+
+    for (
+      let depth = 0;
+      ancestor &&
+      depth < 5;
+      depth += 1,
+      ancestor = ancestor.parentElement
+    ) {
+      elements.push(ancestor);
+    }
+
     for (const element of elements) {
       if (
-        !element.getClientRects().length
+        !element?.getClientRects?.()
+          .length
       ) {
         continue;
       }
@@ -1423,22 +1437,116 @@
 
     if (!root) return [];
 
-    const candidates = [
-      ...root.querySelectorAll(
-        'div, section, article, li'
-      )
+    const visibleElements = [
+      root,
+      ...root.querySelectorAll('*')
     ]
       .filter(element =>
         element.getClientRects().length
+      );
+
+    const candidates = [];
+
+    visibleElements.forEach(
+      element => {
+        const directColor =
+          nearestConnectionsColor(
+            parseRgb(
+              window
+                .getComputedStyle(
+                  element
+                )
+                .backgroundColor
+            )
+          );
+
+        if (!directColor) {
+          return;
+        }
+
+        const searchBlocks = [
+          element
+        ];
+
+        let parent =
+          element.parentElement;
+
+        for (
+          let depth = 0;
+          parent &&
+          parent !== root &&
+          depth < 3;
+          depth += 1,
+          parent =
+            parent.parentElement
+        ) {
+          searchBlocks.push(parent);
+        }
+
+        for (
+          const block of
+            searchBlocks
+        ) {
+          const words =
+            extractConfirmedWords(
+              block
+            );
+
+          if (
+            words.length !== 4
+          ) {
+            continue;
+          }
+
+          const rect =
+            block
+              .getBoundingClientRect();
+
+          candidates.push({
+            element: block,
+            color: directColor,
+            words,
+            label:
+              inferNytGroupLabel(
+                block,
+                words
+              ),
+            textLength:
+              block.textContent
+                ?.trim()
+                .length ||
+              Infinity,
+            area:
+              rect.width *
+              rect.height
+          });
+
+          break;
+        }
+      }
+    );
+
+    // Fallback for NYT markup where the
+    // colored background sits on an
+    // ancestor/descendant separate from
+    // the text block.
+    visibleElements
+      .filter(element =>
+        /div|section|article|li/i
+          .test(
+            element.tagName
+          )
       )
-      .map(element => {
+      .forEach(element => {
         const words =
           extractConfirmedWords(
             element
           );
 
-        if (words.length !== 4) {
-          return null;
+        if (
+          words.length !== 4
+        ) {
+          return;
         }
 
         const color =
@@ -1446,15 +1554,13 @@
             element
           );
 
-        if (!color) {
-          return null;
-        }
+        if (!color) return;
 
         const rect =
           element
             .getBoundingClientRect();
 
-        return {
+        candidates.push({
           element,
           color,
           words,
@@ -1466,13 +1572,13 @@
           textLength:
             element.textContent
               ?.trim()
-              .length || Infinity,
+              .length ||
+            Infinity,
           area:
             rect.width *
             rect.height
-        };
-      })
-      .filter(Boolean);
+        });
+      });
 
     const bestByColor = {};
 
@@ -1520,150 +1626,58 @@
   function scanNytConfirmedGroups() {
     if (!aiFeedbackState) return;
 
-    const root =
-      document.querySelector(
-        '#pz-game-root'
-      );
+    const confirmed =
+      getNytConfirmedGroupsFromBoard();
 
-    if (!root) return;
-
-    const originalWords =
-      getOriginalAiWords();
-
-    if (
-      originalWords.length !== 16
-    ) {
+    if (!confirmed.length) {
       return;
     }
 
-    const candidates = [
-      ...root.querySelectorAll(
-        'div, section, article, li'
-      )
-    ]
-      .filter(element =>
-        element.getClientRects().length
-      )
-      .map(element => {
-        const text =
-          normalizeWord(
-            element.textContent
-          );
-
-        const matchedWords =
-          originalWords.filter(
-            word =>
-              text.includes(
-                normalizeWord(word)
-              )
-          );
-
-        if (
-          matchedWords.length !== 4
-        ) {
-          return null;
-        }
-
-        const color =
-          inferNytGroupColor(
-            element
-          );
-
-        if (!color) return null;
-
-        const rect =
-          element
-            .getBoundingClientRect();
-
-        return {
-          element,
-          color,
-          words: matchedWords,
-          label:
-            inferNytGroupLabel(
-              element,
-              matchedWords
-            ),
-          textLength:
-            element.textContent
-              ?.trim()
-              .length || Infinity,
-          area:
-            rect.width *
-            rect.height
-        };
-      })
-      .filter(Boolean);
-
-    const bestByColor = {};
-
-    candidates.forEach(
-      candidate => {
-        const current =
-          bestByColor[
-            candidate.color
-          ];
-
-        if (
-          !current ||
-          candidate.textLength <
-            current.textLength ||
-          (
-            candidate.textLength ===
-              current.textLength &&
-            candidate.area <
-              current.area
-          )
-        ) {
-          bestByColor[
-            candidate.color
-          ] = candidate;
-        }
-      }
-    );
-
     let changed = false;
 
-    AI_COLOR_ORDER
-      .forEach(color => {
-        const candidate =
-          bestByColor[color];
+    confirmed.forEach(group => {
+      const existing =
+        aiFeedbackState
+          .confirmedByColor[
+            group.color
+          ];
 
-        if (!candidate) return;
+      const nextKey =
+        wordSetKey(
+          group.words
+        );
 
-        const existing =
-          aiFeedbackState
-            .confirmedByColor[color];
+      const existingKey =
+        existing
+          ? wordSetKey(
+              existing.words
+            )
+          : '';
 
-        const nextKey =
-          wordSetKey(
-            candidate.words
-          );
+      if (
+        nextKey !== existingKey ||
+        group.label !==
+          existing?.label
+      ) {
+        aiFeedbackState
+          .confirmedByColor[
+            group.color
+          ] = {
+            color:
+              group.color,
+            words:
+              [...group.words],
+            label:
+              group.label
+          };
 
-        const existingKey =
-          existing
-            ? wordSetKey(
-                existing.words
-              )
-            : '';
+        aiFeedbackState
+          .rejectedKeys
+          .delete(nextKey);
 
-        if (
-          nextKey !== existingKey ||
-          candidate.label !==
-            existing?.label
-        ) {
-          aiFeedbackState
-            .confirmedByColor[color] = {
-              color,
-              words:
-                [...candidate.words],
-              label:
-                candidate.label
-            };
-
-          changed = true;
-        }
-      });
+        changed = true;
+      }
+    });
 
     if (changed) {
       rerenderAiFeedback();
@@ -1734,7 +1748,19 @@
   ) {
     if (!aiFeedbackState) return;
 
+    const key =
+      wordSetKey(words);
+
+    const authoritative =
+      getNytConfirmedGroupsFromBoard()
+        .find(group =>
+          wordSetKey(
+            group.words
+          ) === key
+        );
+
     const info =
+      authoritative ||
       findNytSolvedGroupInfo(
         words
       );
@@ -1749,7 +1775,7 @@
             .originalByColor
         ).find(([, group]) =>
           wordSetKey(group.words) ===
-          wordSetKey(words)
+          key
         );
 
       color =
@@ -1767,8 +1793,14 @@
       .confirmedByColor[color] = {
         color,
         words: [...words],
-        label: info.label
+        label:
+          info.label ||
+          'NYT confirmed group'
       };
+
+    aiFeedbackState
+      .rejectedKeys
+      .delete(key);
 
     rerenderAiFeedback();
   }
@@ -2026,6 +2058,51 @@
       Date.now() -
       pendingNytSubmission.startedAt;
 
+    const pendingWords =
+      pendingNytSubmission
+        .words;
+
+    const pendingKey =
+      wordSetKey(
+        pendingWords
+      );
+
+    // Accepted NYT groups are
+    // authoritative. Check for a solved
+    // colored block before inferring a
+    // rejection from any other signal.
+    const solvedGroup =
+      getNytConfirmedGroupsFromBoard()
+        .find(group =>
+          wordSetKey(
+            group.words
+          ) === pendingKey
+        );
+
+    if (solvedGroup) {
+      pendingNytSubmission = null;
+      trackedSelectedWords.clear();
+
+      aiFeedbackState
+        .confirmedByColor[
+          solvedGroup.color
+        ] = {
+          color:
+            solvedGroup.color,
+          words:
+            [...solvedGroup.words],
+          label:
+            solvedGroup.label
+        };
+
+      aiFeedbackState
+        .rejectedKeys
+        .delete(pendingKey);
+
+      rerenderAiFeedback();
+      return;
+    }
+
     const currentWords =
       visiblePuzzleWords();
 
@@ -2075,16 +2152,7 @@
         pendingNytSubmission
           .beforeMistakes;
 
-    if (
-      mistakeDropped &&
-      pendingNytSubmission
-        .words
-        .every(word =>
-          currentSet.has(
-            normalizeWord(word)
-          )
-        )
-    ) {
+    if (mistakeDropped) {
       const rejected =
         pendingNytSubmission
           .words;
@@ -2099,38 +2167,23 @@
       return;
     }
 
-    if (
-      elapsed >= 1600 &&
-      pendingNytSubmission
-        .words
-        .every(word =>
-          currentSet.has(
-            normalizeWord(word)
-          )
-        )
-    ) {
-      const rejected =
-        pendingNytSubmission
-          .words;
-
-      pendingNytSubmission = null;
-      trackedSelectedWords.clear();
-
-      recordNytRejectedGroup(
-        rejected
-      );
-
-      return;
-    }
-
-    if (elapsed < 4200) {
+    // No time-based rejection fallback:
+    // accepted groups can remain visible
+    // while NYT animates them into the
+    // solved-area block.
+    if (elapsed < 6500) {
       feedbackCheckTimer =
         window.setTimeout(
           processPendingNytSubmission,
-          350
+          300
         );
     } else {
       pendingNytSubmission = null;
+      trackedSelectedWords.clear();
+
+      // One last authoritative scan in
+      // case NYT's animation settled late.
+      scanNytConfirmedGroups();
     }
   }
 

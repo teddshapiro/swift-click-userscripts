@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.3.10
+// @version      1.3.11
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.10';
+  const APP_VERSION = '1.3.11';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -4211,24 +4211,143 @@
     grid.className =
       'swiftclick-ai-summary-grid';
 
-    AI_COLOR_ORDER
-      .forEach(color => {
-        const cardState =
-          getAiCardState(
-            color
-          );
+    const cardDescriptors = [];
+    const renderedGroupKeys =
+      new Set();
 
-        const group =
-          cardState?.group ||
+    const addCardDescriptor = (
+      group,
+      cardState
+    ) => {
+      if (!group) return;
+
+      const displayWords =
+        Array.isArray(group.words)
+          ? group.words
+          : (
+              Array.isArray(
+                group.tile_ids
+              )
+                ? group.tile_ids
+                    .map(id =>
+                      wordById.get(id) ||
+                      id
+                    )
+                : []
+            );
+
+      const key =
+        wordSetKey(
+          displayWords
+        );
+
+      if (
+        !key ||
+        renderedGroupKeys.has(key)
+      ) {
+        return;
+      }
+
+      renderedGroupKeys.add(key);
+
+      cardDescriptors.push({
+        group,
+        cardState
+      });
+    };
+
+    AI_COLOR_ORDER
+      .forEach(originalColor => {
+        const original =
           aiFeedbackState
             ?.originalByColor
-            ?.[color] ||
+            ?.[originalColor];
+
+        if (!original) return;
+
+        const cardState =
+          getAiCardState(
+            originalColor
+          );
+
+        addCardDescriptor(
+          cardState?.group ||
+            original,
+          cardState
+        );
+      });
+
+    const originalWords =
+      new Set(
+        Object.values(
+          aiFeedbackState
+            ?.originalByColor ||
+            {}
+        )
+          .flatMap(group =>
+            group.words || []
+          )
+          .map(word =>
+            normalizeWord(word)
+          )
+      );
+
+    AI_COLOR_ORDER
+      .forEach(color => {
+        const confirmed =
           aiFeedbackState
             ?.confirmedByColor
             ?.[color];
 
-        if (!group) return;
+        if (!confirmed) return;
 
+        const key =
+          wordSetKey(
+            confirmed.words || []
+          );
+
+        if (
+          !key ||
+          renderedGroupKeys.has(key)
+        ) {
+          return;
+        }
+
+        const preSolved =
+          (confirmed.words || [])
+            .every(word =>
+              !originalWords.has(
+                normalizeWord(word)
+              )
+            );
+
+        addCardDescriptor(
+          confirmed,
+          {
+            group: confirmed,
+            status: 'confirmed',
+            statusText:
+              '✓ NYT CONFIRMED',
+            note:
+              preSolved
+                ? 'Already solved by NYT before this AI pass.'
+                : 'NYT confirmed this group.'
+          }
+        );
+      });
+
+    cardDescriptors.sort(
+      (a, b) =>
+        AI_COLOR_ORDER.indexOf(
+          a.group.color
+        ) -
+        AI_COLOR_ORDER.indexOf(
+          b.group.color
+        )
+    );
+
+    cardDescriptors.forEach(
+      ({ group, cardState }) => {
         grid.appendChild(
           createAiSummaryCard(
             group,
@@ -4236,7 +4355,8 @@
             cardState
           )
         );
-      });
+      }
+    );
 
     panel.append(
       heading,

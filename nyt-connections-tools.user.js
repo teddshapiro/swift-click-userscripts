@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.3.11
+// @version      1.3.12
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.11';
+  const APP_VERSION = '1.3.12';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -3554,252 +3554,6 @@
       );
   }
 
-  function getCurrentSelectedWordSet() {
-    let words =
-      getSelectedWords();
-
-    if (!words.length) {
-      words =
-        getVisuallySelectedWords();
-    }
-
-    return new Set(
-      words.map(word =>
-        normalizeWord(word)
-      )
-    );
-  }
-
-  function getNativeTileInput(
-    entry,
-    normalizedWord
-  ) {
-    const root =
-      document.querySelector(
-        '#pz-game-root'
-      );
-
-    if (!root) return null;
-
-    if (
-      entry?.element?.matches?.(
-        'input[data-testid="card-input"]'
-      )
-    ) {
-      return entry.element;
-    }
-
-    const host =
-      getTileHost(
-        entry?.element
-      );
-
-    const nearby =
-      host?.querySelector?.(
-        'input[data-testid="card-input"]'
-      ) ||
-      entry?.element
-        ?.closest?.('label')
-        ?.querySelector?.(
-          'input[data-testid="card-input"]'
-        );
-
-    if (nearby) {
-      return nearby;
-    }
-
-    return [
-      ...root.querySelectorAll(
-        'input[data-testid="card-input"]'
-      )
-    ].find(input =>
-      normalizeWord(
-        input.value ||
-        input.getAttribute(
-          'aria-label'
-        ) ||
-        ''
-      ) === normalizedWord
-    ) || null;
-  }
-
-  function clickNativeTileControl(
-    entry,
-    normalizedWord
-  ) {
-    const input =
-      getNativeTileInput(
-        entry,
-        normalizedWord
-      );
-
-    if (
-      input &&
-      !input.disabled &&
-      typeof input.click ===
-        'function'
-    ) {
-      input.click();
-      return true;
-    }
-
-    const host =
-      getTileHost(
-        entry?.element
-      );
-
-    if (
-      !host ||
-      typeof host.click !==
-        'function'
-    ) {
-      return false;
-    }
-
-    host.click();
-    return true;
-  }
-
-  function selectAiSummaryGroup(
-    words
-  ) {
-    const targetWords = [
-      ...new Set(
-        (words || [])
-          .map(word =>
-            normalizeWord(word)
-          )
-          .filter(Boolean)
-      )
-    ];
-
-    if (
-      targetWords.length !== 4
-    ) {
-      showToast(
-        'This AI group is no longer available to select.'
-      );
-      return;
-    }
-
-    const visibleEntries =
-      getTileEntries();
-
-    const entryByWord =
-      new Map(
-        visibleEntries.map(entry => [
-          normalizeWord(
-            entry.word
-          ),
-          entry
-        ])
-      );
-
-    const missing =
-      targetWords.filter(word =>
-        !entryByWord.has(word)
-      );
-
-    if (missing.length) {
-      showToast(
-        'This group has already been solved or is no longer fully visible.'
-      );
-      return;
-    }
-
-    const selected =
-      getCurrentSelectedWordSet();
-
-    const targetSet =
-      new Set(targetWords);
-
-    const targetAlreadySelected =
-      targetWords.every(word =>
-        selected.has(word)
-      );
-
-    const onlyTargetSelected =
-      targetAlreadySelected &&
-      [...selected].every(word =>
-        targetSet.has(word)
-      );
-
-    const wordsToToggle =
-      onlyTargetSelected
-        ? targetWords
-        : [
-            ...[
-              ...selected
-            ].filter(word =>
-              !targetSet.has(word)
-            ),
-            ...targetWords.filter(word =>
-              !selected.has(word)
-            )
-          ];
-
-    let changed = 0;
-
-    wordsToToggle.forEach(word => {
-      const entry =
-        entryByWord.get(word);
-
-      if (
-        clickNativeTileControl(
-          entry,
-          word
-        )
-      ) {
-        changed += 1;
-      }
-    });
-
-    if (!changed) {
-      return;
-    }
-
-    window.setTimeout(
-      () => {
-        const selectedNow =
-          getCurrentSelectedWordSet();
-
-        const allTargetsSelected =
-          targetWords.every(word =>
-            selectedNow.has(word)
-          );
-
-        const noTargetsSelected =
-          targetWords.every(word =>
-            !selectedNow.has(word)
-          );
-
-        if (
-          (
-            !onlyTargetSelected &&
-            allTargetsSelected
-          ) ||
-          (
-            onlyTargetSelected &&
-            noTargetsSelected
-          )
-        ) {
-          showToast(
-            onlyTargetSelected
-              ? 'AI group deselected.'
-              : 'AI group selected. Review it, then use NYT Submit when ready.'
-          );
-
-          return;
-        }
-
-        showToast(
-          'The NYT tiles did not all change selection state. Try the card again or select them manually.'
-        );
-      },
-      80
-    );
-  }
-
   function createAiSummaryCard(
     group,
     wordById,
@@ -3844,11 +3598,6 @@
       opacity: '1'
     });
 
-    const cardSelectable =
-      status !== 'confirmed' &&
-      status !==
-        'moved-confirmed';
-
     const displayWords =
       Array.isArray(group.words)
         ? group.words
@@ -3856,81 +3605,6 @@
             id =>
               wordById.get(id) || id
           );
-
-    if (cardSelectable) {
-      card.setAttribute(
-        'role',
-        'button'
-      );
-
-      card.setAttribute(
-        'tabindex',
-        '0'
-      );
-
-      card.setAttribute(
-        'aria-label',
-        'Select ' +
-          group.color.toUpperCase() +
-          ' AI group: ' +
-          displayWords.join(', ')
-      );
-
-      card.title =
-        'Click to select these four words in the puzzle. Click again to deselect them.';
-
-      card.style.cursor =
-        'pointer';
-
-      card.style.transition =
-        'transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease';
-
-      card.addEventListener(
-        'mouseenter',
-        () => {
-          card.style.transform =
-            'translateY(-1px)';
-
-          card.style.boxShadow =
-            '0 3px 10px rgba(0,0,0,.10)';
-        }
-      );
-
-      card.addEventListener(
-        'mouseleave',
-        () => {
-          card.style.transform = '';
-          card.style.boxShadow = '';
-        }
-      );
-
-      card.addEventListener(
-        'click',
-        () => {
-          selectAiSummaryGroup(
-            displayWords
-          );
-        }
-      );
-
-      card.addEventListener(
-        'keydown',
-        event => {
-          if (
-            event.key !== 'Enter' &&
-            event.key !== ' '
-          ) {
-            return;
-          }
-
-          event.preventDefault();
-
-          selectAiSummaryGroup(
-            displayWords
-          );
-        }
-      );
-    }
 
     const stripe =
       document.createElement('div');
@@ -4103,31 +3777,6 @@
     body.appendChild(
       explanation
     );
-
-    if (cardSelectable) {
-      const clickHint =
-        document.createElement(
-          'div'
-        );
-
-      clickHint.textContent =
-        'Click card to select this group';
-
-      Object.assign(
-        clickHint.style,
-        {
-          marginTop: '2px',
-          color: '#777',
-          fontSize: '9.5px',
-          fontWeight: '650',
-          lineHeight: '1.15'
-        }
-      );
-
-      body.appendChild(
-        clickHint
-      );
-    }
 
     card.append(
       stripe,

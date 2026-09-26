@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.3.3
+// @version      1.3.4
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.3';
+  const APP_VERSION = '1.3.4';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -1180,127 +1180,188 @@
       aiFeedbackState
         .originalByColor[color];
 
-    const actual =
+    const actualAtColor =
       aiFeedbackState
         .confirmedByColor[color];
 
-    if (actual) {
-      const actualKey =
-        wordSetKey(actual.words);
-
-      const sourceEntry =
-        Object.entries(
-          aiFeedbackState
-            .originalByColor
-        ).find(([, group]) =>
-          wordSetKey(group.words) ===
-          actualKey
+    if (original) {
+      const originalKey =
+        wordSetKey(
+          original.words
         );
 
-      const sourceColor =
-        sourceEntry?.[0] || null;
+      const confirmedEntry =
+        Object.entries(
+          aiFeedbackState
+            .confirmedByColor
+        ).find(([, group]) =>
+          wordSetKey(group.words) ===
+          originalKey
+        );
+
+      if (confirmedEntry) {
+        const [
+          nytColor,
+          actual
+        ] = confirmedEntry;
+
+        return {
+          group: actual,
+          status:
+            nytColor === color
+              ? 'confirmed'
+              : 'moved-confirmed',
+          statusText:
+            '✓ NYT CONFIRMED',
+          note:
+            nytColor === color
+              ? 'The AI grouping matched the NYT result.'
+              : 'AI originally assigned this group to ' +
+                color.toUpperCase() +
+                '.'
+        };
+      }
 
       if (
-        sourceColor === color
+        aiFeedbackState
+          .rejectedKeys
+          .has(originalKey)
       ) {
         return {
-          group: actual,
-          status: 'confirmed',
+          group: original,
+          status: 'rejected',
           statusText:
-            '✓ NYT CONFIRMED',
+            '✕ REJECTED BY NYT',
           note:
-            'The AI grouping matched the NYT result.'
+            'Oops — NYT rejected this four-word grouping.'
         };
       }
 
-      if (sourceColor) {
+      if (
+        actualAtColor &&
+        wordSetKey(
+          actualAtColor.words
+        ) !== originalKey
+      ) {
         return {
-          group: actual,
-          status: 'confirmed',
+          group: original,
+          status: 'color-obsolete',
           statusText:
-            '✓ NYT CONFIRMED',
+            'AI COLOR GUESS OBSOLETE',
           note:
-            'AI originally assigned this group to ' +
-            sourceColor.toUpperCase() +
-            '.'
+            'NYT has already used ' +
+            color.toUpperCase() +
+            ' for another group. This grouping is still unconfirmed.'
         };
       }
 
-      if (!original) {
-        return {
-          group: actual,
-          status: 'confirmed',
-          statusText:
-            '✓ NYT CONFIRMED',
-          note:
-            'Already solved by NYT before this AI pass.'
-        };
-      }
-
-      return {
-        group: actual,
-        status: 'corrected',
-        statusText:
-          'OOPS — NYT ACTUALLY',
-        note:
-          'The AI had guessed “' +
-          original.label +
-          '” for this color.'
-      };
-    }
-
-    if (!original) {
-      return null;
-    }
-
-    const originalKey =
-      wordSetKey(
-        original.words
-      );
-
-    const movedEntry =
-      Object.entries(
-        aiFeedbackState
-          .confirmedByColor
-      ).find(([, group]) =>
-        wordSetKey(group.words) ===
-        originalKey
-      );
-
-    if (movedEntry) {
       return {
         group: original,
-        status: 'moved',
-        statusText:
-          'AI COLOR GUESS WRONG',
+        status: 'guess',
+        statusText: '',
         note:
-          '→ NYT SAYS ' +
-          movedEntry[0].toUpperCase()
+          original.explanation
       };
     }
 
-    if (
+    if (actualAtColor) {
+      return {
+        group: actualAtColor,
+        status: 'confirmed',
+        statusText:
+          '✓ NYT CONFIRMED',
+        note:
+          'Already solved by NYT before this AI pass.'
+      };
+    }
+
+    return null;
+  }
+
+  function refreshAiHintStylesFromFeedback() {
+    if (!aiFeedbackState) return;
+
+    const entryByWord =
+      new Map(
+        getTileEntries()
+          .map(entry => [
+            normalizeWord(
+              entry.word
+            ),
+            entry
+          ])
+      );
+
+    Object.entries(
       aiFeedbackState
-        .rejectedKeys
-        .has(originalKey)
-    ) {
-      return {
-        group: original,
-        status: 'rejected',
-        statusText:
-          '✕ REJECTED BY NYT',
-        note:
-          'Oops — NYT rejected this four-word grouping.'
-      };
-    }
+        .originalByColor
+    ).forEach(
+      ([predictedColor, group]) => {
+        const originalKey =
+          wordSetKey(
+            group.words
+          );
 
-    return {
-      group: original,
-      status: 'guess',
-      statusText: '',
-      note:
-        original.explanation
-    };
+        const confirmedSomewhere =
+          Object.values(
+            aiFeedbackState
+              .confirmedByColor
+          ).some(actual =>
+            wordSetKey(
+              actual.words
+            ) === originalKey
+          );
+
+        const colorOwner =
+          aiFeedbackState
+            .confirmedByColor[
+              predictedColor
+            ];
+
+        const colorUsedByOther =
+          colorOwner &&
+          wordSetKey(
+            colorOwner.words
+          ) !== originalKey;
+
+        if (
+          !colorUsedByOther ||
+          confirmedSomewhere
+        ) {
+          return;
+        }
+
+        group.words.forEach(word => {
+          const entry =
+            entryByWord.get(
+              normalizeWord(word)
+            );
+
+          if (!entry) return;
+
+          const host =
+            getTileHost(
+              entry.element
+            );
+
+          if (!host) return;
+
+          host.style.boxShadow =
+            'inset 0 0 0 4px #a0a0a0';
+
+          host.style.outline =
+            '2px dashed #777';
+
+          host.style.outlineOffset =
+            '2px';
+
+          host.setAttribute(
+            'data-swiftclick-ai-color',
+            'obsolete'
+          );
+        });
+      }
+    );
   }
 
   function rerenderAiFeedback() {
@@ -1335,6 +1396,8 @@
       null,
       true
     );
+
+    refreshAiHintStylesFromFeedback();
   }
 
   function getOriginalAiWords() {
@@ -2231,9 +2294,17 @@
     wordById,
     cardState = null
   ) {
-    const color =
+    const status =
+      cardState?.status || 'guess';
+
+    const baseColor =
       AI_COLORS[group.color] ||
       '#cccccc';
+
+    const color =
+      status === 'color-obsolete'
+        ? '#8a8a8a'
+        : baseColor;
 
     const card =
       document.createElement('section');
@@ -2246,16 +2317,13 @@
       borderRadius: '10px',
       overflow: 'hidden',
       background:
-        cardState?.status === 'moved'
+        status === 'color-obsolete'
           ? '#fafafa'
           : '#fff',
       display: 'flex',
       flexDirection: 'column',
       minWidth: '0',
-      opacity:
-        cardState?.status === 'moved'
-          ? '0.88'
-          : '1'
+      opacity: '1'
     });
 
     const stripe =
@@ -2278,14 +2346,14 @@
       minWidth: '0'
     });
 
-    const status =
-      cardState?.status || 'guess';
-
     const colorName =
       document.createElement('div');
 
     colorName.textContent =
-      group.color.toUpperCase();
+      status === 'color-obsolete'
+        ? 'AI GUESSED ' +
+          group.color.toUpperCase()
+        : group.color.toUpperCase();
 
     Object.assign(colorName.style, {
       color,
@@ -2305,10 +2373,7 @@
       fontWeight: '800',
       fontSize: '13px',
       lineHeight: '1.18',
-      minHeight:
-        status === 'moved'
-          ? '0'
-          : '31px'
+      minHeight: '31px'
     });
 
     const statusLine =
@@ -2329,7 +2394,7 @@
             status === 'rejected' ||
             status === 'corrected'
               ? '#9b2c2c'
-              : status === 'moved'
+              : status === 'color-obsolete'
                 ? '#7a5b00'
                 : '#555'
         }
@@ -2406,16 +2471,13 @@
 
     Object.assign(explanation.style, {
       color:
-        status === 'moved'
-          ? '#444'
+        status === 'color-obsolete'
+          ? '#555'
           : '#666',
-      fontSize:
-        status === 'moved'
-          ? '11px'
-          : '10.5px',
+      fontSize: '10.5px',
       fontWeight:
-        status === 'moved'
-          ? '800'
+        status === 'color-obsolete'
+          ? '650'
           : '400',
       lineHeight: '1.25',
       marginTop: '1px'
@@ -2435,11 +2497,9 @@
       label
     );
 
-    if (status !== 'moved') {
-      body.appendChild(
-        wordGrid
-      );
-    }
+    body.appendChild(
+      wordGrid
+    );
 
     body.appendChild(
       explanation

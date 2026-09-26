@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.3.6
+// @version      1.3.7
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.6';
+  const APP_VERSION = '1.3.7';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -52,10 +52,11 @@
   let aiProgressOverlay = null;
   let aiProgressAnimationFrame = null;
   let aiProgressResizeObserver = null;
-  const aiProgressTileStyles =
+  const aiProgressTileOverlays =
     new Map();
   let aiProgressTileHosts = [];
   let aiProgressReducedMotion = false;
+  let aiAudioContext = null;
   let aiFeedbackState = null;
   let pendingNytSubmission = null;
   let feedbackCheckTimer = null;
@@ -327,30 +328,64 @@
       width: Math.round(rect.width + pad * 2) + 'px',
       height: Math.round(rect.height + pad * 2) + 'px'
     });
+
+    updateAiProgressTileOverlayPositions();
   }
 
-  function restoreAiProgressTiles() {
-    aiProgressTileStyles.forEach(
-      (original, host) => {
-        host.style.backgroundColor =
-          original.backgroundColor;
-
-        host.style.transition =
-          original.transition;
-
-        host.style.willChange =
-          original.willChange;
+  function clearAiProgressTileOverlays() {
+    aiProgressTileOverlays.forEach(
+      overlay => {
+        overlay.remove();
       }
     );
 
-    aiProgressTileStyles.clear();
+    aiProgressTileOverlays.clear();
     aiProgressTileHosts = [];
+  }
+
+  function updateAiProgressTileOverlayPositions() {
+    aiProgressTileOverlays.forEach(
+      (overlay, host) => {
+        if (!host?.isConnected) {
+          overlay.remove();
+          aiProgressTileOverlays.delete(
+            host
+          );
+          return;
+        }
+
+        const rect =
+          host.getBoundingClientRect();
+
+        Object.assign(
+          overlay.style,
+          {
+            left:
+              Math.round(
+                rect.left
+              ) + 'px',
+            top:
+              Math.round(
+                rect.top
+              ) + 'px',
+            width:
+              Math.round(
+                rect.width
+              ) + 'px',
+            height:
+              Math.round(
+                rect.height
+              ) + 'px'
+          }
+        );
+      }
+    );
   }
 
   function prepareAiProgressTiles(
     indexedEntries
   ) {
-    restoreAiProgressTiles();
+    clearAiProgressTileOverlays();
 
     aiProgressReducedMotion =
       Boolean(
@@ -375,32 +410,58 @@
     aiProgressTileHosts.forEach(
       host => {
         if (
-          aiProgressTileStyles
+          aiProgressTileOverlays
             .has(host)
         ) {
           return;
         }
 
-        aiProgressTileStyles.set(
-          host,
+        const overlay =
+          document.createElement(
+            'div'
+          );
+
+        overlay.setAttribute(
+          'aria-hidden',
+          'true'
+        );
+
+        const computed =
+          window.getComputedStyle(
+            host
+          );
+
+        Object.assign(
+          overlay.style,
           {
+            position: 'fixed',
+            zIndex: '9999989',
+            pointerEvents: 'none',
+            borderRadius:
+              computed.borderRadius ||
+              '6px',
             backgroundColor:
-              host.style
-                .backgroundColor,
+              'transparent',
+            opacity: '1',
             transition:
-              host.style.transition,
+              'background-color 120ms linear',
             willChange:
-              host.style.willChange
+              'background-color'
           }
         );
 
-        host.style.transition =
-          'background-color 120ms linear';
+        document.body.appendChild(
+          overlay
+        );
 
-        host.style.willChange =
-          'background-color';
+        aiProgressTileOverlays.set(
+          host,
+          overlay
+        );
       }
     );
+
+    updateAiProgressTileOverlayPositions();
   }
 
   function applyAiProgressTileScan(
@@ -631,17 +692,23 @@
     aiProgressTileHosts
       .forEach(
         (host, index) => {
+          const overlay =
+            aiProgressTileOverlays
+              .get(host);
+
+          if (!overlay) return;
+
           const alpha =
             alphaByIndex[index];
 
-          host.style
+          overlay.style
             .backgroundColor =
             alpha > 0.005
               ? hexToRgba(
                   color,
                   alpha
                 )
-              : '';
+              : 'transparent';
         }
       );
   }
@@ -738,7 +805,7 @@
     aiProgressOverlay?.remove();
     aiProgressOverlay = null;
 
-    restoreAiProgressTiles();
+    clearAiProgressTileOverlays();
   }
 
   function startAiProgress(indexedEntries) {
@@ -886,6 +953,152 @@
       window.requestAnimationFrame(
         animateAiProgress
       );
+  }
+
+  function primeAiCompletionSound() {
+    try {
+      const AudioContextClass =
+        window.AudioContext ||
+        window.webkitAudioContext;
+
+      if (!AudioContextClass) {
+        return;
+      }
+
+      if (!aiAudioContext) {
+        aiAudioContext =
+          new AudioContextClass();
+      }
+
+      if (
+        aiAudioContext.state ===
+        'suspended'
+      ) {
+        aiAudioContext
+          .resume()
+          .catch(() => {});
+      }
+    } catch (_) {
+      aiAudioContext = null;
+    }
+  }
+
+  function playAiCompletionSound() {
+    try {
+      if (
+        !aiAudioContext ||
+        aiAudioContext.state ===
+          'closed'
+      ) {
+        return;
+      }
+
+      if (
+        aiAudioContext.state ===
+        'suspended'
+      ) {
+        aiAudioContext
+          .resume()
+          .catch(() => {});
+      }
+
+      const now =
+        aiAudioContext.currentTime;
+
+      const master =
+        aiAudioContext.createGain();
+
+      master.gain.setValueAtTime(
+        0.0001,
+        now
+      );
+
+      master.gain.exponentialRampToValueAtTime(
+        0.035,
+        now + 0.025
+      );
+
+      master.gain.exponentialRampToValueAtTime(
+        0.0001,
+        now + 0.62
+      );
+
+      master.connect(
+        aiAudioContext.destination
+      );
+
+      [
+        {
+          frequency: 659.25,
+          start: 0,
+          duration: 0.34
+        },
+        {
+          frequency: 880,
+          start: 0.17,
+          duration: 0.38
+        }
+      ].forEach(note => {
+        const oscillator =
+          aiAudioContext
+            .createOscillator();
+
+        const noteGain =
+          aiAudioContext
+            .createGain();
+
+        oscillator.type = 'sine';
+
+        oscillator.frequency
+          .setValueAtTime(
+            note.frequency,
+            now + note.start
+          );
+
+        noteGain.gain
+          .setValueAtTime(
+            0.0001,
+            now + note.start
+          );
+
+        noteGain.gain
+          .exponentialRampToValueAtTime(
+            0.42,
+            now +
+              note.start +
+              0.018
+          );
+
+        noteGain.gain
+          .exponentialRampToValueAtTime(
+            0.0001,
+            now +
+              note.start +
+              note.duration
+          );
+
+        oscillator.connect(
+          noteGain
+        );
+
+        noteGain.connect(
+          master
+        );
+
+        oscillator.start(
+          now + note.start
+        );
+
+        oscillator.stop(
+          now +
+            note.start +
+            note.duration +
+            0.03
+        );
+      });
+    } catch (_) {
+      // A completion sound is optional.
+    }
   }
 
   function formatTokenCount(value) {
@@ -3348,6 +3561,7 @@
     button.style.opacity = '0.7';
     button.style.cursor = 'wait';
 
+    primeAiCompletionSound();
     startAiProgress(indexedEntries);
 
     try {
@@ -3372,6 +3586,8 @@
         indexedEntries,
         confirmedGroups
       );
+
+      playAiCompletionSound();
 
       showToast(
         (

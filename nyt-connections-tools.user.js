@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.3.5
+// @version      1.3.6
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.5';
+  const APP_VERSION = '1.3.6';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -52,6 +52,10 @@
   let aiProgressOverlay = null;
   let aiProgressAnimationFrame = null;
   let aiProgressResizeObserver = null;
+  const aiProgressTileStyles =
+    new Map();
+  let aiProgressTileHosts = [];
+  let aiProgressReducedMotion = false;
   let aiFeedbackState = null;
   let pendingNytSubmission = null;
   let feedbackCheckTimer = null;
@@ -325,6 +329,323 @@
     });
   }
 
+  function restoreAiProgressTiles() {
+    aiProgressTileStyles.forEach(
+      (original, host) => {
+        host.style.backgroundColor =
+          original.backgroundColor;
+
+        host.style.transition =
+          original.transition;
+
+        host.style.willChange =
+          original.willChange;
+      }
+    );
+
+    aiProgressTileStyles.clear();
+    aiProgressTileHosts = [];
+  }
+
+  function prepareAiProgressTiles(
+    indexedEntries
+  ) {
+    restoreAiProgressTiles();
+
+    aiProgressReducedMotion =
+      Boolean(
+        window.matchMedia?.(
+          '(prefers-reduced-motion: reduce)'
+        )?.matches
+      );
+
+    if (aiProgressReducedMotion) {
+      return;
+    }
+
+    aiProgressTileHosts =
+      indexedEntries
+        .map(entry =>
+          getTileHost(
+            entry.element
+          )
+        )
+        .filter(Boolean);
+
+    aiProgressTileHosts.forEach(
+      host => {
+        if (
+          aiProgressTileStyles
+            .has(host)
+        ) {
+          return;
+        }
+
+        aiProgressTileStyles.set(
+          host,
+          {
+            backgroundColor:
+              host.style
+                .backgroundColor,
+            transition:
+              host.style.transition,
+            willChange:
+              host.style.willChange
+          }
+        );
+
+        host.style.transition =
+          'background-color 120ms linear';
+
+        host.style.willChange =
+          'background-color';
+      }
+    );
+  }
+
+  function applyAiProgressTileScan(
+    elapsed
+  ) {
+    if (
+      aiProgressReducedMotion ||
+      !aiProgressTileHosts.length
+    ) {
+      return;
+    }
+
+    const count =
+      aiProgressTileHosts.length;
+
+    const columns =
+      Math.min(4, count);
+
+    const rows =
+      Math.ceil(
+        count / columns
+      );
+
+    const phaseDuration = 2400;
+    const cycleDuration =
+      phaseDuration * 4;
+
+    const cycle =
+      Math.floor(
+        elapsed / cycleDuration
+      );
+
+    const cycleElapsed =
+      elapsed % cycleDuration;
+
+    const phase =
+      Math.floor(
+        cycleElapsed /
+          phaseDuration
+      );
+
+    const local =
+      (
+        cycleElapsed %
+          phaseDuration
+      ) /
+      phaseDuration;
+
+    const alphaByIndex =
+      new Array(count).fill(0);
+
+    let colorName = 'purple';
+
+    if (phase === 0) {
+      colorName = 'purple';
+
+      const sweep =
+        local *
+          (columns + 1) -
+        0.5;
+
+      aiProgressTileHosts
+        .forEach(
+          (_, index) => {
+            const column =
+              index % columns;
+
+            const distance =
+              Math.abs(
+                column - sweep
+              );
+
+            alphaByIndex[index] =
+              Math.max(
+                0,
+                0.18 *
+                  (
+                    1 -
+                    distance / 1.35
+                  )
+              );
+          }
+        );
+    } else if (phase === 1) {
+      colorName = 'blue';
+
+      const direction =
+        cycle % 2 === 0
+          ? local
+          : 1 - local;
+
+      const sweep =
+        direction *
+          (rows + 1) -
+        0.5;
+
+      aiProgressTileHosts
+        .forEach(
+          (_, index) => {
+            const row =
+              Math.floor(
+                index / columns
+              );
+
+            const distance =
+              Math.abs(
+                row - sweep
+              );
+
+            alphaByIndex[index] =
+              Math.max(
+                0,
+                0.17 *
+                  (
+                    1 -
+                    distance / 1.25
+                  )
+              );
+          }
+        );
+    } else if (phase === 2) {
+      colorName = 'green';
+
+      const diagonalCount =
+        rows + columns - 1;
+
+      const direction =
+        cycle % 2 === 0
+          ? local
+          : 1 - local;
+
+      const sweep =
+        direction *
+          (diagonalCount + 1) -
+        0.5;
+
+      aiProgressTileHosts
+        .forEach(
+          (_, index) => {
+            const row =
+              Math.floor(
+                index / columns
+              );
+
+            const column =
+              index % columns;
+
+            const diagonal =
+              cycle % 2 === 0
+                ? row + column
+                : row +
+                  (
+                    columns -
+                    1 -
+                    column
+                  );
+
+            const distance =
+              Math.abs(
+                diagonal - sweep
+              );
+
+            alphaByIndex[index] =
+              Math.max(
+                0,
+                0.16 *
+                  (
+                    1 -
+                    distance / 1.25
+                  )
+              );
+          }
+        );
+    } else {
+      colorName = 'yellow';
+
+      const patternStep =
+        Math.floor(
+          local * 4
+        ) % 4;
+
+      const pulse =
+        0.08 +
+        0.09 *
+          (
+            (
+              Math.sin(
+                local *
+                  Math.PI *
+                  8
+              ) +
+              1
+            ) /
+            2
+          );
+
+      aiProgressTileHosts
+        .forEach(
+          (_, index) => {
+            const row =
+              Math.floor(
+                index / columns
+              );
+
+            const column =
+              index % columns;
+
+            const pattern =
+              (
+                row +
+                column * 2 +
+                patternStep +
+                cycle
+              ) %
+              4;
+
+            alphaByIndex[index] =
+              pattern === 0
+                ? pulse
+                : 0;
+          }
+        );
+    }
+
+    const color =
+      AI_COLORS[colorName];
+
+    aiProgressTileHosts
+      .forEach(
+        (host, index) => {
+          const alpha =
+            alphaByIndex[index];
+
+          host.style
+            .backgroundColor =
+            alpha > 0.005
+              ? hexToRgba(
+                  color,
+                  alpha
+                )
+              : '';
+        }
+      );
+  }
+
   function animateAiProgress(timestamp) {
     if (!aiProgressOverlay) return;
 
@@ -379,6 +700,10 @@
       color
     );
 
+    applyAiProgressTileScan(
+      elapsed
+    );
+
     aiProgressAnimationFrame =
       window.requestAnimationFrame(
         animateAiProgress
@@ -412,10 +737,16 @@
 
     aiProgressOverlay?.remove();
     aiProgressOverlay = null;
+
+    restoreAiProgressTiles();
   }
 
   function startAiProgress(indexedEntries) {
     stopAiProgress();
+
+    prepareAiProgressTiles(
+      indexedEntries
+    );
 
     const board =
       getBoardContainer(indexedEntries);
@@ -1277,6 +1608,112 @@
     };
   }
 
+  function getTentativeColorMap() {
+    const mapping = new Map();
+
+    if (!aiFeedbackState) {
+      return mapping;
+    }
+
+    const confirmedColors =
+      new Set(
+        Object.keys(
+          aiFeedbackState
+            .confirmedByColor
+        )
+      );
+
+    const confirmedGroupKeys =
+      new Set(
+        Object.values(
+          aiFeedbackState
+            .confirmedByColor
+        )
+          .map(group =>
+            wordSetKey(
+              group.words
+            )
+          )
+      );
+
+    const unconfirmed =
+      Object.entries(
+        aiFeedbackState
+          .originalByColor
+      )
+        .filter(([, group]) =>
+          !confirmedGroupKeys.has(
+            wordSetKey(
+              group.words
+            )
+          )
+        );
+
+    const availableColors =
+      AI_COLOR_ORDER
+        .filter(color =>
+          !confirmedColors.has(
+            color
+          )
+        );
+
+    const used =
+      new Set();
+
+    unconfirmed.forEach(
+      ([originalColor]) => {
+        if (
+          availableColors.includes(
+            originalColor
+          ) &&
+          !used.has(
+            originalColor
+          )
+        ) {
+          mapping.set(
+            originalColor,
+            originalColor
+          );
+
+          used.add(
+            originalColor
+          );
+        }
+      }
+    );
+
+    const remainingColors =
+      availableColors
+        .filter(color =>
+          !used.has(color)
+        );
+
+    unconfirmed.forEach(
+      ([originalColor]) => {
+        if (
+          mapping.has(
+            originalColor
+          )
+        ) {
+          return;
+        }
+
+        const nextColor =
+          remainingColors
+            .shift();
+
+        if (nextColor) {
+          mapping.set(
+            originalColor,
+            nextColor
+          );
+        }
+      }
+    );
+
+    return mapping;
+  }
+
   function getAiCardState(color) {
     if (!aiFeedbackState) {
       return null;
@@ -1343,21 +1780,31 @@
         };
       }
 
+      const tentativeColor =
+        getTentativeColorMap()
+          .get(color) ||
+        color;
+
       if (
-        actualAtColor &&
-        wordSetKey(
-          actualAtColor.words
-        ) !== originalKey
+        tentativeColor !==
+          color
       ) {
         return {
-          group: original,
-          status: 'color-obsolete',
+          group: {
+            ...original,
+            color:
+              tentativeColor
+          },
+          status:
+            'tentative-swap',
           statusText:
-            'AI COLOR GUESS OBSOLETE',
+            'TENTATIVE COLOR SWAP',
           note:
-            'NYT has already used ' +
+            'AI originally guessed ' +
             color.toUpperCase() +
-            ' for another group. This grouping is still unconfirmed.'
+            '; ' +
+            color.toUpperCase() +
+            ' is now confirmed elsewhere.'
         };
       }
 
@@ -1402,40 +1849,39 @@
       aiFeedbackState
         .originalByColor
     ).forEach(
-      ([predictedColor, group]) => {
-        const originalKey =
-          wordSetKey(
-            group.words
+      ([originalColor, group]) => {
+        const state =
+          getAiCardState(
+            originalColor
           );
 
-        const confirmedSomewhere =
-          Object.values(
-            aiFeedbackState
-              .confirmedByColor
-          ).some(actual =>
-            wordSetKey(
-              actual.words
-            ) === originalKey
-          );
+        if (!state) return;
 
-        const colorOwner =
-          aiFeedbackState
-            .confirmedByColor[
-              predictedColor
-            ];
+        const confirmed =
+          state.status ===
+            'confirmed' ||
+          state.status ===
+            'moved-confirmed';
 
-        const colorUsedByOther =
-          colorOwner &&
-          wordSetKey(
-            colorOwner.words
-          ) !== originalKey;
-
-        if (
-          !colorUsedByOther ||
-          confirmedSomewhere
-        ) {
+        if (confirmed) {
           return;
         }
+
+        const displayColor =
+          state.group?.color ||
+          originalColor;
+
+        const color =
+          AI_COLORS[
+            displayColor
+          ] ||
+          AI_COLORS[
+            originalColor
+          ];
+
+        const tentative =
+          state.status ===
+            'tentative-swap';
 
         group.words.forEach(word => {
           const entry =
@@ -1453,17 +1899,41 @@
           if (!host) return;
 
           host.style.boxShadow =
-            'inset 0 0 0 4px #a0a0a0';
+            tentative
+              ? (
+                  'inset 0 0 0 3px ' +
+                  hexToRgba(
+                    color,
+                    0.72
+                  )
+                )
+              : (
+                  'inset 0 0 0 4px ' +
+                  color
+                );
 
           host.style.outline =
-            '2px dashed #777';
+            tentative
+              ? (
+                  '2px dashed ' +
+                  color
+                )
+              : (
+                  '2px solid ' +
+                  color
+                );
 
           host.style.outlineOffset =
             '2px';
 
           host.setAttribute(
             'data-swiftclick-ai-color',
-            'obsolete'
+            tentative
+              ? (
+                  'tentative-' +
+                  displayColor
+                )
+              : displayColor
           );
         });
       }
@@ -2414,9 +2884,7 @@
       '#cccccc';
 
     const color =
-      status === 'color-obsolete'
-        ? '#8a8a8a'
-        : baseColor;
+      baseColor;
 
     const card =
       document.createElement('section');
@@ -2425,12 +2893,21 @@
       'swiftclick-ai-summary-card';
 
     Object.assign(card.style, {
-      border: '1px solid #e2e2e2',
+      border:
+        status === 'tentative-swap'
+          ? (
+              '1px dashed ' +
+              color
+            )
+          : '1px solid #e2e2e2',
       borderRadius: '10px',
       overflow: 'hidden',
       background:
-        status === 'color-obsolete'
-          ? '#fafafa'
+        status === 'tentative-swap'
+          ? hexToRgba(
+              color,
+              0.045
+            )
           : '#fff',
       display: 'flex',
       flexDirection: 'column',
@@ -2444,7 +2921,11 @@
     Object.assign(stripe.style, {
       height: '5px',
       flex: '0 0 auto',
-      background: color
+      background: color,
+      opacity:
+        status === 'tentative-swap'
+          ? '0.58'
+          : '1'
     });
 
     const body =
@@ -2462,10 +2943,7 @@
       document.createElement('div');
 
     colorName.textContent =
-      status === 'color-obsolete'
-        ? 'AI GUESSED ' +
-          group.color.toUpperCase()
-        : group.color.toUpperCase();
+      group.color.toUpperCase();
 
     Object.assign(colorName.style, {
       color,
@@ -2506,7 +2984,7 @@
             status === 'rejected' ||
             status === 'corrected'
               ? '#9b2c2c'
-              : status === 'color-obsolete'
+              : status === 'tentative-swap'
                 ? '#7a5b00'
                 : '#555'
         }
@@ -2583,12 +3061,12 @@
 
     Object.assign(explanation.style, {
       color:
-        status === 'color-obsolete'
+        status === 'tentative-swap'
           ? '#555'
           : '#666',
       fontSize: '10.5px',
       fontWeight:
-        status === 'color-obsolete'
+        status === 'tentative-swap'
           ? '650'
           : '400',
       lineHeight: '1.25',
@@ -2880,6 +3358,8 @@
           confirmedGroups,
           rejectedGroups
         );
+
+      stopAiProgress();
 
       validateAiSolution(
         solution,

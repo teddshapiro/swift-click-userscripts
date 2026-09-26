@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.3.2
+// @version      1.3.3
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,7 +17,7 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.2';
+  const APP_VERSION = '1.3.3';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
@@ -1216,11 +1216,11 @@
       if (sourceColor) {
         return {
           group: actual,
-          status: 'corrected',
+          status: 'confirmed',
           statusText:
-            'OOPS — NYT ACTUALLY',
+            '✓ NYT CONFIRMED',
           note:
-            'The AI found these four words but assigned them ' +
+            'AI originally assigned this group to ' +
             sourceColor.toUpperCase() +
             '.'
         };
@@ -1272,10 +1272,10 @@
         group: original,
         status: 'moved',
         statusText:
-          'GROUP RIGHT · NYT SAYS ' +
-          movedEntry[0].toUpperCase(),
+          'AI COLOR GUESS WRONG',
         note:
-          'The four words were right, but the official NYT color differs.'
+          '→ NYT SAYS ' +
+          movedEntry[0].toUpperCase()
       };
     }
 
@@ -2245,10 +2245,17 @@
       border: '1px solid #e2e2e2',
       borderRadius: '10px',
       overflow: 'hidden',
-      background: '#fff',
+      background:
+        cardState?.status === 'moved'
+          ? '#fafafa'
+          : '#fff',
       display: 'flex',
       flexDirection: 'column',
-      minWidth: '0'
+      minWidth: '0',
+      opacity:
+        cardState?.status === 'moved'
+          ? '0.88'
+          : '1'
     });
 
     const stripe =
@@ -2298,7 +2305,10 @@
       fontWeight: '800',
       fontSize: '13px',
       lineHeight: '1.18',
-      minHeight: '31px'
+      minHeight:
+        status === 'moved'
+          ? '0'
+          : '31px'
     });
 
     const statusLine =
@@ -2319,7 +2329,9 @@
             status === 'rejected' ||
             status === 'corrected'
               ? '#9b2c2c'
-              : '#555'
+              : status === 'moved'
+                ? '#7a5b00'
+                : '#555'
         }
       );
     }
@@ -2393,8 +2405,18 @@
       '';
 
     Object.assign(explanation.style, {
-      color: '#666',
-      fontSize: '10.5px',
+      color:
+        status === 'moved'
+          ? '#444'
+          : '#666',
+      fontSize:
+        status === 'moved'
+          ? '11px'
+          : '10.5px',
+      fontWeight:
+        status === 'moved'
+          ? '800'
+          : '400',
       lineHeight: '1.25',
       marginTop: '1px'
     });
@@ -2409,9 +2431,17 @@
       );
     }
 
-    body.append(
-      label,
-      wordGrid,
+    body.appendChild(
+      label
+    );
+
+    if (status !== 'moved') {
+      body.appendChild(
+        wordGrid
+      );
+    }
+
+    body.appendChild(
       explanation
     );
 

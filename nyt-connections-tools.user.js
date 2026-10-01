@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         NYT Connections → Categories Puzzle Assistant
 // @namespace    local
-// @version      1.3.12
+// @version      1.3.13
 // @description  NYT Connections tools with direct SwiftClick AI solving plus the existing Custom GPT workflow
 // @match        https://www.nytimes.com/games/connections*
 // @grant        GM_setClipboard
@@ -17,13 +17,19 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '1.3.12';
+  const APP_VERSION = '1.3.13';
 
   const GPT_URL =
     'https://chatgpt.com/g/g-aRlmdi0S7-categories-puzzle-assistant';
 
   const AI_API_URL =
     'https://connections-ai-service.tedd-7f4.workers.dev/solve';
+
+  const SAVED_SOLUTION_AVAILABILITY_URL =
+    'https://connections-ai-service.tedd-7f4.workers.dev/saved-solution/availability';
+
+  const SAVED_SOLUTION_URL =
+    'https://connections-ai-service.tedd-7f4.workers.dev/saved-solution';
 
   const AI_TOKEN_KEY = 'swiftclick-connections-ai-token';
 
@@ -48,8 +54,13 @@
   };
 
   const aiStyledElements = new Map();
+  let aiSolveButton = null;
   let clearAiButton = null;
   let arrangeAiButton = null;
+  let savedSolveButton = null;
+  let savedSolutionAvailabilityKey = '';
+  let savedSolutionAvailabilityPending = false;
+  let savedSolutionCheckTimer = null;
   let aiArrangementActive = false;
   const aiArrangementOriginalOrders =
     new Map();
@@ -1284,6 +1295,342 @@
         }
       });
     });
+  }
+
+  function requestSavedSolutionEndpoint(
+    url,
+    indexedEntries
+  ) {
+    const payload = {
+      tiles: indexedEntries.map(entry => ({
+        id: entry.id,
+        word: entry.word
+      }))
+    };
+
+    return new Promise((resolve, reject) => {
+      GM_xmlhttpRequest({
+        method: 'POST',
+        url,
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        data: JSON.stringify(payload),
+        timeout: 15000,
+
+        onload(response) {
+          let body = null;
+
+          try {
+            body = JSON.parse(
+              response.responseText || '{}'
+            );
+          } catch {
+            body = null;
+          }
+
+          resolve({
+            status: response.status,
+            body
+          });
+        },
+
+        onerror() {
+          reject(
+            new Error(
+              'Could not reach the saved Connections solution service.'
+            )
+          );
+        },
+
+        ontimeout() {
+          reject(
+            new Error(
+              'The saved Connections solution lookup timed out.'
+            )
+          );
+        }
+      });
+    });
+  }
+
+  function getFullPuzzleIndexedEntries() {
+    const entries =
+      getTileEntries();
+
+    if (entries.length !== 16) {
+      return null;
+    }
+
+    return entries.map(
+      (entry, index) => ({
+        ...entry,
+        id:
+          'SC-' +
+          String(index + 1)
+            .padStart(3, '0')
+      })
+    );
+  }
+
+  function getSavedSolutionPuzzleKey(
+    indexedEntries
+  ) {
+    return indexedEntries
+      .map(entry =>
+        normalizeWord(
+          entry.word
+        )
+      )
+      .sort()
+      .join('\u0001');
+  }
+
+  function removeSavedSolveButton() {
+    savedSolveButton?.remove();
+    savedSolveButton = null;
+  }
+
+  function ensureSavedSolveButton() {
+    if (
+      savedSolveButton?.isConnected
+    ) {
+      return;
+    }
+
+    const toolbar =
+      document.querySelector(
+        '#categories-gpt-tools'
+      );
+
+    if (
+      !toolbar ||
+      !aiSolveButton?.isConnected ||
+      !clearAiButton?.isConnected
+    ) {
+      return;
+    }
+
+    savedSolveButton =
+      makeButton(
+        '☢',
+        event =>
+          loadSavedSolutionNuclear(
+            event.currentTarget
+          )
+      );
+
+    savedSolveButton.setAttribute(
+      'aria-label',
+      'Nuclear option: load the saved solution and arrange the puzzle'
+    );
+
+    savedSolveButton.title =
+      'Nuclear option: retrieve the saved solution without an AI request, then arrange the groups.';
+
+    Object.assign(
+      savedSolveButton.style,
+      {
+        minWidth: '42px',
+        padding: '7px 11px',
+        fontSize: '18px',
+        lineHeight: '1'
+      }
+    );
+
+    toolbar.insertBefore(
+      savedSolveButton,
+      clearAiButton
+    );
+  }
+
+  async function checkSavedSolutionAvailability(
+    force = false
+  ) {
+    const indexedEntries =
+      getFullPuzzleIndexedEntries();
+
+    if (!indexedEntries) {
+      savedSolutionAvailabilityKey = '';
+      removeSavedSolveButton();
+      return;
+    }
+
+    const puzzleKey =
+      getSavedSolutionPuzzleKey(
+        indexedEntries
+      );
+
+    if (
+      savedSolutionAvailabilityPending
+    ) {
+      return;
+    }
+
+    if (
+      !force &&
+      puzzleKey ===
+        savedSolutionAvailabilityKey
+    ) {
+      return;
+    }
+
+    savedSolutionAvailabilityKey =
+      puzzleKey;
+
+    savedSolutionAvailabilityPending =
+      true;
+
+    try {
+      const result =
+        await requestSavedSolutionEndpoint(
+          SAVED_SOLUTION_AVAILABILITY_URL,
+          indexedEntries
+        );
+
+      const currentEntries =
+        getFullPuzzleIndexedEntries();
+
+      if (
+        !currentEntries ||
+        getSavedSolutionPuzzleKey(
+          currentEntries
+        ) !== puzzleKey
+      ) {
+        return;
+      }
+
+      if (
+        result.status >= 200 &&
+        result.status < 300 &&
+        result.body?.ok === true &&
+        result.body?.available === true
+      ) {
+        ensureSavedSolveButton();
+      } else {
+        removeSavedSolveButton();
+      }
+    } catch {
+      removeSavedSolveButton();
+    } finally {
+      savedSolutionAvailabilityPending =
+        false;
+    }
+  }
+
+  function scheduleSavedSolutionAvailabilityCheck(
+    force = false
+  ) {
+    if (savedSolutionCheckTimer) {
+      window.clearTimeout(
+        savedSolutionCheckTimer
+      );
+    }
+
+    savedSolutionCheckTimer =
+      window.setTimeout(
+        () => {
+          savedSolutionCheckTimer = null;
+          checkSavedSolutionAvailability(
+            force
+          );
+        },
+        force ? 120 : 350
+      );
+  }
+
+  async function loadSavedSolutionNuclear(
+    button
+  ) {
+    const indexedEntries =
+      getFullPuzzleIndexedEntries();
+
+    if (!indexedEntries) {
+      removeSavedSolveButton();
+
+      showToast(
+        'The nuclear option is available only before any groups have been solved.'
+      );
+
+      return;
+    }
+
+    const originalText =
+      button.textContent;
+
+    button.disabled = true;
+    button.style.opacity = '0.6';
+    button.style.cursor = 'wait';
+
+    primeAiCompletionSound();
+
+    try {
+      const result =
+        await requestSavedSolutionEndpoint(
+          SAVED_SOLUTION_URL,
+          indexedEntries
+        );
+
+      if (
+        result.status === 404
+      ) {
+        removeSavedSolveButton();
+
+        showToast(
+          'The saved solution is no longer available.'
+        );
+
+        return;
+      }
+
+      if (
+        result.status < 200 ||
+        result.status >= 300 ||
+        result.body?.ok !== true
+      ) {
+        throw new Error(
+          result.body?.error ||
+          'Saved solution retrieval failed.'
+        );
+      }
+
+      validateAiSolution(
+        result.body,
+        indexedEntries,
+        []
+      );
+
+      applyAiHints(
+        result.body,
+        indexedEntries,
+        []
+      );
+
+      applyAiGroupArrangement(
+        false,
+        true
+      );
+
+      playAiCompletionSound();
+
+      showToast(
+        '☢ Saved solution loaded and arranged — no AI request made.'
+      );
+    } catch (error) {
+      alert(
+        error?.message ||
+        'The saved solution could not be loaded.'
+      );
+    } finally {
+      if (button?.isConnected) {
+        button.disabled = false;
+        button.textContent =
+          originalText;
+        button.style.opacity = '1';
+        button.style.cursor =
+          'pointer';
+      }
+    }
   }
 
   function validateAiSolution(
@@ -4183,6 +4530,12 @@
 
       playAiCompletionSound();
 
+      if (entries.length === 16) {
+        scheduleSavedSolutionAvailabilityCheck(
+          true
+        );
+      }
+
       showToast(
         (
           entries.length === 16
@@ -4873,7 +5226,7 @@
       background: '#fff'
     });
 
-    const aiSolveButton = makeButton(
+    aiSolveButton = makeButton(
       'AI Solve',
       event => solveWithAi(event.currentTarget)
     );
@@ -4933,6 +5286,7 @@
     document.body.appendChild(slot);
 
     updateToolbarPosition();
+    scheduleSavedSolutionAvailabilityCheck();
 
     if (
       typeof ResizeObserver === 'function'
@@ -4994,6 +5348,7 @@
 
   const observer = new MutationObserver(() => {
     addToolbar();
+    scheduleSavedSolutionAvailabilityCheck();
 
     if (pendingNytSubmission) {
       window.setTimeout(

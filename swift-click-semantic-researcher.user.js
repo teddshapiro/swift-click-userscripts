@@ -1,0 +1,1313 @@
+// ==UserScript==
+// @name         Swift Click Semantic Researcher
+// @namespace    https://swiftclick.com/
+// @version      0.1.0
+// @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-semantic-researcher.user.js
+// @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-semantic-researcher.user.js
+// @description  Discover research lenses, find grounded evidence, highlight it in the page, and synthesize selected findings.
+// @author       Swift Click / Tedd
+// @match        http://*/*
+// @match        https://*/*
+// @run-at       document-idle
+// @grant        GM_getValue
+// @grant        GM_setValue
+// @grant        GM_deleteValue
+// @grant        GM_setClipboard
+// @grant        GM_registerMenuCommand
+// @grant        GM_xmlhttpRequest
+// @connect      semantic-researcher-ai-service.tedd-7f4.workers.dev
+// @noframes
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    const APP_NAME = 'Swift Click Semantic Researcher';
+    const APP_VERSION = '0.1.0';
+    const AI_SERVICE_BASE = 'https://semantic-researcher-ai-service.tedd-7f4.workers.dev';
+    const MAX_BLOCKS = 220;
+    const MAX_DOCUMENT_CHARS = 50000;
+    const MAX_BLOCK_CHARS = 2400;
+    const SVG_NS = 'http://www.w3.org/2000/svg';
+
+    const STORAGE = {
+        AI_TOKEN: 'sc_semantic_researcher_access_token_v1',
+        LAUNCHER_POSITION: 'sc_semantic_researcher_launcher_position_v1'
+    };
+
+    const SENSITIVE_HOST_HINTS = [
+        'bank', 'banking', 'creditunion', 'credit-union', 'brokerage',
+        'mychart', 'patient', 'healthportal', 'health-portal',
+        '1password', 'bitwarden', 'lastpass', 'dashlane',
+        'paypal', 'venmo', 'coinbase',
+        'login.', 'auth.', 'signin.', 'accounts.'
+    ];
+
+    let rootHost = null;
+    let shadow = null;
+    let launcher = null;
+    let panel = null;
+
+    const state = {
+        snapshot: null,
+        discovery: null,
+        findings: [],
+        activeFindingIndex: -1,
+        highlightsVisible: true,
+        report: null,
+        sensitiveConfirmationFingerprint: null,
+        busy: false
+    };
+
+    init();
+
+    function init() {
+        buildShell();
+
+        GM_registerMenuCommand('Semantic Researcher: set AI access key', setAiAccessKey);
+        GM_registerMenuCommand('Semantic Researcher: clear AI access key', clearAiAccessKey);
+        GM_registerMenuCommand('Semantic Researcher: clear page analysis', clearAnalysis);
+    }
+
+    function buildShell() {
+        if (rootHost?.isConnected) return;
+
+        rootHost = document.createElement('div');
+        rootHost.id = 'swiftclick-semantic-researcher-root';
+        rootHost.setAttribute('data-swiftclick-semantic-researcher-ui', 'true');
+        document.documentElement.appendChild(rootHost);
+
+        shadow = rootHost.attachShadow({ mode: 'open' });
+        addStyles();
+        buildLauncher();
+        buildPanel();
+        refreshSnapshot();
+    }
+
+    function addStyles() {
+        const style = document.createElement('style');
+        style.textContent = `
+            :host { all: initial; }
+            * { box-sizing: border-box; }
+            button, textarea { font: inherit; }
+            .sr-launcher {
+                position: fixed;
+                right: 18px;
+                top: 42%;
+                z-index: 2147483646;
+                width: 52px;
+                height: 52px;
+                padding: 0;
+                border: 1px solid rgba(20, 28, 38, .25);
+                border-radius: 50%;
+                background: linear-gradient(145deg, #fff, #edf2f6);
+                color: #16202a;
+                box-shadow: 0 5px 20px rgba(0,0,0,.22);
+                display: grid;
+                place-items: center;
+                cursor: grab;
+                user-select: none;
+                touch-action: none;
+            }
+            .sr-launcher:hover { transform: translateY(-1px); box-shadow: 0 7px 24px rgba(0,0,0,.28); }
+            .sr-launcher.dragging { cursor: grabbing; }
+            .sr-launcher svg { width: 29px; height: 29px; pointer-events: none; }
+            .sr-launcher-badge {
+                position: absolute;
+                right: -2px;
+                bottom: -2px;
+                min-width: 18px;
+                height: 18px;
+                padding: 0 4px;
+                border-radius: 9px;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                background: #17212b;
+                color: white;
+                border: 2px solid white;
+                font: 700 10px/1 system-ui, sans-serif;
+            }
+            .sr-panel {
+                position: fixed;
+                top: 18px;
+                right: 18px;
+                z-index: 2147483645;
+                width: min(430px, calc(100vw - 28px));
+                max-height: calc(100vh - 36px);
+                overflow: auto;
+                background: #f9fbfc;
+                color: #17212b;
+                border: 1px solid rgba(20, 28, 38, .2);
+                border-radius: 16px;
+                box-shadow: 0 18px 52px rgba(0,0,0,.28);
+                font: 14px/1.42 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                display: none;
+            }
+            .sr-panel.open { display: block; }
+            .sr-header {
+                position: sticky;
+                top: 0;
+                z-index: 2;
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 12px;
+                padding: 14px 16px;
+                background: rgba(249,251,252,.97);
+                border-bottom: 1px solid #dbe2e8;
+                border-radius: 16px 16px 0 0;
+            }
+            .sr-title { margin: 0; font-size: 16px; font-weight: 750; }
+            .sr-subtitle { color: #5b6875; font-size: 12px; margin-top: 2px; }
+            .sr-close {
+                width: 34px; height: 34px; border: 0; border-radius: 9px;
+                background: transparent; color: #3c4854; cursor: pointer; font-size: 22px;
+            }
+            .sr-close:hover { background: #e9eef2; }
+            .sr-body { padding: 14px; }
+            .sr-section {
+                background: white;
+                border: 1px solid #dce3e8;
+                border-radius: 12px;
+                padding: 12px;
+                margin-bottom: 12px;
+            }
+            .sr-section-title {
+                margin: 0 0 7px;
+                font-size: 13px;
+                font-weight: 760;
+                letter-spacing: .01em;
+            }
+            .sr-help { margin: 0 0 9px; color: #596876; font-size: 12px; }
+            .sr-row { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; }
+            .sr-row + .sr-row { margin-top: 8px; }
+            .sr-btn {
+                appearance: none;
+                border: 1px solid #bcc7d0;
+                border-radius: 9px;
+                padding: 7px 10px;
+                background: #fff;
+                color: #18222d;
+                cursor: pointer;
+                font-weight: 650;
+            }
+            .sr-btn:hover:not(:disabled) { background: #f0f4f7; border-color: #9facb7; }
+            .sr-btn.primary { background: #18222d; color: white; border-color: #18222d; }
+            .sr-btn.primary:hover:not(:disabled) { background: #2a3947; }
+            .sr-btn:disabled { opacity: .48; cursor: default; }
+            .sr-btn.small { padding: 5px 8px; font-size: 12px; }
+            .sr-textarea {
+                width: 100%;
+                min-height: 76px;
+                resize: vertical;
+                border: 1px solid #bfcbd4;
+                border-radius: 9px;
+                padding: 9px;
+                background: white;
+                color: #17212b;
+                line-height: 1.4;
+            }
+            .sr-textarea:focus { outline: 2px solid #7aa8cc; outline-offset: 1px; }
+            .sr-status {
+                white-space: pre-wrap;
+                padding: 9px 10px;
+                border-radius: 9px;
+                background: #edf3f7;
+                color: #42515f;
+                font-size: 12px;
+            }
+            .sr-status.error { background: #fff0ef; color: #802820; }
+            .sr-status.busy { background: #fff8df; color: #6d5200; }
+            .sr-lenses { display: grid; gap: 7px; }
+            .sr-lens {
+                text-align: left;
+                border: 1px solid #d1dae1;
+                border-radius: 10px;
+                background: #fbfcfd;
+                padding: 9px;
+                cursor: pointer;
+            }
+            .sr-lens:hover { border-color: #9eb1c0; background: #f4f8fa; }
+            .sr-lens strong { display: block; margin-bottom: 3px; }
+            .sr-lens span { display: block; color: #60707e; font-size: 12px; }
+            .sr-summary {
+                white-space: pre-wrap;
+                margin: 0 0 9px;
+                color: #3f4e5b;
+                font-size: 12px;
+            }
+            .sr-finding {
+                border: 1px solid #d8e0e6;
+                border-radius: 10px;
+                padding: 9px;
+                margin-top: 8px;
+                background: #fff;
+            }
+            .sr-finding.active { border-color: #d09b00; box-shadow: inset 3px 0 0 #e1aa00; }
+            .sr-finding-head { display: flex; align-items: flex-start; gap: 7px; }
+            .sr-finding-main { min-width: 0; flex: 1; }
+            .sr-finding-category { font-weight: 740; }
+            .sr-finding-meta { color: #6a7783; font-size: 11px; margin-top: 1px; }
+            .sr-quote {
+                margin: 7px 0 5px;
+                padding-left: 8px;
+                border-left: 3px solid #e4ba3c;
+                color: #313d48;
+                font-style: italic;
+            }
+            .sr-reason { color: #536270; font-size: 12px; }
+            .sr-findings-empty { color: #6b7884; font-size: 12px; padding: 4px 0; }
+            .sr-report {
+                white-space: pre-wrap;
+                max-height: 380px;
+                overflow: auto;
+                border: 1px solid #d8e0e6;
+                border-radius: 9px;
+                padding: 10px;
+                background: #fbfcfd;
+                color: #202b35;
+                font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            }
+            .sr-report-title { font-weight: 760; margin-bottom: 7px; }
+            .sr-count { color: #596876; font-size: 12px; }
+            .sr-divider { height: 1px; background: #e2e7eb; margin: 10px 0; }
+            @media (max-width: 520px) {
+                .sr-panel { top: 8px; right: 8px; width: calc(100vw - 16px); max-height: calc(100vh - 16px); }
+                .sr-launcher { right: 10px; }
+            }
+        `;
+        shadow.appendChild(style);
+    }
+
+    function buildLauncher() {
+        launcher = document.createElement('button');
+        launcher.className = 'sr-launcher';
+        launcher.type = 'button';
+        launcher.setAttribute('aria-label', 'Open ' + APP_NAME);
+        launcher.setAttribute('title', APP_NAME);
+
+        const svg = document.createElementNS(SVG_NS, 'svg');
+        svg.setAttribute('viewBox', '0 0 32 32');
+        svg.setAttribute('aria-hidden', 'true');
+
+        const circle = document.createElementNS(SVG_NS, 'circle');
+        circle.setAttribute('cx', '13');
+        circle.setAttribute('cy', '13');
+        circle.setAttribute('r', '8');
+        circle.setAttribute('fill', 'none');
+        circle.setAttribute('stroke', 'currentColor');
+        circle.setAttribute('stroke-width', '3');
+
+        const handle = document.createElementNS(SVG_NS, 'path');
+        handle.setAttribute('d', 'M19 19 L28 28');
+        handle.setAttribute('fill', 'none');
+        handle.setAttribute('stroke', 'currentColor');
+        handle.setAttribute('stroke-width', '3.2');
+        handle.setAttribute('stroke-linecap', 'round');
+
+        const glint = document.createElementNS(SVG_NS, 'path');
+        glint.setAttribute('d', 'M8.5 10.5 C9.8 8.7 11.7 7.8 13.7 7.8');
+        glint.setAttribute('fill', 'none');
+        glint.setAttribute('stroke', 'currentColor');
+        glint.setAttribute('stroke-width', '1.6');
+        glint.setAttribute('stroke-linecap', 'round');
+        glint.setAttribute('opacity', '.55');
+
+        svg.append(circle, handle, glint);
+        launcher.appendChild(svg);
+
+        const badge = document.createElement('span');
+        badge.className = 'sr-launcher-badge';
+        badge.id = 'sr-launcher-badge';
+        launcher.appendChild(badge);
+
+        shadow.appendChild(launcher);
+        restoreLauncherPosition();
+        installLauncherDrag();
+    }
+
+    function restoreLauncherPosition() {
+        const saved = loadValue(STORAGE.LAUNCHER_POSITION, null);
+        if (!saved || !Number.isFinite(saved.left) || !Number.isFinite(saved.top)) return;
+        requestAnimationFrame(() => {
+            const size = launcher.getBoundingClientRect();
+            const left = clamp(saved.left, 4, Math.max(4, window.innerWidth - size.width - 4));
+            const top = clamp(saved.top, 4, Math.max(4, window.innerHeight - size.height - 4));
+            launcher.style.left = left + 'px';
+            launcher.style.top = top + 'px';
+            launcher.style.right = 'auto';
+        });
+    }
+
+    function installLauncherDrag() {
+        let drag = null;
+
+        launcher.addEventListener('pointerdown', (event) => {
+            if (event.button !== 0) return;
+            const rect = launcher.getBoundingClientRect();
+            drag = {
+                pointerId: event.pointerId,
+                offsetX: event.clientX - rect.left,
+                offsetY: event.clientY - rect.top,
+                startX: event.clientX,
+                startY: event.clientY,
+                moved: false
+            };
+            launcher.setPointerCapture?.(event.pointerId);
+            launcher.classList.add('dragging');
+        });
+
+        launcher.addEventListener('pointermove', (event) => {
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            if (Math.abs(event.clientX - drag.startX) + Math.abs(event.clientY - drag.startY) > 5) {
+                drag.moved = true;
+            }
+            const rect = launcher.getBoundingClientRect();
+            const left = clamp(event.clientX - drag.offsetX, 4, Math.max(4, window.innerWidth - rect.width - 4));
+            const top = clamp(event.clientY - drag.offsetY, 4, Math.max(4, window.innerHeight - rect.height - 4));
+            launcher.style.left = left + 'px';
+            launcher.style.top = top + 'px';
+            launcher.style.right = 'auto';
+        });
+
+        launcher.addEventListener('pointerup', (event) => {
+            if (!drag || drag.pointerId !== event.pointerId) return;
+            const wasMoved = drag.moved;
+            drag = null;
+            launcher.releasePointerCapture?.(event.pointerId);
+            launcher.classList.remove('dragging');
+            const rect = launcher.getBoundingClientRect();
+            saveValue(STORAGE.LAUNCHER_POSITION, { left: rect.left, top: rect.top });
+            if (!wasMoved) togglePanel();
+        });
+
+        launcher.addEventListener('pointercancel', () => {
+            drag = null;
+            launcher.classList.remove('dragging');
+        });
+
+        window.addEventListener('resize', () => {
+            if (!launcher) return;
+            const rect = launcher.getBoundingClientRect();
+            const left = clamp(rect.left, 4, Math.max(4, window.innerWidth - rect.width - 4));
+            const top = clamp(rect.top, 4, Math.max(4, window.innerHeight - rect.height - 4));
+            launcher.style.left = left + 'px';
+            launcher.style.top = top + 'px';
+            launcher.style.right = 'auto';
+        });
+    }
+
+    function buildPanel() {
+        panel = el('section', 'sr-panel');
+        panel.id = 'sr-panel';
+        panel.setAttribute('aria-label', APP_NAME);
+
+        const header = el('div', 'sr-header');
+        const titleWrap = document.createElement('div');
+        const title = el('h2', 'sr-title', 'Semantic Researcher');
+        const subtitle = el('div', 'sr-subtitle', 'Discover → Investigate → Curate → Synthesize');
+        titleWrap.append(title, subtitle);
+
+        const close = el('button', 'sr-close', '×');
+        close.type = 'button';
+        close.setAttribute('aria-label', 'Close Semantic Researcher');
+        close.addEventListener('click', () => panel.classList.remove('open'));
+
+        header.append(titleWrap, close);
+        panel.appendChild(header);
+
+        const body = el('div', 'sr-body');
+
+        const statusSection = section('Page & access');
+        const pageCount = el('div', 'sr-count');
+        pageCount.id = 'sr-page-count';
+        statusSection.appendChild(pageCount);
+
+        const statusButtons = el('div', 'sr-row');
+        statusButtons.append(
+            makeButton('Rescan page', refreshSnapshot, 'small'),
+            makeButton('Set access key', setAiAccessKey, 'small', 'sr-access-key')
+        );
+        statusSection.appendChild(statusButtons);
+
+        const status = el('div', 'sr-status');
+        status.id = 'sr-status';
+        statusSection.appendChild(status);
+        body.appendChild(statusSection);
+
+        const discoverSection = section('1 · Discover');
+        discoverSection.appendChild(el(
+            'p',
+            'sr-help',
+            'Ask AI for useful research lenses for this page, or skip discovery and write your own lens below.'
+        ));
+        discoverSection.appendChild(makeButton('Suggest research lenses', runDiscover, 'primary', 'sr-discover'));
+
+        const discoverSummary = el('p', 'sr-summary');
+        discoverSummary.id = 'sr-document-summary';
+        discoverSection.appendChild(discoverSummary);
+
+        const lenses = el('div', 'sr-lenses');
+        lenses.id = 'sr-lenses';
+        discoverSection.appendChild(lenses);
+        body.appendChild(discoverSection);
+
+        const investigateSection = section('2 · Investigate');
+        investigateSection.appendChild(el(
+            'p',
+            'sr-help',
+            'Describe the meaning you want to find. This instruction is applied to the page’s extracted text blocks.'
+        ));
+
+        const lensInput = document.createElement('textarea');
+        lensInput.className = 'sr-textarea';
+        lensInput.id = 'sr-lens-input';
+        lensInput.placeholder = 'Example: Find unsupported claims or places where the author weakens the main argument.';
+        lensInput.maxLength = 700;
+        investigateSection.appendChild(lensInput);
+
+        const investigateRow = el('div', 'sr-row');
+        investigateRow.appendChild(makeButton('Find evidence', runFind, 'primary', 'sr-find'));
+        investigateSection.appendChild(investigateRow);
+        body.appendChild(investigateSection);
+
+        const findingsSection = section('3 · Review findings');
+        const findingsControls = el('div', 'sr-row');
+        findingsControls.append(
+            makeButton('Previous', () => moveFinding(-1), 'small', 'sr-prev'),
+            makeButton('Next', () => moveFinding(1), 'small', 'sr-next'),
+            makeButton('Hide highlights', toggleHighlights, 'small', 'sr-toggle-highlights'),
+            makeButton('Clear', clearAnalysis, 'small')
+        );
+        findingsSection.appendChild(findingsControls);
+
+        const findingCount = el('div', 'sr-count');
+        findingCount.id = 'sr-finding-count';
+        findingsSection.appendChild(findingCount);
+
+        const findings = document.createElement('div');
+        findings.id = 'sr-findings';
+        findingsSection.appendChild(findings);
+        body.appendChild(findingsSection);
+
+        const synthSection = section('4 · Synthesize');
+        synthSection.appendChild(el(
+            'p',
+            'sr-help',
+            'Only selected findings are sent to the synthesis pass. Add an optional instruction for the report.'
+        ));
+
+        const synthInput = document.createElement('textarea');
+        synthInput.className = 'sr-textarea';
+        synthInput.id = 'sr-synthesis-input';
+        synthInput.placeholder = 'Optional: Explain how these findings affect the article’s overall conclusion.';
+        synthInput.maxLength = 1500;
+        synthSection.appendChild(synthInput);
+
+        const synthButtons = el('div', 'sr-row');
+        synthButtons.append(
+            makeButton('Generate synthesis', runSynthesize, 'primary', 'sr-synthesize'),
+            makeButton('Copy report', copyReport, '', 'sr-copy-report')
+        );
+        synthSection.appendChild(synthButtons);
+
+        const reportTitle = el('div', 'sr-report-title');
+        reportTitle.id = 'sr-report-title';
+        synthSection.appendChild(reportTitle);
+
+        const report = el('div', 'sr-report');
+        report.id = 'sr-report';
+        report.textContent = 'No synthesis yet.';
+        synthSection.appendChild(report);
+
+        body.appendChild(synthSection);
+        panel.appendChild(body);
+        shadow.appendChild(panel);
+
+        renderAll();
+    }
+
+    function section(titleText) {
+        const node = el('section', 'sr-section');
+        node.appendChild(el('h3', 'sr-section-title', titleText));
+        return node;
+    }
+
+    function el(tag, className = '', text = '') {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== '') node.textContent = text;
+        return node;
+    }
+
+    function makeButton(label, handler, extraClass = '', id = '') {
+        const button = el('button', ('sr-btn ' + extraClass).trim(), label);
+        button.type = 'button';
+        if (id) button.id = id;
+        button.addEventListener('click', handler);
+        return button;
+    }
+
+    function togglePanel() {
+        if (!panel) return;
+        panel.classList.toggle('open');
+        if (panel.classList.contains('open')) {
+            refreshSnapshot(false);
+        }
+    }
+
+    function normalizeText(text) {
+        return String(text || '')
+            .replace(/\u00a0/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+    }
+
+    function refreshSnapshot(showMessage = true) {
+        clearHighlights();
+        state.findings = [];
+        state.activeFindingIndex = -1;
+        state.report = null;
+        state.discovery = null;
+        state.sensitiveConfirmationFingerprint = null;
+
+        const root =
+            document.querySelector('article') ||
+            document.querySelector('main') ||
+            document.querySelector('[role="main"]') ||
+            document.body;
+
+        const selectors = 'h1,h2,h3,h4,p,li,blockquote,pre,td,th,figcaption';
+        const candidates = Array.from(root?.querySelectorAll(selectors) || []);
+        const blocks = [];
+        const blockMap = new Map();
+        const seenText = new Set();
+        let totalChars = 0;
+
+        for (const element of candidates) {
+            if (blocks.length >= MAX_BLOCKS || totalChars >= MAX_DOCUMENT_CHARS) break;
+            if (rootHost && (element === rootHost || rootHost.contains(element))) continue;
+            if (element.closest('nav,footer,form,dialog,aside,[aria-hidden="true"],[hidden]')) continue;
+
+            const style = getComputedStyle(element);
+            const rect = element.getBoundingClientRect();
+            if (
+                style.display === 'none' ||
+                style.visibility === 'hidden' ||
+                Number(style.opacity) === 0 ||
+                !rect.width ||
+                !rect.height
+            ) {
+                continue;
+            }
+
+            let text = normalizeText(element.textContent);
+            if (text.length < 20) continue;
+            if (text.length > MAX_BLOCK_CHARS) text = text.slice(0, MAX_BLOCK_CHARS).trim();
+            if (!text || seenText.has(text)) continue;
+
+            const remaining = MAX_DOCUMENT_CHARS - totalChars;
+            if (remaining < 20) break;
+            if (text.length > remaining) text = text.slice(0, remaining).trim();
+            if (text.length < 20) break;
+
+            const id = 'B' + String(blocks.length + 1).padStart(3, '0');
+            const block = {
+                id,
+                tag: element.tagName.toLowerCase(),
+                text,
+                element
+            };
+            blocks.push(block);
+            blockMap.set(id, block);
+            seenText.add(text);
+            totalChars += text.length;
+        }
+
+        const fingerprint = hashText(
+            [document.title || '', location.href, ...blocks.map((block) => block.text)].join('\n')
+        );
+
+        state.snapshot = {
+            page: {
+                title: document.title || '',
+                url: location.href,
+                fingerprint
+            },
+            blocks,
+            blockMap,
+            totalChars
+        };
+
+        renderAll();
+        if (showMessage) {
+            setStatus(
+                blocks.length
+                    ? 'Page rescanned locally. No page text has been sent to AI.'
+                    : 'I could not find enough readable text blocks on this page.'
+            );
+        }
+    }
+
+    function hashText(text) {
+        let hash = 2166136261;
+        for (let i = 0; i < text.length; i += 1) {
+            hash ^= text.charCodeAt(i);
+            hash = Math.imul(hash, 16777619);
+        }
+        return 'fnv1a-' + (hash >>> 0).toString(16).padStart(8, '0');
+    }
+
+    function serializableBlocks() {
+        return (state.snapshot?.blocks || []).map(({ id, tag, text }) => ({ id, tag, text }));
+    }
+
+    function getStoredAiToken() {
+        return String(loadValue(STORAGE.AI_TOKEN, '') || '').trim();
+    }
+
+    function setAiAccessKey() {
+        const existing = getStoredAiToken();
+        const token = window.prompt(
+            'Enter your SwiftClick AI access key. It is stored only in Tampermonkey for this userscript.',
+            existing
+        );
+        if (token === null) return;
+        const clean = token.trim();
+        if (!clean) {
+            saveValue(STORAGE.AI_TOKEN, '');
+            setStatus('AI access key cleared.');
+        } else {
+            saveValue(STORAGE.AI_TOKEN, clean);
+            setStatus('AI access key saved.');
+        }
+        renderAll();
+    }
+
+    function clearAiAccessKey() {
+        saveValue(STORAGE.AI_TOKEN, '');
+        setStatus('AI access key cleared.');
+        renderAll();
+    }
+
+    function makeRequestId(prefix) {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+            return prefix + '-' + window.crypto.randomUUID();
+        }
+        return prefix + '-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+    }
+
+    function hostLooksSensitive(hostname) {
+        const host = String(hostname || '').toLowerCase();
+        return SENSITIVE_HOST_HINTS.some((hint) => host.includes(hint));
+    }
+
+    function confirmSensitiveTransmission() {
+        if (!hostLooksSensitive(location.hostname)) return true;
+        const fingerprint = state.snapshot?.page?.fingerprint || '';
+        if (state.sensitiveConfirmationFingerprint === fingerprint) return true;
+
+        const proceed = window.confirm(
+            'This site looks potentially sensitive. Semantic Researcher will send the extracted readable page text to the SwiftClick AI service for this analysis. Continue?'
+        );
+        if (proceed) state.sensitiveConfirmationFingerprint = fingerprint;
+        return proceed;
+    }
+
+    function ensureReadyForAi() {
+        if (!state.snapshot?.blocks?.length) {
+            refreshSnapshot(false);
+        }
+        if (!state.snapshot?.blocks?.length) {
+            setStatus('There is not enough readable page text to analyze.', true);
+            return null;
+        }
+
+        let token = getStoredAiToken();
+        if (!token) {
+            setAiAccessKey();
+            token = getStoredAiToken();
+        }
+        if (!token) return null;
+        if (!confirmSensitiveTransmission()) return null;
+        return token;
+    }
+
+    function requestAi(path, token, data) {
+        const payload = {
+            request_id: makeRequestId('sr'),
+            client_version: APP_VERSION,
+            data
+        };
+
+        return new Promise((resolve, reject) => {
+            GM_xmlhttpRequest({
+                method: 'POST',
+                url: AI_SERVICE_BASE + path,
+                headers: {
+                    Authorization: 'Bearer ' + token,
+                    'Content-Type': 'application/json',
+                    'X-Client-Version': APP_VERSION
+                },
+                data: JSON.stringify(payload),
+                timeout: 180000,
+                onload(response) {
+                    let body = null;
+                    try {
+                        body = JSON.parse(response.responseText || '{}');
+                    } catch {
+                        body = null;
+                    }
+
+                    if (response.status >= 200 && response.status < 300 && body?.ok) {
+                        resolve(body);
+                        return;
+                    }
+
+                    const error = new Error(body?.error || 'ai_service_error');
+                    error.status = response.status;
+                    error.code = body?.error || 'ai_service_error';
+                    error.retryAfterSeconds = body?.retry_after_seconds;
+                    reject(error);
+                },
+                onerror() {
+                    reject(new Error('Could not reach the SwiftClick Semantic Researcher service.'));
+                },
+                ontimeout() {
+                    reject(new Error('The AI request timed out.'));
+                }
+            });
+        });
+    }
+
+    async function runDiscover() {
+        if (state.busy) return;
+        const token = ensureReadyForAi();
+        if (!token) return;
+
+        setBusy(true, 'Reading the page and suggesting useful research lenses…');
+        try {
+            const response = await requestAi('/discover', token, {
+                page: state.snapshot.page,
+                blocks: serializableBlocks()
+            });
+            const result = response.result;
+            if (!result || !Array.isArray(result.lenses)) throw serviceShapeError();
+
+            state.discovery = {
+                documentSummary: String(result.document_summary || ''),
+                lenses: result.lenses
+                    .filter((lens) => lens && typeof lens.request === 'string')
+                    .slice(0, 8)
+            };
+            renderDiscovery();
+            renderUsageStatus('Discovery complete.', response);
+        } catch (error) {
+            handleAiError(error);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function runFind() {
+        if (state.busy) return;
+        const lensInput = shadow.getElementById('sr-lens-input');
+        const lens = String(lensInput?.value || '').trim();
+        if (lens.length < 3) {
+            setStatus('Write or select a research lens before finding evidence.', true);
+            lensInput?.focus();
+            return;
+        }
+
+        const token = ensureReadyForAi();
+        if (!token) return;
+
+        clearHighlights();
+        state.findings = [];
+        state.activeFindingIndex = -1;
+        state.report = null;
+        renderFindings();
+        renderReport();
+
+        setBusy(true, 'Applying the research lens and checking source grounding…');
+        try {
+            const response = await requestAi('/find', token, {
+                page: state.snapshot.page,
+                lens,
+                blocks: serializableBlocks()
+            });
+            const result = response.result;
+            if (!result || !Array.isArray(result.findings)) throw serviceShapeError();
+
+            const grounded = [];
+            for (const finding of result.findings) {
+                const block = state.snapshot.blockMap.get(finding?.block_id);
+                if (!block || typeof finding?.quote !== 'string' || !block.text.includes(finding.quote)) {
+                    continue;
+                }
+                grounded.push({
+                    blockId: finding.block_id,
+                    quote: finding.quote,
+                    category: String(finding.category || 'Finding'),
+                    reason: String(finding.reason || ''),
+                    assessmentType: String(finding.assessment_type || 'ai_assessment'),
+                    confidence: Number.isFinite(finding.confidence) ? finding.confidence : null,
+                    selected: true
+                });
+            }
+
+            state.findings = grounded;
+            state.highlightsVisible = true;
+            applyHighlights();
+            if (grounded.length) {
+                state.activeFindingIndex = 0;
+                scrollToFinding(0, false);
+            }
+            renderFindings();
+            renderUsageStatus(
+                grounded.length
+                    ? 'Found ' + grounded.length + ' grounded passage' + (grounded.length === 1 ? '' : 's') + '.'
+                    : 'No grounded findings matched this lens.',
+                response
+            );
+        } catch (error) {
+            handleAiError(error);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function runSynthesize() {
+        if (state.busy) return;
+        const lens = String(shadow.getElementById('sr-lens-input')?.value || '').trim();
+        const selected = state.findings.filter((finding) => finding.selected);
+        if (!lens) {
+            setStatus('A research lens is required before synthesis.', true);
+            return;
+        }
+        if (!selected.length) {
+            setStatus('Select at least one finding before synthesis.', true);
+            return;
+        }
+
+        const token = ensureReadyForAi();
+        if (!token) return;
+
+        const findings = selected.map((finding) => {
+            const block = state.snapshot.blockMap.get(finding.blockId);
+            return {
+                block_id: finding.blockId,
+                quote: finding.quote,
+                category: finding.category,
+                reason: finding.reason,
+                assessment_type: finding.assessmentType,
+                source_text: block?.text || ''
+            };
+        });
+
+        setBusy(true, 'Synthesizing the selected evidence…');
+        try {
+            const response = await requestAi('/synthesize', token, {
+                page: state.snapshot.page,
+                lens,
+                document_summary: state.discovery?.documentSummary || '',
+                findings,
+                user_instruction: String(
+                    shadow.getElementById('sr-synthesis-input')?.value || ''
+                ).trim()
+            });
+            const result = response.result;
+            if (!result || typeof result.report !== 'string') throw serviceShapeError();
+
+            state.report = {
+                title: String(result.title || 'Research synthesis'),
+                report: result.report,
+                citedBlockIds: Array.isArray(result.cited_block_ids)
+                    ? result.cited_block_ids
+                    : []
+            };
+            renderReport();
+            renderUsageStatus('Synthesis complete.', response);
+        } catch (error) {
+            handleAiError(error);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function serviceShapeError() {
+        const error = new Error('The AI service returned an unexpected response.');
+        error.code = 'invalid_response';
+        return error;
+    }
+
+    function renderUsageStatus(message, response) {
+        const parts = [message];
+        if (Number.isSafeInteger(response?.quota?.remaining)) {
+            parts.push(response.quota.remaining + ' request' + (response.quota.remaining === 1 ? '' : 's') + ' remaining today for this step');
+        }
+        if (Number.isSafeInteger(response?.cost_microusd)) {
+            parts.push('Approx. AI cost $' + (response.cost_microusd / 1000000).toFixed(5));
+        }
+        setStatus(parts.join(' · '));
+    }
+
+    function handleAiError(error) {
+        console.error('[' + APP_NAME + '] AI error', error);
+        const code = error?.code || '';
+
+        if (code === 'invalid_credential' || code === 'credential_revoked' || code === 'credential_expired' || error?.status === 401) {
+            setStatus('The SwiftClick AI access key was rejected. Use “Set access key” to replace it.', true);
+            return;
+        }
+        if (code === 'credential_disabled' || code === 'not_entitled') {
+            setStatus('This access key is not currently authorized for this Semantic Researcher capability.', true);
+            return;
+        }
+        if (code === 'product_disabled' || code === 'capability_disabled' || code === 'global_ai_disabled') {
+            setStatus('Semantic Researcher AI is currently disabled by SwiftClick.', true);
+            return;
+        }
+        if (code === 'daily_quota_exceeded') {
+            setStatus('Today’s allowance for this Semantic Researcher step has been reached.', true);
+            return;
+        }
+        if (code === 'burst_limit_exceeded') {
+            setStatus(
+                'Too many requests were sent too quickly.' +
+                (error?.retryAfterSeconds ? ' Try again in about ' + error.retryAfterSeconds + ' seconds.' : ''),
+                true
+            );
+            return;
+        }
+        if (code === 'provider_invalid_grounding' || code === 'provider_duplicate_finding') {
+            setStatus('AI returned findings that failed SwiftClick’s source-grounding checks, so they were rejected.', true);
+            return;
+        }
+        if (code === 'document_too_large' || code === 'request_too_large') {
+            setStatus('This page is larger than the current MVP analysis limit.', true);
+            return;
+        }
+
+        setStatus('AI request failed: ' + (error?.message || code || 'unknown error'), true);
+    }
+
+    function renderAll() {
+        renderSnapshot();
+        renderDiscovery();
+        renderFindings();
+        renderReport();
+        renderAccessButton();
+        renderBusyControls();
+        updateLauncherBadge();
+    }
+
+    function renderSnapshot() {
+        const node = shadow?.getElementById('sr-page-count');
+        if (!node) return;
+        const count = state.snapshot?.blocks?.length || 0;
+        const chars = state.snapshot?.totalChars || 0;
+        node.textContent = count
+            ? count + ' readable blocks · ' + chars.toLocaleString() + ' characters · local snapshot only'
+            : 'No readable page snapshot yet.';
+    }
+
+    function renderDiscovery() {
+        if (!shadow) return;
+        const summary = shadow.getElementById('sr-document-summary');
+        const container = shadow.getElementById('sr-lenses');
+        if (!summary || !container) return;
+
+        summary.textContent = state.discovery?.documentSummary || '';
+        container.replaceChildren();
+
+        for (const lens of state.discovery?.lenses || []) {
+            const button = el('button', 'sr-lens');
+            button.type = 'button';
+            const title = document.createElement('strong');
+            title.textContent = String(lens.title || 'Research lens');
+            const why = document.createElement('span');
+            why.textContent = String(lens.why || '');
+            button.append(title, why);
+            button.addEventListener('click', () => {
+                const input = shadow.getElementById('sr-lens-input');
+                input.value = String(lens.request || '');
+                input.focus();
+                setStatus('Research lens selected. Edit it if you like, then click “Find evidence.”');
+            });
+            container.appendChild(button);
+        }
+    }
+
+    function renderFindings() {
+        if (!shadow) return;
+        const container = shadow.getElementById('sr-findings');
+        const countNode = shadow.getElementById('sr-finding-count');
+        if (!container || !countNode) return;
+
+        const selectedCount = state.findings.filter((finding) => finding.selected).length;
+        countNode.textContent = state.findings.length
+            ? state.findings.length + ' findings · ' + selectedCount + ' selected for synthesis'
+            : 'No findings yet.';
+
+        container.replaceChildren();
+
+        if (!state.findings.length) {
+            container.appendChild(el('div', 'sr-findings-empty', 'Run “Find evidence” to populate grounded findings.'));
+            return;
+        }
+
+        state.findings.forEach((finding, index) => {
+            const card = el('div', 'sr-finding' + (index === state.activeFindingIndex ? ' active' : ''));
+
+            const head = el('div', 'sr-finding-head');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = finding.selected;
+            checkbox.setAttribute('aria-label', 'Include finding ' + (index + 1) + ' in synthesis');
+            checkbox.addEventListener('change', () => {
+                finding.selected = checkbox.checked;
+                renderFindings();
+                renderBusyControls();
+            });
+
+            const main = el('div', 'sr-finding-main');
+            main.appendChild(el('div', 'sr-finding-category', finding.category));
+            const metaParts = [
+                finding.blockId,
+                assessmentLabel(finding.assessmentType)
+            ];
+            if (finding.confidence !== null) {
+                metaParts.push(Math.round(finding.confidence * 100) + '% confidence');
+            }
+            main.appendChild(el('div', 'sr-finding-meta', metaParts.join(' · ')));
+
+            head.append(checkbox, main);
+            card.appendChild(head);
+            card.appendChild(el('div', 'sr-quote', '“' + finding.quote + '”'));
+            card.appendChild(el('div', 'sr-reason', finding.reason));
+
+            const row = el('div', 'sr-row');
+            row.appendChild(makeButton('Show in page', () => {
+                state.activeFindingIndex = index;
+                scrollToFinding(index, true);
+                renderFindings();
+            }, 'small'));
+            card.appendChild(row);
+            container.appendChild(card);
+        });
+    }
+
+    function assessmentLabel(type) {
+        if (type === 'direct_match') return 'Direct semantic match';
+        if (type === 'likely_candidate') return 'Likely candidate';
+        return 'AI assessment';
+    }
+
+    function renderReport() {
+        if (!shadow) return;
+        const title = shadow.getElementById('sr-report-title');
+        const report = shadow.getElementById('sr-report');
+        if (!title || !report) return;
+
+        title.textContent = state.report?.title || '';
+        report.textContent = state.report?.report || 'No synthesis yet.';
+    }
+
+    function renderAccessButton() {
+        const button = shadow?.getElementById('sr-access-key');
+        if (!button) return;
+        button.textContent = getStoredAiToken() ? 'Change access key' : 'Set access key';
+    }
+
+    function renderBusyControls() {
+        if (!shadow) return;
+        const ids = ['sr-discover', 'sr-find', 'sr-synthesize'];
+        for (const id of ids) {
+            const button = shadow.getElementById(id);
+            if (button) button.disabled = state.busy;
+        }
+
+        const prev = shadow.getElementById('sr-prev');
+        const next = shadow.getElementById('sr-next');
+        const toggle = shadow.getElementById('sr-toggle-highlights');
+        const copy = shadow.getElementById('sr-copy-report');
+        if (prev) prev.disabled = !state.findings.length || state.busy;
+        if (next) next.disabled = !state.findings.length || state.busy;
+        if (toggle) {
+            toggle.disabled = !state.findings.length || state.busy;
+            toggle.textContent = state.highlightsVisible ? 'Hide highlights' : 'Show highlights';
+        }
+        if (copy) copy.disabled = !state.report?.report;
+    }
+
+    function updateLauncherBadge() {
+        const badge = shadow?.getElementById('sr-launcher-badge');
+        if (!badge) return;
+        if (state.findings.length) {
+            badge.textContent = String(state.findings.length);
+            badge.style.display = 'flex';
+        } else {
+            badge.textContent = '';
+            badge.style.display = 'none';
+        }
+    }
+
+    function setStatus(message, error = false) {
+        const status = shadow?.getElementById('sr-status');
+        if (!status) return;
+        status.textContent = message || '';
+        status.classList.toggle('error', Boolean(error));
+        status.classList.toggle('busy', state.busy && !error);
+    }
+
+    function setBusy(busy, message = '') {
+        state.busy = busy;
+        if (message) setStatus(message);
+        else {
+            const status = shadow?.getElementById('sr-status');
+            status?.classList.toggle('busy', false);
+        }
+        renderBusyControls();
+    }
+
+    function originalStyleFor(element) {
+        if (!element.__swiftclickSemanticResearcherOriginalStyle) {
+            element.__swiftclickSemanticResearcherOriginalStyle = {
+                backgroundColor: element.style.backgroundColor,
+                boxShadow: element.style.boxShadow,
+                borderRadius: element.style.borderRadius,
+                transition: element.style.transition,
+                outline: element.style.outline,
+                outlineOffset: element.style.outlineOffset
+            };
+        }
+        return element.__swiftclickSemanticResearcherOriginalStyle;
+    }
+
+    function applyHighlights() {
+        clearHighlights(false);
+        if (!state.highlightsVisible) return;
+
+        const blockIds = new Set(state.findings.map((finding) => finding.blockId));
+        for (const blockId of blockIds) {
+            const block = state.snapshot?.blockMap?.get(blockId);
+            const element = block?.element;
+            if (!element?.isConnected) continue;
+            originalStyleFor(element);
+            element.style.backgroundColor = 'rgba(255, 214, 10, 0.17)';
+            element.style.boxShadow = 'inset 4px 0 0 rgba(226, 171, 0, 0.95)';
+            element.style.borderRadius = '3px';
+            element.style.transition = 'background-color .18s ease, box-shadow .18s ease, outline .18s ease';
+            element.setAttribute('data-swiftclick-semantic-finding', 'true');
+        }
+    }
+
+    function clearHighlights(resetVisibility = false) {
+        if (state.snapshot?.blocks) {
+            for (const block of state.snapshot.blocks) {
+                const element = block.element;
+                const original = element?.__swiftclickSemanticResearcherOriginalStyle;
+                if (!element?.isConnected || !original) continue;
+                element.style.backgroundColor = original.backgroundColor;
+                element.style.boxShadow = original.boxShadow;
+                element.style.borderRadius = original.borderRadius;
+                element.style.transition = original.transition;
+                element.style.outline = original.outline;
+                element.style.outlineOffset = original.outlineOffset;
+                element.removeAttribute('data-swiftclick-semantic-finding');
+            }
+        }
+        if (resetVisibility) state.highlightsVisible = true;
+    }
+
+    function toggleHighlights() {
+        if (!state.findings.length) return;
+        if (state.highlightsVisible) {
+            clearHighlights();
+            state.highlightsVisible = false;
+        } else {
+            state.highlightsVisible = true;
+            applyHighlights();
+        }
+        renderBusyControls();
+    }
+
+    function moveFinding(delta) {
+        if (!state.findings.length) return;
+        const current = state.activeFindingIndex >= 0 ? state.activeFindingIndex : 0;
+        const next = (current + delta + state.findings.length) % state.findings.length;
+        state.activeFindingIndex = next;
+        scrollToFinding(next, true);
+        renderFindings();
+    }
+
+    function scrollToFinding(index, emphasize = true) {
+        const finding = state.findings[index];
+        const block = state.snapshot?.blockMap?.get(finding?.blockId);
+        const element = block?.element;
+        if (!element?.isConnected) return;
+
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (!emphasize) return;
+
+        const original = originalStyleFor(element);
+        element.style.outline = '3px solid rgba(235, 143, 0, .95)';
+        element.style.outlineOffset = '4px';
+        window.setTimeout(() => {
+            if (!element.isConnected) return;
+            element.style.outline = original.outline;
+            element.style.outlineOffset = original.outlineOffset;
+        }, 1200);
+    }
+
+    function clearAnalysis() {
+        clearHighlights(true);
+        state.discovery = null;
+        state.findings = [];
+        state.activeFindingIndex = -1;
+        state.report = null;
+        state.sensitiveConfirmationFingerprint = null;
+
+        if (shadow) {
+            const lens = shadow.getElementById('sr-lens-input');
+            const synth = shadow.getElementById('sr-synthesis-input');
+            if (lens) lens.value = '';
+            if (synth) synth.value = '';
+        }
+
+        renderAll();
+        setStatus('Analysis cleared. The local page snapshot remains available.');
+    }
+
+    function copyReport() {
+        const report = state.report?.report;
+        if (!report) return;
+        const text = state.report.title
+            ? state.report.title + '\n\n' + report
+            : report;
+        GM_setClipboard(text, 'text');
+        setStatus('Synthesis report copied to the clipboard.');
+    }
+
+    function loadValue(key, fallback) {
+        try {
+            return GM_getValue(key, fallback);
+        } catch {
+            return fallback;
+        }
+    }
+
+    function saveValue(key, value) {
+        try {
+            GM_setValue(key, value);
+        } catch (error) {
+            console.error('[' + APP_NAME + '] Could not save Tampermonkey value', error);
+        }
+    }
+
+    function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+})();

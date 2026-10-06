@@ -2,8 +2,8 @@
 // @name         Swift Click Semantic Researcher
 // @namespace    https://swiftclick.com/
 // @version      0.1.0
-// @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/semantic-researcher-mvp-20261006/swift-click-semantic-researcher.user.js
-// @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/semantic-researcher-mvp-20261006/swift-click-semantic-researcher.user.js
+// @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-semantic-researcher.user.js
+// @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-semantic-researcher.user.js
 // @description  Discover research lenses, find grounded evidence, highlight it in the page, and synthesize selected findings.
 // @author       Swift Click / Tedd
 // @match        http://*/*

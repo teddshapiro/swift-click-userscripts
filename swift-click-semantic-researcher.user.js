@@ -1380,6 +1380,104 @@
             container.appendChild(card);
         }
     }
+    function renderComparison() {
+        if (!shadow) return;
+        const container = shadow.getElementById('sr-comparison');
+        if (!container) return;
+        container.replaceChildren();
+
+        const comparison = state.comparison;
+        if (!comparison) {
+            container.textContent = 'Use “Compare both” for paired results from the same page snapshot and lens.';
+            return;
+        }
+
+        const summaryParts = [];
+        if (comparison.standard) summaryParts.push('Standard: ' + comparison.standard.grounded.length);
+        if (comparison.decisions) summaryParts.push('Decisions beta: ' + comparison.decisions.grounded.length);
+        if (comparison.standard && comparison.decisions) {
+            summaryParts.push('Shared blocks: ' + comparison.overlapIds.length);
+            summaryParts.push('Only Standard: ' + comparison.onlyStandardIds.length);
+            summaryParts.push('Only Decisions: ' + comparison.onlyDecisionsIds.length);
+        }
+        container.appendChild(el('div', '', summaryParts.join(' · ')));
+
+        if (comparison.standard && comparison.decisions) {
+            const unique = [];
+            if (comparison.onlyStandardIds.length) unique.push('Standard-only ' + comparison.onlyStandardIds.join(', '));
+            if (comparison.onlyDecisionsIds.length) unique.push('Decisions-only ' + comparison.onlyDecisionsIds.join(', '));
+            if (unique.length) container.appendChild(el('div', 'sr-finding-meta', unique.join(' · ')));
+        }
+
+        const showRow = el('div', 'sr-row');
+        if (comparison.standard) {
+            showRow.appendChild(makeButton('Show Standard', () => activateFindingSet(
+                comparison.standard.grounded,
+                comparison.standard.run.id,
+                FIND_METHODS.STANDARD
+            ), 'small'));
+        }
+        if (comparison.decisions) {
+            showRow.appendChild(makeButton('Show Decisions beta', () => activateFindingSet(
+                comparison.decisions.grounded,
+                comparison.decisions.run.id,
+                FIND_METHODS.DECISIONS
+            ), 'small'));
+        }
+        container.appendChild(showRow);
+
+        if (comparison.standard && comparison.decisions) {
+            container.appendChild(el('div', 'sr-help',
+                'After reviewing both sets, record which was more useful. Only the preference is stored with the metrics.'
+            ));
+            const preferenceRow = el('div', 'sr-row');
+            for (const pair of [
+                ['standard', 'Standard better'],
+                ['decisions', 'Decisions better'],
+                ['same', 'About the same'],
+                ['neither', 'Neither']
+            ]) {
+                const value = pair[0];
+                const label = pair[1];
+                const button = makeButton(label, () => recordComparisonPreference(value), 'small');
+                button.setAttribute('aria-pressed', String(comparison.preference === value));
+                if (comparison.preference === value) button.textContent = '✓ ' + label;
+                preferenceRow.appendChild(button);
+            }
+            container.appendChild(preferenceRow);
+        }
+    }
+
+    function recordComparisonPreference(value) {
+        if (!state.comparison || !['standard', 'decisions', 'same', 'neither'].includes(value)) return;
+        state.comparison.preference = value;
+        for (const runId of [state.comparison.standard?.run?.id, state.comparison.decisions?.run?.id]) {
+            const run = state.experimentLog.find((entry) => entry.id === runId);
+            if (run) run.comparison = { ...(run.comparison || {}), preference: value };
+        }
+        saveExperimentLog();
+        renderComparison();
+        setStatus('Comparison preference recorded.');
+    }
+
+    function copyExperimentLog() {
+        GM_setClipboard(JSON.stringify({
+            exported_at: new Date().toISOString(),
+            app_version: APP_VERSION,
+            note: 'Metrics only. No page text, URL, title, or research lens is stored.',
+            runs: state.experimentLog
+        }, null, 2), 'text');
+        setStatus('Experiment log copied to the clipboard.');
+    }
+
+    function clearExperimentLog() {
+        if (!state.experimentLog.length) return;
+        if (!window.confirm('Clear the locally stored Semantic Researcher experiment metrics?')) return;
+        state.experimentLog = [];
+        saveExperimentLog();
+        renderExperimentSummary();
+        setStatus('Experiment metrics cleared.');
+    }
     function renderAll() {
         renderSnapshot();
         renderDiscovery();

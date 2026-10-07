@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click Semantic Researcher
 // @namespace    https://swiftclick.com/
-// @version      0.1.0
+// @version      0.2.0
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-semantic-researcher.user.js
 // @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-semantic-researcher.user.js
 // @description  Discover research lenses, find grounded evidence, highlight it in the page, and synthesize selected findings.
@@ -23,7 +23,7 @@
     'use strict';
 
     const APP_NAME = 'Swift Click Semantic Researcher';
-    const APP_VERSION = '0.1.0';
+    const APP_VERSION = '0.2.0';
     const AI_SERVICE_BASE = 'https://semantic-researcher-ai-service.tedd-7f4.workers.dev';
     const MAX_BLOCKS = 220;
     const MAX_DOCUMENT_CHARS = 50000;
@@ -32,8 +32,15 @@
 
     const STORAGE = {
         AI_TOKEN: 'sc_semantic_researcher_access_token_v1',
-        LAUNCHER_POSITION: 'sc_semantic_researcher_launcher_position_v1'
+        LAUNCHER_POSITION: 'sc_semantic_researcher_launcher_position_v1',
+        EXPERIMENT_LOG: 'sc_semantic_researcher_experiment_log_v1'
     };
+
+    const FIND_METHODS = Object.freeze({
+        STANDARD: 'standard_v1',
+        DECISIONS: 'decisions_hybrid_v1'
+    });
+    const MAX_EXPERIMENT_RUNS = 100;
 
     const SENSITIVE_HOST_HINTS = [
         'bank', 'banking', 'creditunion', 'credit-union', 'brokerage',
@@ -56,12 +63,18 @@
         highlightsVisible: true,
         report: null,
         sensitiveConfirmationFingerprint: null,
-        busy: false
+        busy: false,
+        findMethod: FIND_METHODS.STANDARD,
+        activeExperimentRunId: null,
+        activeFindMethod: null,
+        comparison: null,
+        experimentLog: []
     };
 
     init();
 
     function init() {
+        state.experimentLog = loadExperimentLog();
         buildShell();
 
         GM_registerMenuCommand('Semantic Researcher: set AI access key', setAiAccessKey);
@@ -258,6 +271,51 @@
             }
             .sr-reason { color: #536270; font-size: 12px; }
             .sr-findings-empty { color: #6b7884; font-size: 12px; padding: 4px 0; }
+            .sr-mode {
+                display: inline-flex;
+                gap: 3px;
+                padding: 3px;
+                border-radius: 10px;
+                background: #e9eef2;
+                margin: 2px 0 8px;
+            }
+            .sr-mode-btn {
+                appearance: none;
+                border: 0;
+                border-radius: 8px;
+                padding: 6px 9px;
+                background: transparent;
+                color: #4e5d69;
+                cursor: pointer;
+                font-weight: 700;
+                font-size: 12px;
+            }
+            .sr-mode-btn.active {
+                background: white;
+                color: #17212b;
+                box-shadow: 0 1px 4px rgba(0,0,0,.12);
+            }
+            .sr-experiment-summary {
+                display: grid;
+                gap: 7px;
+                margin-top: 8px;
+            }
+            .sr-metric-card {
+                border: 1px solid #d8e0e6;
+                border-radius: 9px;
+                padding: 8px 9px;
+                background: #fbfcfd;
+                font-size: 12px;
+                color: #4c5a66;
+            }
+            .sr-metric-card strong { display: block; color: #202b35; margin-bottom: 2px; }
+            .sr-comparison {
+                margin-top: 9px;
+                padding-top: 9px;
+                border-top: 1px solid #e2e7eb;
+                font-size: 12px;
+                color: #4c5a66;
+            }
             .sr-report {
                 white-space: pre-wrap;
                 max-height: 380px;
@@ -467,8 +525,30 @@
         lensInput.maxLength = 700;
         investigateSection.appendChild(lensInput);
 
+        investigateSection.appendChild(el(
+            'div',
+            'sr-help',
+            'Find method for this page session. Standard is the proven baseline; Decisions beta adds a fast triage pass before grounding.'
+        ));
+
+        const findMode = el('div', 'sr-mode');
+        findMode.id = 'sr-find-mode';
+        const standardMode = el('button', 'sr-mode-btn', 'Standard');
+        standardMode.type = 'button';
+        standardMode.id = 'sr-mode-standard';
+        standardMode.addEventListener('click', () => setFindMethod(FIND_METHODS.STANDARD));
+        const decisionsMode = el('button', 'sr-mode-btn', 'Decisions beta');
+        decisionsMode.type = 'button';
+        decisionsMode.id = 'sr-mode-decisions';
+        decisionsMode.addEventListener('click', () => setFindMethod(FIND_METHODS.DECISIONS));
+        findMode.append(standardMode, decisionsMode);
+        investigateSection.appendChild(findMode);
+
         const investigateRow = el('div', 'sr-row');
-        investigateRow.appendChild(makeButton('Find evidence', runFind, 'primary', 'sr-find'));
+        investigateRow.append(
+            makeButton('Find evidence', runFind, 'primary', 'sr-find'),
+            makeButton('Compare both', runCompareBoth, '', 'sr-compare-both')
+        );
         investigateSection.appendChild(investigateRow);
         body.appendChild(investigateSection);
 
@@ -490,6 +570,28 @@
         findings.id = 'sr-findings';
         findingsSection.appendChild(findings);
         body.appendChild(findingsSection);
+
+        const experimentSection = section('Experiment');
+        experimentSection.appendChild(el(
+            'p',
+            'sr-help',
+            'Metrics are kept locally for comparison. The log stores no page text, URL, title, or research lens—only a hashed page fingerprint and run measurements.'
+        ));
+        const experimentSummary = el('div', 'sr-experiment-summary');
+        experimentSummary.id = 'sr-experiment-summary';
+        experimentSection.appendChild(experimentSummary);
+
+        const comparison = el('div', 'sr-comparison');
+        comparison.id = 'sr-comparison';
+        experimentSection.appendChild(comparison);
+
+        const experimentButtons = el('div', 'sr-row');
+        experimentButtons.append(
+            makeButton('Copy experiment log', copyExperimentLog, 'small', 'sr-copy-experiment'),
+            makeButton('Clear experiment log', clearExperimentLog, 'small', 'sr-clear-experiment')
+        );
+        experimentSection.appendChild(experimentButtons);
+        body.appendChild(experimentSection);
 
         const synthSection = section('4 · Synthesize');
         synthSection.appendChild(el(
@@ -568,6 +670,9 @@
         clearHighlights();
         state.findings = [];
         state.activeFindingIndex = -1;
+        state.activeExperimentRunId = null;
+        state.activeFindMethod = null;
+        state.comparison = null;
         state.report = null;
         state.discovery = null;
         state.sensitiveConfirmationFingerprint = null;
@@ -812,70 +917,201 @@
 
     async function runFind() {
         if (state.busy) return;
-        const lensInput = shadow.getElementById('sr-lens-input');
-        const lens = String(lensInput?.value || '').trim();
-        if (lens.length < 3) {
-            setStatus('Write or select a research lens before finding evidence.', true);
-            lensInput?.focus();
-            return;
-        }
+        const context = prepareFindContext();
+        if (!context) return;
 
-        const token = ensureReadyForAi();
-        if (!token) return;
+        resetFindResults();
+        const method = state.findMethod;
+        setBusy(
+            true,
+            method === FIND_METHODS.DECISIONS
+                ? 'Running Decisions beta triage, then grounding the strongest candidates…'
+                : 'Applying the research lens and checking source grounding…'
+        );
 
-        clearHighlights();
-        state.findings = [];
-        state.activeFindingIndex = -1;
-        state.report = null;
-        renderFindings();
-        renderReport();
-
-        setBusy(true, 'Applying the research lens and checking source grounding…');
         try {
-            const response = await requestAi('/find', token, {
-                page: state.snapshot.page,
-                lens,
-                blocks: serializableBlocks()
-            });
-            const result = response.result;
-            if (!result || !Array.isArray(result.findings)) throw serviceShapeError();
+            const timed = await timedFindRequest(method, context.token, context.lens);
+            const grounded = normalizeGroundedFindings(timed.response);
+            const run = recordExperimentRun(timed.response, method, timed.elapsedMs, grounded.length);
+            activateFindingSet(grounded, run.id, method);
+            state.comparison = null;
+            renderComparison();
 
-            const grounded = [];
-            for (const finding of result.findings) {
-                const block = state.snapshot.blockMap.get(finding?.block_id);
-                if (!block || typeof finding?.quote !== 'string' || !block.text.includes(finding.quote)) {
-                    continue;
-                }
-                grounded.push({
-                    blockId: finding.block_id,
-                    quote: finding.quote,
-                    category: String(finding.category || 'Finding'),
-                    reason: String(finding.reason || ''),
-                    assessmentType: String(finding.assessment_type || 'ai_assessment'),
-                    confidence: Number.isFinite(finding.confidence) ? finding.confidence : null,
-                    selected: true
-                });
-            }
+            const experiment = timed.response?.experiment;
+            const candidateNote =
+                method === FIND_METHODS.DECISIONS &&
+                Number.isSafeInteger(experiment?.candidate_blocks) &&
+                Number.isSafeInteger(experiment?.source_blocks)
+                    ? ' · ' + experiment.candidate_blocks + '/' + experiment.source_blocks + ' blocks sent to grounding'
+                    : '';
+            const label = findMethodLabel(method);
 
-            state.findings = grounded;
-            state.highlightsVisible = true;
-            applyHighlights();
-            if (grounded.length) {
-                state.activeFindingIndex = 0;
-                scrollToFinding(0, false);
-            }
-            renderFindings();
             renderUsageStatus(
                 grounded.length
-                    ? 'Found ' + grounded.length + ' grounded passage' + (grounded.length === 1 ? '' : 's') + '.'
-                    : 'No grounded findings matched this lens.',
-                response
+                    ? label + ' found ' + grounded.length + ' grounded passage' + (grounded.length === 1 ? '' : 's') + candidateNote + '.'
+                    : label + ' found no grounded findings' + candidateNote + '.',
+                timed.response
             );
         } catch (error) {
             handleAiError(error);
         } finally {
             setBusy(false);
         }
+    }
+
+    async function runCompareBoth() {
+        if (state.busy) return;
+        const context = prepareFindContext();
+        if (!context) return;
+
+        resetFindResults();
+        const comparisonId = makeRequestId('cmp');
+        setBusy(true, 'Running Standard and Decisions beta against the same page snapshot and lens…');
+
+        try {
+            const settled = await Promise.allSettled([
+                timedFindRequest(FIND_METHODS.STANDARD, context.token, context.lens),
+                timedFindRequest(FIND_METHODS.DECISIONS, context.token, context.lens)
+            ]);
+            const methods = [FIND_METHODS.STANDARD, FIND_METHODS.DECISIONS];
+            const successful = {};
+            const errors = {};
+
+            settled.forEach((item, index) => {
+                const method = methods[index];
+                if (item.status === 'fulfilled') {
+                    const grounded = normalizeGroundedFindings(item.value.response);
+                    const run = recordExperimentRun(
+                        item.value.response,
+                        method,
+                        item.value.elapsedMs,
+                        grounded.length,
+                        comparisonId
+                    );
+                    successful[method] = { grounded, run, response: item.value.response };
+                } else {
+                    errors[method] = item.reason;
+                }
+            });
+
+            if (!successful[FIND_METHODS.STANDARD] && !successful[FIND_METHODS.DECISIONS]) {
+                throw errors[FIND_METHODS.STANDARD] || errors[FIND_METHODS.DECISIONS] || new Error('Both comparison runs failed.');
+            }
+
+            const standardIds = new Set((successful[FIND_METHODS.STANDARD]?.grounded || []).map((finding) => finding.blockId));
+            const decisionsIds = new Set((successful[FIND_METHODS.DECISIONS]?.grounded || []).map((finding) => finding.blockId));
+            const overlapIds = [...standardIds].filter((id) => decisionsIds.has(id));
+            const onlyStandardIds = [...standardIds].filter((id) => !decisionsIds.has(id));
+            const onlyDecisionsIds = [...decisionsIds].filter((id) => !standardIds.has(id));
+
+            state.comparison = {
+                id: comparisonId,
+                standard: successful[FIND_METHODS.STANDARD] || null,
+                decisions: successful[FIND_METHODS.DECISIONS] || null,
+                errors,
+                overlapIds,
+                onlyStandardIds,
+                onlyDecisionsIds,
+                preference: null
+            };
+            annotateComparisonRuns(state.comparison);
+
+            const initial = successful[FIND_METHODS.STANDARD] || successful[FIND_METHODS.DECISIONS];
+            const initialMethod = successful[FIND_METHODS.STANDARD]
+                ? FIND_METHODS.STANDARD
+                : FIND_METHODS.DECISIONS;
+            activateFindingSet(initial.grounded, initial.run.id, initialMethod);
+            renderComparison();
+            renderExperimentSummary();
+
+            if (successful[FIND_METHODS.STANDARD] && successful[FIND_METHODS.DECISIONS]) {
+                setStatus(
+                    'Comparison complete · Standard ' +
+                    successful[FIND_METHODS.STANDARD].grounded.length +
+                    ' findings · Decisions beta ' +
+                    successful[FIND_METHODS.DECISIONS].grounded.length +
+                    ' · ' + overlapIds.length + ' shared block' + (overlapIds.length === 1 ? '' : 's') + '.'
+                );
+            } else {
+                const failedMethod = successful[FIND_METHODS.STANDARD] ? 'Decisions beta' : 'Standard';
+                setStatus('Comparison partially completed. ' + failedMethod + ' failed; the successful result is shown.', true);
+            }
+        } catch (error) {
+            handleAiError(error);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function prepareFindContext() {
+        const lensInput = shadow.getElementById('sr-lens-input');
+        const lens = String(lensInput?.value || '').trim();
+        if (lens.length < 3) {
+            setStatus('Write or select a research lens before finding evidence.', true);
+            lensInput?.focus();
+            return null;
+        }
+        const token = ensureReadyForAi();
+        return token ? { lens, token } : null;
+    }
+
+    function resetFindResults() {
+        clearHighlights();
+        state.findings = [];
+        state.activeFindingIndex = -1;
+        state.activeExperimentRunId = null;
+        state.activeFindMethod = null;
+        state.report = null;
+        renderFindings();
+        renderReport();
+    }
+
+    async function timedFindRequest(method, token, lens) {
+        const path = method === FIND_METHODS.DECISIONS ? '/find-decisions' : '/find';
+        const started = performance.now();
+        const response = await requestAi(path, token, {
+            page: state.snapshot.page,
+            lens,
+            blocks: serializableBlocks()
+        });
+        return {
+            response,
+            elapsedMs: Math.max(0, Math.round(performance.now() - started))
+        };
+    }
+
+    function normalizeGroundedFindings(response) {
+        const result = response?.result;
+        if (!result || !Array.isArray(result.findings)) throw serviceShapeError();
+
+        return result.findings.flatMap((finding) => {
+            const block = state.snapshot.blockMap.get(finding?.block_id);
+            if (!block || typeof finding?.quote !== 'string' || !block.text.includes(finding.quote)) {
+                return [];
+            }
+            return [{
+                blockId: finding.block_id,
+                quote: finding.quote,
+                category: String(finding.category || 'Finding'),
+                reason: String(finding.reason || ''),
+                assessmentType: String(finding.assessment_type || 'ai_assessment'),
+                confidence: Number.isFinite(finding.confidence) ? finding.confidence : null,
+                selected: true
+            }];
+        });
+    }
+
+    function activateFindingSet(findings, runId, method) {
+        clearHighlights();
+        state.findings = findings;
+        state.activeFindingIndex = findings.length ? 0 : -1;
+        state.activeExperimentRunId = runId || null;
+        state.activeFindMethod = method || null;
+        state.highlightsVisible = true;
+        applyHighlights();
+        if (findings.length) scrollToFinding(0, false);
+        renderFindings();
+        renderBusyControls();
     }
 
     async function runSynthesize() {
@@ -893,6 +1129,9 @@
 
         const token = ensureReadyForAi();
         if (!token) return;
+
+        updateExperimentSelection(state.activeExperimentRunId, selected.length);
+        renderExperimentSummary();
 
         const findings = selected.map((finding) => {
             const block = state.snapshot.blockMap.get(finding.blockId);
@@ -993,10 +1232,265 @@
         setStatus('AI request failed: ' + (error?.message || code || 'unknown error'), true);
     }
 
+    function setFindMethod(method) {
+        if (![FIND_METHODS.STANDARD, FIND_METHODS.DECISIONS].includes(method)) return;
+        state.findMethod = method;
+        renderFindMethod();
+        setStatus(
+            method === FIND_METHODS.DECISIONS
+                ? 'Decisions beta selected for this page session. It resets to Standard when the userscript reloads.'
+                : 'Standard Find selected for this page session.'
+        );
+    }
+
+    function findMethodLabel(method) {
+        return method === FIND_METHODS.DECISIONS ? 'Decisions beta' : 'Standard';
+    }
+
+    function renderFindMethod() {
+        if (!shadow) return;
+        const standard = shadow.getElementById('sr-mode-standard');
+        const decisions = shadow.getElementById('sr-mode-decisions');
+        if (!standard || !decisions) return;
+
+        const standardActive = state.findMethod === FIND_METHODS.STANDARD;
+        standard.classList.toggle('active', standardActive);
+        decisions.classList.toggle('active', !standardActive);
+        standard.setAttribute('aria-pressed', String(standardActive));
+        decisions.setAttribute('aria-pressed', String(!standardActive));
+    }
+
+    function loadExperimentLog() {
+        const raw = loadValue(STORAGE.EXPERIMENT_LOG, []);
+        if (!Array.isArray(raw)) return [];
+        return raw
+            .filter((entry) => entry && typeof entry === 'object' && typeof entry.id === 'string')
+            .slice(-MAX_EXPERIMENT_RUNS);
+    }
+
+    function saveExperimentLog() {
+        saveValue(STORAGE.EXPERIMENT_LOG, state.experimentLog.slice(-MAX_EXPERIMENT_RUNS));
+    }
+
+    function integerOrNull(value) {
+        return Number.isSafeInteger(value) && value >= 0 ? value : null;
+    }
+
+    function recordExperimentRun(response, method, clientElapsedMs, groundedFindings, comparisonId = null) {
+        const experiment = response?.experiment || {};
+        const usage = response?.usage || {};
+        const decisionUsage = experiment?.decision_usage || {};
+        const groundingUsage = experiment?.grounding_usage || {};
+
+        const run = {
+            id: String(response?.request_id || makeRequestId('run')),
+            at: new Date().toISOString(),
+            method,
+            pageFingerprint: state.snapshot?.page?.fingerprint || '',
+            sourceBlocks: integerOrNull(experiment?.source_blocks) ?? (state.snapshot?.blocks?.length || 0),
+            candidateBlocks: integerOrNull(experiment?.candidate_blocks),
+            findings: groundedFindings,
+            selected: groundedFindings,
+            clientElapsedMs: integerOrNull(clientElapsedMs),
+            serviceLatencyMs: integerOrNull(response?.service_latency_ms),
+            inputTokens: integerOrNull(usage?.input_tokens),
+            outputTokens: integerOrNull(usage?.output_tokens),
+            costMicrousd: integerOrNull(response?.cost_microusd),
+            decisionLatencyMs: integerOrNull(experiment?.decision_latency_ms),
+            groundingLatencyMs: integerOrNull(experiment?.grounding_latency_ms),
+            decisionInputTokens: integerOrNull(decisionUsage?.input_tokens),
+            decisionOutputTokens: integerOrNull(decisionUsage?.output_tokens),
+            groundingInputTokens: integerOrNull(groundingUsage?.input_tokens),
+            groundingOutputTokens: integerOrNull(groundingUsage?.output_tokens),
+            decisionCostMicrousd: integerOrNull(experiment?.decision_cost_microusd),
+            groundingCostMicrousd: integerOrNull(experiment?.grounding_cost_microusd),
+            fallbackToFullDocument: Boolean(experiment?.fallback_to_full_document),
+            comparisonId
+        };
+
+        state.experimentLog.push(run);
+        if (state.experimentLog.length > MAX_EXPERIMENT_RUNS) {
+            state.experimentLog.splice(0, state.experimentLog.length - MAX_EXPERIMENT_RUNS);
+        }
+        saveExperimentLog();
+        renderExperimentSummary();
+        return run;
+    }
+
+    function updateExperimentSelection(runId, selectedCount) {
+        if (!runId || !Number.isSafeInteger(selectedCount) || selectedCount < 0) return;
+        const run = state.experimentLog.find((entry) => entry.id === runId);
+        if (!run) return;
+        run.selected = selectedCount;
+        saveExperimentLog();
+    }
+
+    function annotateComparisonRuns(comparison) {
+        if (!comparison?.standard || !comparison?.decisions) return;
+        const metrics = {
+            overlap: comparison.overlapIds.length,
+            onlyStandard: comparison.onlyStandardIds.length,
+            onlyDecisions: comparison.onlyDecisionsIds.length
+        };
+        for (const runId of [comparison.standard.run.id, comparison.decisions.run.id]) {
+            const run = state.experimentLog.find((entry) => entry.id === runId);
+            if (run) run.comparison = { ...metrics };
+        }
+        saveExperimentLog();
+    }
+
+    function averageNumbers(values) {
+        const numbers = values.filter((value) => typeof value === 'number' && Number.isFinite(value));
+        if (!numbers.length) return null;
+        return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+    }
+
+    function renderExperimentSummary() {
+        if (!shadow) return;
+        const container = shadow.getElementById('sr-experiment-summary');
+        if (!container) return;
+        container.replaceChildren();
+
+        for (const method of [FIND_METHODS.STANDARD, FIND_METHODS.DECISIONS]) {
+            const runs = state.experimentLog.filter((run) => run.method === method);
+            const card = el('div', 'sr-metric-card');
+            card.appendChild(el('strong', '', findMethodLabel(method)));
+
+            if (!runs.length) {
+                card.appendChild(document.createTextNode('No logged runs yet.'));
+                container.appendChild(card);
+                continue;
+            }
+
+            const avgLatency = averageNumbers(runs.map((run) => run.serviceLatencyMs));
+            const avgCost = averageNumbers(runs.map((run) => run.costMicrousd));
+            const avgFindings = averageNumbers(runs.map((run) => run.findings));
+            const avgSelected = averageNumbers(runs.map((run) => run.selected));
+            const pieces = [
+                runs.length + ' run' + (runs.length === 1 ? '' : 's'),
+                avgLatency === null ? null : (avgLatency / 1000).toFixed(2) + 's avg server time',
+                avgCost === null ? null : 'USD ' + (avgCost / 1000000).toFixed(5) + ' avg cost',
+                avgFindings === null ? null : avgFindings.toFixed(1) + ' avg findings',
+                avgSelected === null ? null : avgSelected.toFixed(1) + ' avg kept'
+            ].filter(Boolean);
+
+            if (method === FIND_METHODS.DECISIONS) {
+                const avgCandidates = averageNumbers(runs.map((run) => run.candidateBlocks));
+                const avgSource = averageNumbers(runs.map((run) => run.sourceBlocks));
+                if (avgCandidates !== null && avgSource !== null) {
+                    pieces.push(avgCandidates.toFixed(1) + '/' + avgSource.toFixed(1) + ' avg blocks grounded');
+                }
+            }
+
+            card.appendChild(document.createTextNode(pieces.join(' · ')));
+            container.appendChild(card);
+        }
+    }
+    function renderComparison() {
+        if (!shadow) return;
+        const container = shadow.getElementById('sr-comparison');
+        if (!container) return;
+        container.replaceChildren();
+
+        const comparison = state.comparison;
+        if (!comparison) {
+            container.textContent = 'Use “Compare both” for paired results from the same page snapshot and lens.';
+            return;
+        }
+
+        const summaryParts = [];
+        if (comparison.standard) summaryParts.push('Standard: ' + comparison.standard.grounded.length);
+        if (comparison.decisions) summaryParts.push('Decisions beta: ' + comparison.decisions.grounded.length);
+        if (comparison.standard && comparison.decisions) {
+            summaryParts.push('Shared blocks: ' + comparison.overlapIds.length);
+            summaryParts.push('Only Standard: ' + comparison.onlyStandardIds.length);
+            summaryParts.push('Only Decisions: ' + comparison.onlyDecisionsIds.length);
+        }
+        container.appendChild(el('div', '', summaryParts.join(' · ')));
+
+        if (comparison.standard && comparison.decisions) {
+            const unique = [];
+            if (comparison.onlyStandardIds.length) unique.push('Standard-only ' + comparison.onlyStandardIds.join(', '));
+            if (comparison.onlyDecisionsIds.length) unique.push('Decisions-only ' + comparison.onlyDecisionsIds.join(', '));
+            if (unique.length) container.appendChild(el('div', 'sr-finding-meta', unique.join(' · ')));
+        }
+
+        const showRow = el('div', 'sr-row');
+        if (comparison.standard) {
+            showRow.appendChild(makeButton('Show Standard', () => activateFindingSet(
+                comparison.standard.grounded,
+                comparison.standard.run.id,
+                FIND_METHODS.STANDARD
+            ), 'small'));
+        }
+        if (comparison.decisions) {
+            showRow.appendChild(makeButton('Show Decisions beta', () => activateFindingSet(
+                comparison.decisions.grounded,
+                comparison.decisions.run.id,
+                FIND_METHODS.DECISIONS
+            ), 'small'));
+        }
+        container.appendChild(showRow);
+
+        if (comparison.standard && comparison.decisions) {
+            container.appendChild(el('div', 'sr-help',
+                'After reviewing both sets, record which was more useful. Only the preference is stored with the metrics.'
+            ));
+            const preferenceRow = el('div', 'sr-row');
+            for (const pair of [
+                ['standard', 'Standard better'],
+                ['decisions', 'Decisions better'],
+                ['same', 'About the same'],
+                ['neither', 'Neither']
+            ]) {
+                const value = pair[0];
+                const label = pair[1];
+                const button = makeButton(label, () => recordComparisonPreference(value), 'small');
+                button.setAttribute('aria-pressed', String(comparison.preference === value));
+                if (comparison.preference === value) button.textContent = '✓ ' + label;
+                preferenceRow.appendChild(button);
+            }
+            container.appendChild(preferenceRow);
+        }
+    }
+
+    function recordComparisonPreference(value) {
+        if (!state.comparison || !['standard', 'decisions', 'same', 'neither'].includes(value)) return;
+        state.comparison.preference = value;
+        for (const runId of [state.comparison.standard?.run?.id, state.comparison.decisions?.run?.id]) {
+            const run = state.experimentLog.find((entry) => entry.id === runId);
+            if (run) run.comparison = { ...(run.comparison || {}), preference: value };
+        }
+        saveExperimentLog();
+        renderComparison();
+        setStatus('Comparison preference recorded.');
+    }
+
+    function copyExperimentLog() {
+        GM_setClipboard(JSON.stringify({
+            exported_at: new Date().toISOString(),
+            app_version: APP_VERSION,
+            note: 'Metrics only. No page text, URL, title, or research lens is stored.',
+            runs: state.experimentLog
+        }, null, 2), 'text');
+        setStatus('Experiment log copied to the clipboard.');
+    }
+
+    function clearExperimentLog() {
+        if (!state.experimentLog.length) return;
+        if (!window.confirm('Clear the locally stored Semantic Researcher experiment metrics?')) return;
+        state.experimentLog = [];
+        saveExperimentLog();
+        renderExperimentSummary();
+        setStatus('Experiment metrics cleared.');
+    }
     function renderAll() {
         renderSnapshot();
         renderDiscovery();
+        renderFindMethod();
         renderFindings();
+        renderExperimentSummary();
+        renderComparison();
         renderReport();
         renderAccessButton();
         renderBusyControls();
@@ -1047,8 +1541,9 @@
         if (!container || !countNode) return;
 
         const selectedCount = state.findings.filter((finding) => finding.selected).length;
+        const methodPrefix = state.activeFindMethod ? findMethodLabel(state.activeFindMethod) + ' · ' : '';
         countNode.textContent = state.findings.length
-            ? state.findings.length + ' findings · ' + selectedCount + ' selected for synthesis'
+            ? methodPrefix + state.findings.length + ' findings · ' + selectedCount + ' selected for synthesis'
             : 'No findings yet.';
 
         container.replaceChildren();
@@ -1068,7 +1563,12 @@
             checkbox.setAttribute('aria-label', 'Include finding ' + (index + 1) + ' in synthesis');
             checkbox.addEventListener('change', () => {
                 finding.selected = checkbox.checked;
+                updateExperimentSelection(
+                    state.activeExperimentRunId,
+                    state.findings.filter((item) => item.selected).length
+                );
                 renderFindings();
+                renderExperimentSummary();
                 renderBusyControls();
             });
 
@@ -1123,11 +1623,16 @@
 
     function renderBusyControls() {
         if (!shadow) return;
-        const ids = ['sr-discover', 'sr-find', 'sr-synthesize'];
+        const ids = ['sr-discover', 'sr-find', 'sr-compare-both', 'sr-synthesize'];
         for (const id of ids) {
             const button = shadow.getElementById(id);
             if (button) button.disabled = state.busy;
         }
+
+        const standardMode = shadow.getElementById('sr-mode-standard');
+        const decisionsMode = shadow.getElementById('sr-mode-decisions');
+        if (standardMode) standardMode.disabled = state.busy;
+        if (decisionsMode) decisionsMode.disabled = state.busy;
 
         const prev = shadow.getElementById('sr-prev');
         const next = shadow.getElementById('sr-next');
@@ -1267,6 +1772,9 @@
         state.discovery = null;
         state.findings = [];
         state.activeFindingIndex = -1;
+        state.activeExperimentRunId = null;
+        state.activeFindMethod = null;
+        state.comparison = null;
         state.report = null;
         state.sensitiveConfirmationFingerprint = null;
 

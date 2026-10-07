@@ -1333,6 +1333,53 @@
         saveExperimentLog();
     }
 
+    function averageNumbers(values) {
+        const numbers = values.filter((value) => typeof value === 'number' && Number.isFinite(value));
+        if (!numbers.length) return null;
+        return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+    }
+
+    function renderExperimentSummary() {
+        if (!shadow) return;
+        const container = shadow.getElementById('sr-experiment-summary');
+        if (!container) return;
+        container.replaceChildren();
+
+        for (const method of [FIND_METHODS.STANDARD, FIND_METHODS.DECISIONS]) {
+            const runs = state.experimentLog.filter((run) => run.method === method);
+            const card = el('div', 'sr-metric-card');
+            card.appendChild(el('strong', '', findMethodLabel(method)));
+
+            if (!runs.length) {
+                card.appendChild(document.createTextNode('No logged runs yet.'));
+                container.appendChild(card);
+                continue;
+            }
+
+            const avgLatency = averageNumbers(runs.map((run) => run.serviceLatencyMs));
+            const avgCost = averageNumbers(runs.map((run) => run.costMicrousd));
+            const avgFindings = averageNumbers(runs.map((run) => run.findings));
+            const avgSelected = averageNumbers(runs.map((run) => run.selected));
+            const pieces = [
+                runs.length + ' run' + (runs.length === 1 ? '' : 's'),
+                avgLatency === null ? null : (avgLatency / 1000).toFixed(2) + 's avg server time',
+                avgCost === null ? null : 'USD ' + (avgCost / 1000000).toFixed(5) + ' avg cost',
+                avgFindings === null ? null : avgFindings.toFixed(1) + ' avg findings',
+                avgSelected === null ? null : avgSelected.toFixed(1) + ' avg kept'
+            ].filter(Boolean);
+
+            if (method === FIND_METHODS.DECISIONS) {
+                const avgCandidates = averageNumbers(runs.map((run) => run.candidateBlocks));
+                const avgSource = averageNumbers(runs.map((run) => run.sourceBlocks));
+                if (avgCandidates !== null && avgSource !== null) {
+                    pieces.push(avgCandidates.toFixed(1) + '/' + avgSource.toFixed(1) + ' avg blocks grounded');
+                }
+            }
+
+            card.appendChild(document.createTextNode(pieces.join(' · ')));
+            container.appendChild(card);
+        }
+    }
     function renderAll() {
         renderSnapshot();
         renderDiscovery();

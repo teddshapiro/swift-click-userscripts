@@ -1333,6 +1333,372 @@
         saveExperimentLog();
     }
 
+    function averageNumbers(values) {
+        const numbers = values.filter((value) => typeof value === 'number' && Number.isFinite(value));
+        if (!numbers.length) return null;
+        return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+    }
+
+    function renderExperimentSummary() {
+        if (!shadow) return;
+        const container = shadow.getElementById('sr-experiment-summary');
+        if (!container) return;
+        container.replaceChildren();
+
+        for (const method of [FIND_METHODS.STANDARD, FIND_METHODS.DECISIONS]) {
+            const runs = state.experimentLog.filter((run) => run.method === method);
+            const card = el('div', 'sr-metric-card');
+            card.appendChild(el('strong', '', findMethodLabel(method)));
+
+            if (!runs.length) {
+                card.appendChild(document.createTextNode('No logged runs yet.'));
+                container.appendChild(card);
+                continue;
+            }
+
+            const avgLatency = averageNumbers(runs.map((run) => run.serviceLatencyMs));
+            const avgCost = averageNumbers(runs.map((run) => run.costMicrousd));
+            const avgFindings = averageNumbers(runs.map((run) => run.findings));
+            const avgSelected = averageNumbers(runs.map((run) => run.selected));
+            const pieces = [
+                runs.length + ' run' + (runs.length === 1 ? '' : 's'),
+                avgLatency === null ? null : (avgLatency / 1000).toFixed(2) + 's avg server time',
+                avgCost === null ? null : '
+        renderSnapshot();
+        renderDiscovery();
+        renderFindings();
+        renderReport();
+        renderAccessButton();
+        renderBusyControls();
+        updateLauncherBadge();
+    }
+
+    function renderSnapshot() {
+        const node = shadow?.getElementById('sr-page-count');
+        if (!node) return;
+        const count = state.snapshot?.blocks?.length || 0;
+        const chars = state.snapshot?.totalChars || 0;
+        node.textContent = count
+            ? count + ' readable blocks · ' + chars.toLocaleString() + ' characters · local snapshot only'
+            : 'No readable page snapshot yet.';
+    }
+
+    function renderDiscovery() {
+        if (!shadow) return;
+        const summary = shadow.getElementById('sr-document-summary');
+        const container = shadow.getElementById('sr-lenses');
+        if (!summary || !container) return;
+
+        summary.textContent = state.discovery?.documentSummary || '';
+        container.replaceChildren();
+
+        for (const lens of state.discovery?.lenses || []) {
+            const button = el('button', 'sr-lens');
+            button.type = 'button';
+            const title = document.createElement('strong');
+            title.textContent = String(lens.title || 'Research lens');
+            const why = document.createElement('span');
+            why.textContent = String(lens.why || '');
+            button.append(title, why);
+            button.addEventListener('click', () => {
+                const input = shadow.getElementById('sr-lens-input');
+                input.value = String(lens.request || '');
+                input.focus();
+                setStatus('Research lens selected. Edit it if you like, then click “Find evidence.”');
+            });
+            container.appendChild(button);
+        }
+    }
+
+    function renderFindings() {
+        if (!shadow) return;
+        const container = shadow.getElementById('sr-findings');
+        const countNode = shadow.getElementById('sr-finding-count');
+        if (!container || !countNode) return;
+
+        const selectedCount = state.findings.filter((finding) => finding.selected).length;
+        countNode.textContent = state.findings.length
+            ? state.findings.length + ' findings · ' + selectedCount + ' selected for synthesis'
+            : 'No findings yet.';
+
+        container.replaceChildren();
+
+        if (!state.findings.length) {
+            container.appendChild(el('div', 'sr-findings-empty', 'Run “Find evidence” to populate grounded findings.'));
+            return;
+        }
+
+        state.findings.forEach((finding, index) => {
+            const card = el('div', 'sr-finding' + (index === state.activeFindingIndex ? ' active' : ''));
+
+            const head = el('div', 'sr-finding-head');
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = finding.selected;
+            checkbox.setAttribute('aria-label', 'Include finding ' + (index + 1) + ' in synthesis');
+            checkbox.addEventListener('change', () => {
+                finding.selected = checkbox.checked;
+                renderFindings();
+                renderBusyControls();
+            });
+
+            const main = el('div', 'sr-finding-main');
+            main.appendChild(el('div', 'sr-finding-category', finding.category));
+            const metaParts = [
+                finding.blockId,
+                assessmentLabel(finding.assessmentType)
+            ];
+            if (finding.confidence !== null) {
+                metaParts.push(Math.round(finding.confidence * 100) + '% confidence');
+            }
+            main.appendChild(el('div', 'sr-finding-meta', metaParts.join(' · ')));
+
+            head.append(checkbox, main);
+            card.appendChild(head);
+            card.appendChild(el('div', 'sr-quote', '“' + finding.quote + '”'));
+            card.appendChild(el('div', 'sr-reason', finding.reason));
+
+            const row = el('div', 'sr-row');
+            row.appendChild(makeButton('Show in page', () => {
+                state.activeFindingIndex = index;
+                scrollToFinding(index, true);
+                renderFindings();
+            }, 'small'));
+            card.appendChild(row);
+            container.appendChild(card);
+        });
+    }
+
+    function assessmentLabel(type) {
+        if (type === 'direct_match') return 'Direct semantic match';
+        if (type === 'likely_candidate') return 'Likely candidate';
+        return 'AI assessment';
+    }
+
+    function renderReport() {
+        if (!shadow) return;
+        const title = shadow.getElementById('sr-report-title');
+        const report = shadow.getElementById('sr-report');
+        if (!title || !report) return;
+
+        title.textContent = state.report?.title || '';
+        report.textContent = state.report?.report || 'No synthesis yet.';
+    }
+
+    function renderAccessButton() {
+        const button = shadow?.getElementById('sr-access-key');
+        if (!button) return;
+        button.textContent = getStoredAiToken() ? 'Change access key' : 'Set access key';
+    }
+
+    function renderBusyControls() {
+        if (!shadow) return;
+        const ids = ['sr-discover', 'sr-find', 'sr-synthesize'];
+        for (const id of ids) {
+            const button = shadow.getElementById(id);
+            if (button) button.disabled = state.busy;
+        }
+
+        const prev = shadow.getElementById('sr-prev');
+        const next = shadow.getElementById('sr-next');
+        const toggle = shadow.getElementById('sr-toggle-highlights');
+        const copy = shadow.getElementById('sr-copy-report');
+        if (prev) prev.disabled = !state.findings.length || state.busy;
+        if (next) next.disabled = !state.findings.length || state.busy;
+        if (toggle) {
+            toggle.disabled = !state.findings.length || state.busy;
+            toggle.textContent = state.highlightsVisible ? 'Hide highlights' : 'Show highlights';
+        }
+        if (copy) copy.disabled = !state.report?.report;
+    }
+
+    function updateLauncherBadge() {
+        const badge = shadow?.getElementById('sr-launcher-badge');
+        if (!badge) return;
+        if (state.findings.length) {
+            badge.textContent = String(state.findings.length);
+            badge.style.display = 'flex';
+        } else {
+            badge.textContent = '';
+            badge.style.display = 'none';
+        }
+    }
+
+    function setStatus(message, error = false) {
+        const status = shadow?.getElementById('sr-status');
+        if (!status) return;
+        status.textContent = message || '';
+        status.classList.toggle('error', Boolean(error));
+        status.classList.toggle('busy', state.busy && !error);
+    }
+
+    function setBusy(busy, message = '') {
+        state.busy = busy;
+        if (message) setStatus(message);
+        else {
+            const status = shadow?.getElementById('sr-status');
+            status?.classList.toggle('busy', false);
+        }
+        renderBusyControls();
+    }
+
+    function originalStyleFor(element) {
+        if (!element.__swiftclickSemanticResearcherOriginalStyle) {
+            element.__swiftclickSemanticResearcherOriginalStyle = {
+                backgroundColor: element.style.backgroundColor,
+                boxShadow: element.style.boxShadow,
+                borderRadius: element.style.borderRadius,
+                transition: element.style.transition,
+                outline: element.style.outline,
+                outlineOffset: element.style.outlineOffset
+            };
+        }
+        return element.__swiftclickSemanticResearcherOriginalStyle;
+    }
+
+    function applyHighlights() {
+        clearHighlights(false);
+        if (!state.highlightsVisible) return;
+
+        const blockIds = new Set(state.findings.map((finding) => finding.blockId));
+        for (const blockId of blockIds) {
+            const block = state.snapshot?.blockMap?.get(blockId);
+            const element = block?.element;
+            if (!element?.isConnected) continue;
+            originalStyleFor(element);
+            element.style.backgroundColor = 'rgba(255, 214, 10, 0.17)';
+            element.style.boxShadow = 'inset 4px 0 0 rgba(226, 171, 0, 0.95)';
+            element.style.borderRadius = '3px';
+            element.style.transition = 'background-color .18s ease, box-shadow .18s ease, outline .18s ease';
+            element.setAttribute('data-swiftclick-semantic-finding', 'true');
+        }
+    }
+
+    function clearHighlights(resetVisibility = false) {
+        if (state.snapshot?.blocks) {
+            for (const block of state.snapshot.blocks) {
+                const element = block.element;
+                const original = element?.__swiftclickSemanticResearcherOriginalStyle;
+                if (!element?.isConnected || !original) continue;
+                element.style.backgroundColor = original.backgroundColor;
+                element.style.boxShadow = original.boxShadow;
+                element.style.borderRadius = original.borderRadius;
+                element.style.transition = original.transition;
+                element.style.outline = original.outline;
+                element.style.outlineOffset = original.outlineOffset;
+                element.removeAttribute('data-swiftclick-semantic-finding');
+            }
+        }
+        if (resetVisibility) state.highlightsVisible = true;
+    }
+
+    function toggleHighlights() {
+        if (!state.findings.length) return;
+        if (state.highlightsVisible) {
+            clearHighlights();
+            state.highlightsVisible = false;
+        } else {
+            state.highlightsVisible = true;
+            applyHighlights();
+        }
+        renderBusyControls();
+    }
+
+    function moveFinding(delta) {
+        if (!state.findings.length) return;
+        const current = state.activeFindingIndex >= 0 ? state.activeFindingIndex : 0;
+        const next = (current + delta + state.findings.length) % state.findings.length;
+        state.activeFindingIndex = next;
+        scrollToFinding(next, true);
+        renderFindings();
+    }
+
+    function scrollToFinding(index, emphasize = true) {
+        const finding = state.findings[index];
+        const block = state.snapshot?.blockMap?.get(finding?.blockId);
+        const element = block?.element;
+        if (!element?.isConnected) return;
+
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (!emphasize) return;
+
+        const original = originalStyleFor(element);
+        element.style.outline = '3px solid rgba(235, 143, 0, .95)';
+        element.style.outlineOffset = '4px';
+        window.setTimeout(() => {
+            if (!element.isConnected) return;
+            element.style.outline = original.outline;
+            element.style.outlineOffset = original.outlineOffset;
+        }, 1200);
+    }
+
+    function clearAnalysis() {
+        clearHighlights(true);
+        state.discovery = null;
+        state.findings = [];
+        state.activeFindingIndex = -1;
+        state.report = null;
+        state.sensitiveConfirmationFingerprint = null;
+
+        if (shadow) {
+            const lens = shadow.getElementById('sr-lens-input');
+            const synth = shadow.getElementById('sr-synthesis-input');
+            if (lens) lens.value = '';
+            if (synth) synth.value = '';
+        }
+
+        renderAll();
+        setStatus('Analysis cleared. The local page snapshot remains available.');
+    }
+
+    function copyReport() {
+        const report = state.report?.report;
+        if (!report) return;
+        const text = state.report.title
+            ? state.report.title + '\n\n' + report
+            : report;
+        GM_setClipboard(text, 'text');
+        setStatus('Synthesis report copied to the clipboard.');
+    }
+
+    function loadValue(key, fallback) {
+        try {
+            return GM_getValue(key, fallback);
+        } catch {
+            return fallback;
+        }
+    }
+
+    function saveValue(key, value) {
+        try {
+            GM_setValue(key, value);
+        } catch (error) {
+            console.error('[' + APP_NAME + '] Could not save Tampermonkey value', error);
+        }
+    }
+
+    function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+})();
+ + (avgCost / 1000000).toFixed(5) + ' avg cost',
+                avgFindings === null ? null : avgFindings.toFixed(1) + ' avg findings',
+                avgSelected === null ? null : avgSelected.toFixed(1) + ' avg kept'
+            ].filter(Boolean);
+
+            if (method === FIND_METHODS.DECISIONS) {
+                const avgCandidates = averageNumbers(runs.map((run) => run.candidateBlocks));
+                const avgSource = averageNumbers(runs.map((run) => run.sourceBlocks));
+                if (avgCandidates !== null && avgSource !== null) {
+                    pieces.push(avgCandidates.toFixed(1) + '/' + avgSource.toFixed(1) + ' avg blocks grounded');
+                }
+            }
+
+            card.appendChild(document.createTextNode(pieces.join(' · ')));
+            container.appendChild(card);
+        }
+    }
+
     function renderAll() {
         renderSnapshot();
         renderDiscovery();

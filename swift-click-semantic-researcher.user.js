@@ -1481,7 +1481,10 @@
     function renderAll() {
         renderSnapshot();
         renderDiscovery();
+        renderFindMethod();
         renderFindings();
+        renderExperimentSummary();
+        renderComparison();
         renderReport();
         renderAccessButton();
         renderBusyControls();
@@ -1532,8 +1535,9 @@
         if (!container || !countNode) return;
 
         const selectedCount = state.findings.filter((finding) => finding.selected).length;
+        const methodPrefix = state.activeFindMethod ? findMethodLabel(state.activeFindMethod) + ' · ' : '';
         countNode.textContent = state.findings.length
-            ? state.findings.length + ' findings · ' + selectedCount + ' selected for synthesis'
+            ? methodPrefix + state.findings.length + ' findings · ' + selectedCount + ' selected for synthesis'
             : 'No findings yet.';
 
         container.replaceChildren();
@@ -1553,7 +1557,12 @@
             checkbox.setAttribute('aria-label', 'Include finding ' + (index + 1) + ' in synthesis');
             checkbox.addEventListener('change', () => {
                 finding.selected = checkbox.checked;
+                updateExperimentSelection(
+                    state.activeExperimentRunId,
+                    state.findings.filter((item) => item.selected).length
+                );
                 renderFindings();
+                renderExperimentSummary();
                 renderBusyControls();
             });
 
@@ -1608,11 +1617,16 @@
 
     function renderBusyControls() {
         if (!shadow) return;
-        const ids = ['sr-discover', 'sr-find', 'sr-synthesize'];
+        const ids = ['sr-discover', 'sr-find', 'sr-compare-both', 'sr-synthesize'];
         for (const id of ids) {
             const button = shadow.getElementById(id);
             if (button) button.disabled = state.busy;
         }
+
+        const standardMode = shadow.getElementById('sr-mode-standard');
+        const decisionsMode = shadow.getElementById('sr-mode-decisions');
+        if (standardMode) standardMode.disabled = state.busy;
+        if (decisionsMode) decisionsMode.disabled = state.busy;
 
         const prev = shadow.getElementById('sr-prev');
         const next = shadow.getElementById('sr-next');

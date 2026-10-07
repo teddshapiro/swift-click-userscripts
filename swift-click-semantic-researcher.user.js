@@ -271,6 +271,51 @@
             }
             .sr-reason { color: #536270; font-size: 12px; }
             .sr-findings-empty { color: #6b7884; font-size: 12px; padding: 4px 0; }
+            .sr-mode {
+                display: inline-flex;
+                gap: 3px;
+                padding: 3px;
+                border-radius: 10px;
+                background: #e9eef2;
+                margin: 2px 0 8px;
+            }
+            .sr-mode-btn {
+                appearance: none;
+                border: 0;
+                border-radius: 8px;
+                padding: 6px 9px;
+                background: transparent;
+                color: #4e5d69;
+                cursor: pointer;
+                font-weight: 700;
+                font-size: 12px;
+            }
+            .sr-mode-btn.active {
+                background: white;
+                color: #17212b;
+                box-shadow: 0 1px 4px rgba(0,0,0,.12);
+            }
+            .sr-experiment-summary {
+                display: grid;
+                gap: 7px;
+                margin-top: 8px;
+            }
+            .sr-metric-card {
+                border: 1px solid #d8e0e6;
+                border-radius: 9px;
+                padding: 8px 9px;
+                background: #fbfcfd;
+                font-size: 12px;
+                color: #4c5a66;
+            }
+            .sr-metric-card strong { display: block; color: #202b35; margin-bottom: 2px; }
+            .sr-comparison {
+                margin-top: 9px;
+                padding-top: 9px;
+                border-top: 1px solid #e2e7eb;
+                font-size: 12px;
+                color: #4c5a66;
+            }
             .sr-report {
                 white-space: pre-wrap;
                 max-height: 380px;

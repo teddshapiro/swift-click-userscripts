@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click Semantic Researcher
 // @namespace    https://swiftclick.com/
-// @version      0.1.0
+// @version      0.2.0
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-semantic-researcher.user.js
 // @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-semantic-researcher.user.js
 // @description  Discover research lenses, find grounded evidence, highlight it in the page, and synthesize selected findings.
@@ -23,7 +23,7 @@
     'use strict';
 
     const APP_NAME = 'Swift Click Semantic Researcher';
-    const APP_VERSION = '0.1.0';
+    const APP_VERSION = '0.2.0';
     const AI_SERVICE_BASE = 'https://semantic-researcher-ai-service.tedd-7f4.workers.dev';
     const MAX_BLOCKS = 220;
     const MAX_DOCUMENT_CHARS = 50000;
@@ -32,8 +32,15 @@
 
     const STORAGE = {
         AI_TOKEN: 'sc_semantic_researcher_access_token_v1',
-        LAUNCHER_POSITION: 'sc_semantic_researcher_launcher_position_v1'
+        LAUNCHER_POSITION: 'sc_semantic_researcher_launcher_position_v1',
+        EXPERIMENT_LOG: 'sc_semantic_researcher_experiment_log_v1'
     };
+
+    const FIND_METHODS = Object.freeze({
+        STANDARD: 'standard_v1',
+        DECISIONS: 'decisions_hybrid_v1'
+    });
+    const MAX_EXPERIMENT_RUNS = 100;
 
     const SENSITIVE_HOST_HINTS = [
         'bank', 'banking', 'creditunion', 'credit-union', 'brokerage',
@@ -56,12 +63,18 @@
         highlightsVisible: true,
         report: null,
         sensitiveConfirmationFingerprint: null,
-        busy: false
+        busy: false,
+        findMethod: FIND_METHODS.STANDARD,
+        activeExperimentRunId: null,
+        activeFindMethod: null,
+        comparison: null,
+        experimentLog: []
     };
 
     init();
 
     function init() {
+        state.experimentLog = loadExperimentLog();
         buildShell();
 
         GM_registerMenuCommand('Semantic Researcher: set AI access key', setAiAccessKey);

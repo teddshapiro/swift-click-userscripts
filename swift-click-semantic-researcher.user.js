@@ -1226,6 +1226,113 @@
         setStatus('AI request failed: ' + (error?.message || code || 'unknown error'), true);
     }
 
+    function setFindMethod(method) {
+        if (![FIND_METHODS.STANDARD, FIND_METHODS.DECISIONS].includes(method)) return;
+        state.findMethod = method;
+        renderFindMethod();
+        setStatus(
+            method === FIND_METHODS.DECISIONS
+                ? 'Decisions beta selected for this page session. It resets to Standard when the userscript reloads.'
+                : 'Standard Find selected for this page session.'
+        );
+    }
+
+    function findMethodLabel(method) {
+        return method === FIND_METHODS.DECISIONS ? 'Decisions beta' : 'Standard';
+    }
+
+    function renderFindMethod() {
+        if (!shadow) return;
+        const standard = shadow.getElementById('sr-mode-standard');
+        const decisions = shadow.getElementById('sr-mode-decisions');
+        if (!standard || !decisions) return;
+
+        const standardActive = state.findMethod === FIND_METHODS.STANDARD;
+        standard.classList.toggle('active', standardActive);
+        decisions.classList.toggle('active', !standardActive);
+        standard.setAttribute('aria-pressed', String(standardActive));
+        decisions.setAttribute('aria-pressed', String(!standardActive));
+    }
+
+    function loadExperimentLog() {
+        const raw = loadValue(STORAGE.EXPERIMENT_LOG, []);
+        if (!Array.isArray(raw)) return [];
+        return raw
+            .filter((entry) => entry && typeof entry === 'object' && typeof entry.id === 'string')
+            .slice(-MAX_EXPERIMENT_RUNS);
+    }
+
+    function saveExperimentLog() {
+        saveValue(STORAGE.EXPERIMENT_LOG, state.experimentLog.slice(-MAX_EXPERIMENT_RUNS));
+    }
+
+    function integerOrNull(value) {
+        return Number.isSafeInteger(value) && value >= 0 ? value : null;
+    }
+
+    function recordExperimentRun(response, method, clientElapsedMs, groundedFindings, comparisonId = null) {
+        const experiment = response?.experiment || {};
+        const usage = response?.usage || {};
+        const decisionUsage = experiment?.decision_usage || {};
+        const groundingUsage = experiment?.grounding_usage || {};
+
+        const run = {
+            id: String(response?.request_id || makeRequestId('run')),
+            at: new Date().toISOString(),
+            method,
+            pageFingerprint: state.snapshot?.page?.fingerprint || '',
+            sourceBlocks: integerOrNull(experiment?.source_blocks) ?? (state.snapshot?.blocks?.length || 0),
+            candidateBlocks: integerOrNull(experiment?.candidate_blocks),
+            findings: groundedFindings,
+            selected: groundedFindings,
+            clientElapsedMs: integerOrNull(clientElapsedMs),
+            serviceLatencyMs: integerOrNull(response?.service_latency_ms),
+            inputTokens: integerOrNull(usage?.input_tokens),
+            outputTokens: integerOrNull(usage?.output_tokens),
+            costMicrousd: integerOrNull(response?.cost_microusd),
+            decisionLatencyMs: integerOrNull(experiment?.decision_latency_ms),
+            groundingLatencyMs: integerOrNull(experiment?.grounding_latency_ms),
+            decisionInputTokens: integerOrNull(decisionUsage?.input_tokens),
+            decisionOutputTokens: integerOrNull(decisionUsage?.output_tokens),
+            groundingInputTokens: integerOrNull(groundingUsage?.input_tokens),
+            groundingOutputTokens: integerOrNull(groundingUsage?.output_tokens),
+            decisionCostMicrousd: integerOrNull(experiment?.decision_cost_microusd),
+            groundingCostMicrousd: integerOrNull(experiment?.grounding_cost_microusd),
+            fallbackToFullDocument: Boolean(experiment?.fallback_to_full_document),
+            comparisonId
+        };
+
+        state.experimentLog.push(run);
+        if (state.experimentLog.length > MAX_EXPERIMENT_RUNS) {
+            state.experimentLog.splice(0, state.experimentLog.length - MAX_EXPERIMENT_RUNS);
+        }
+        saveExperimentLog();
+        renderExperimentSummary();
+        return run;
+    }
+
+    function updateExperimentSelection(runId, selectedCount) {
+        if (!runId || !Number.isSafeInteger(selectedCount) || selectedCount < 0) return;
+        const run = state.experimentLog.find((entry) => entry.id === runId);
+        if (!run) return;
+        run.selected = selectedCount;
+        saveExperimentLog();
+    }
+
+    function annotateComparisonRuns(comparison) {
+        if (!comparison?.standard || !comparison?.decisions) return;
+        const metrics = {
+            overlap: comparison.overlapIds.length,
+            onlyStandard: comparison.onlyStandardIds.length,
+            onlyDecisions: comparison.onlyDecisionsIds.length
+        };
+        for (const runId of [comparison.standard.run.id, comparison.decisions.run.id]) {
+            const run = state.experimentLog.find((entry) => entry.id === runId);
+            if (run) run.comparison = { ...metrics };
+        }
+        saveExperimentLog();
+    }
+
     function renderAll() {
         renderSnapshot();
         renderDiscovery();

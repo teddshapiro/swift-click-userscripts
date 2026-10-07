@@ -674,6 +674,9 @@
         clearHighlights();
         state.findings = [];
         state.activeFindingIndex = -1;
+        state.activeExperimentRunId = null;
+        state.activeFindMethod = null;
+        state.comparison = null;
         state.report = null;
         state.discovery = null;
         state.sensitiveConfirmationFingerprint = null;
@@ -1123,7 +1126,7 @@
 
     function activateFindingSet(findings, runId, method) {
         clearHighlights();
-        state.findings = findings.map((finding) => ({ ...finding }));
+        state.findings = findings;
         state.activeFindingIndex = findings.length ? 0 : -1;
         state.activeExperimentRunId = runId || null;
         state.activeFindMethod = method || null;
@@ -1798,6 +1801,57 @@
             ));
         }
         container.appendChild(row);
+
+        if (comparison.standard && comparison.decisions) {
+            container.appendChild(el(
+                'div',
+                'sr-help',
+                'After reviewing both sets, record which was more useful. This stores only the preference with the comparison metrics.'
+            ));
+            const preferenceRow = el('div', 'sr-row');
+            for (const [value, label] of [
+                ['standard', 'Standard better'],
+                ['decisions', 'Decisions better'],
+                ['same', 'About the same'],
+                ['neither', 'Neither']
+            ]) {
+                const button = makeButton(label, () => recordComparisonPreference(value), 'small');
+                if (comparison.preference === value) {
+                    button.setAttribute('aria-pressed', 'true');
+                    button.textContent = '✓ ' + label;
+                } else {
+                    button.setAttribute('aria-pressed', 'false');
+                }
+                preferenceRow.appendChild(button);
+            }
+            container.appendChild(preferenceRow);
+        }
+    }
+
+    function recordComparisonPreference(value) {
+        if (!state.comparison || !['standard', 'decisions', 'same', 'neither'].includes(value)) return;
+        state.comparison.preference = value;
+
+        for (const runId of [
+            state.comparison.standard?.run?.id,
+            state.comparison.decisions?.run?.id
+        ]) {
+            const run = state.experimentLog.find((entry) => entry.id === runId);
+            if (!run) continue;
+            run.comparison = {
+                ...(run.comparison || {}),
+                preference: value
+            };
+        }
+        saveExperimentLog();
+        renderComparison();
+        renderExperimentSummary();
+        setStatus('Comparison preference recorded: ' + {
+            standard: 'Standard better',
+            decisions: 'Decisions beta better',
+            same: 'about the same',
+            neither: 'neither'
+        }[value] + '.');
     }
 
     function copyExperimentLog() {

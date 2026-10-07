@@ -525,8 +525,30 @@
         lensInput.maxLength = 700;
         investigateSection.appendChild(lensInput);
 
+        investigateSection.appendChild(el(
+            'div',
+            'sr-help',
+            'Find method for this page session. Standard is the proven baseline; Decisions beta adds a fast triage pass before grounding.'
+        ));
+
+        const findMode = el('div', 'sr-mode');
+        findMode.id = 'sr-find-mode';
+        const standardMode = el('button', 'sr-mode-btn', 'Standard');
+        standardMode.type = 'button';
+        standardMode.id = 'sr-mode-standard';
+        standardMode.addEventListener('click', () => setFindMethod(FIND_METHODS.STANDARD));
+        const decisionsMode = el('button', 'sr-mode-btn', 'Decisions beta');
+        decisionsMode.type = 'button';
+        decisionsMode.id = 'sr-mode-decisions';
+        decisionsMode.addEventListener('click', () => setFindMethod(FIND_METHODS.DECISIONS));
+        findMode.append(standardMode, decisionsMode);
+        investigateSection.appendChild(findMode);
+
         const investigateRow = el('div', 'sr-row');
-        investigateRow.appendChild(makeButton('Find evidence', runFind, 'primary', 'sr-find'));
+        investigateRow.append(
+            makeButton('Find evidence', runFind, 'primary', 'sr-find'),
+            makeButton('Compare both', runCompareBoth, '', 'sr-compare-both')
+        );
         investigateSection.appendChild(investigateRow);
         body.appendChild(investigateSection);
 
@@ -548,6 +570,28 @@
         findings.id = 'sr-findings';
         findingsSection.appendChild(findings);
         body.appendChild(findingsSection);
+
+        const experimentSection = section('Experiment');
+        experimentSection.appendChild(el(
+            'p',
+            'sr-help',
+            'Metrics are kept locally for comparison. The log stores no page text, URL, title, or research lens—only a hashed page fingerprint and run measurements.'
+        ));
+        const experimentSummary = el('div', 'sr-experiment-summary');
+        experimentSummary.id = 'sr-experiment-summary';
+        experimentSection.appendChild(experimentSummary);
+
+        const comparison = el('div', 'sr-comparison');
+        comparison.id = 'sr-comparison';
+        experimentSection.appendChild(comparison);
+
+        const experimentButtons = el('div', 'sr-row');
+        experimentButtons.append(
+            makeButton('Copy experiment log', copyExperimentLog, 'small', 'sr-copy-experiment'),
+            makeButton('Clear experiment log', clearExperimentLog, 'small', 'sr-clear-experiment')
+        );
+        experimentSection.appendChild(experimentButtons);
+        body.appendChild(experimentSection);
 
         const synthSection = section('4 · Synthesize');
         synthSection.appendChild(el(

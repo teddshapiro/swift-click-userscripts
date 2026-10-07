@@ -914,70 +914,201 @@
 
     async function runFind() {
         if (state.busy) return;
-        const lensInput = shadow.getElementById('sr-lens-input');
-        const lens = String(lensInput?.value || '').trim();
-        if (lens.length < 3) {
-            setStatus('Write or select a research lens before finding evidence.', true);
-            lensInput?.focus();
-            return;
-        }
+        const context = prepareFindContext();
+        if (!context) return;
 
-        const token = ensureReadyForAi();
-        if (!token) return;
+        resetFindResults();
+        const method = state.findMethod;
+        setBusy(
+            true,
+            method === FIND_METHODS.DECISIONS
+                ? 'Running Decisions beta triage, then grounding the strongest candidates…'
+                : 'Applying the research lens and checking source grounding…'
+        );
 
-        clearHighlights();
-        state.findings = [];
-        state.activeFindingIndex = -1;
-        state.report = null;
-        renderFindings();
-        renderReport();
-
-        setBusy(true, 'Applying the research lens and checking source grounding…');
         try {
-            const response = await requestAi('/find', token, {
-                page: state.snapshot.page,
-                lens,
-                blocks: serializableBlocks()
-            });
-            const result = response.result;
-            if (!result || !Array.isArray(result.findings)) throw serviceShapeError();
+            const timed = await timedFindRequest(method, context.token, context.lens);
+            const grounded = normalizeGroundedFindings(timed.response);
+            const run = recordExperimentRun(timed.response, method, timed.elapsedMs, grounded.length);
+            activateFindingSet(grounded, run.id, method);
+            state.comparison = null;
+            renderComparison();
 
-            const grounded = [];
-            for (const finding of result.findings) {
-                const block = state.snapshot.blockMap.get(finding?.block_id);
-                if (!block || typeof finding?.quote !== 'string' || !block.text.includes(finding.quote)) {
-                    continue;
-                }
-                grounded.push({
-                    blockId: finding.block_id,
-                    quote: finding.quote,
-                    category: String(finding.category || 'Finding'),
-                    reason: String(finding.reason || ''),
-                    assessmentType: String(finding.assessment_type || 'ai_assessment'),
-                    confidence: Number.isFinite(finding.confidence) ? finding.confidence : null,
-                    selected: true
-                });
-            }
+            const experiment = timed.response?.experiment;
+            const candidateNote =
+                method === FIND_METHODS.DECISIONS &&
+                Number.isSafeInteger(experiment?.candidate_blocks) &&
+                Number.isSafeInteger(experiment?.source_blocks)
+                    ? ' · ' + experiment.candidate_blocks + '/' + experiment.source_blocks + ' blocks sent to grounding'
+                    : '';
+            const label = findMethodLabel(method);
 
-            state.findings = grounded;
-            state.highlightsVisible = true;
-            applyHighlights();
-            if (grounded.length) {
-                state.activeFindingIndex = 0;
-                scrollToFinding(0, false);
-            }
-            renderFindings();
             renderUsageStatus(
                 grounded.length
-                    ? 'Found ' + grounded.length + ' grounded passage' + (grounded.length === 1 ? '' : 's') + '.'
-                    : 'No grounded findings matched this lens.',
-                response
+                    ? label + ' found ' + grounded.length + ' grounded passage' + (grounded.length === 1 ? '' : 's') + candidateNote + '.'
+                    : label + ' found no grounded findings' + candidateNote + '.',
+                timed.response
             );
         } catch (error) {
             handleAiError(error);
         } finally {
             setBusy(false);
         }
+    }
+
+    async function runCompareBoth() {
+        if (state.busy) return;
+        const context = prepareFindContext();
+        if (!context) return;
+
+        resetFindResults();
+        const comparisonId = makeRequestId('cmp');
+        setBusy(true, 'Running Standard and Decisions beta against the same page snapshot and lens…');
+
+        try {
+            const settled = await Promise.allSettled([
+                timedFindRequest(FIND_METHODS.STANDARD, context.token, context.lens),
+                timedFindRequest(FIND_METHODS.DECISIONS, context.token, context.lens)
+            ]);
+            const methods = [FIND_METHODS.STANDARD, FIND_METHODS.DECISIONS];
+            const successful = {};
+            const errors = {};
+
+            settled.forEach((item, index) => {
+                const method = methods[index];
+                if (item.status === 'fulfilled') {
+                    const grounded = normalizeGroundedFindings(item.value.response);
+                    const run = recordExperimentRun(
+                        item.value.response,
+                        method,
+                        item.value.elapsedMs,
+                        grounded.length,
+                        comparisonId
+                    );
+                    successful[method] = { grounded, run, response: item.value.response };
+                } else {
+                    errors[method] = item.reason;
+                }
+            });
+
+            if (!successful[FIND_METHODS.STANDARD] && !successful[FIND_METHODS.DECISIONS]) {
+                throw errors[FIND_METHODS.STANDARD] || errors[FIND_METHODS.DECISIONS] || new Error('Both comparison runs failed.');
+            }
+
+            const standardIds = new Set((successful[FIND_METHODS.STANDARD]?.grounded || []).map((finding) => finding.blockId));
+            const decisionsIds = new Set((successful[FIND_METHODS.DECISIONS]?.grounded || []).map((finding) => finding.blockId));
+            const overlapIds = [...standardIds].filter((id) => decisionsIds.has(id));
+            const onlyStandardIds = [...standardIds].filter((id) => !decisionsIds.has(id));
+            const onlyDecisionsIds = [...decisionsIds].filter((id) => !standardIds.has(id));
+
+            state.comparison = {
+                id: comparisonId,
+                standard: successful[FIND_METHODS.STANDARD] || null,
+                decisions: successful[FIND_METHODS.DECISIONS] || null,
+                errors,
+                overlapIds,
+                onlyStandardIds,
+                onlyDecisionsIds,
+                preference: null
+            };
+            annotateComparisonRuns(state.comparison);
+
+            const initial = successful[FIND_METHODS.STANDARD] || successful[FIND_METHODS.DECISIONS];
+            const initialMethod = successful[FIND_METHODS.STANDARD]
+                ? FIND_METHODS.STANDARD
+                : FIND_METHODS.DECISIONS;
+            activateFindingSet(initial.grounded, initial.run.id, initialMethod);
+            renderComparison();
+            renderExperimentSummary();
+
+            if (successful[FIND_METHODS.STANDARD] && successful[FIND_METHODS.DECISIONS]) {
+                setStatus(
+                    'Comparison complete · Standard ' +
+                    successful[FIND_METHODS.STANDARD].grounded.length +
+                    ' findings · Decisions beta ' +
+                    successful[FIND_METHODS.DECISIONS].grounded.length +
+                    ' · ' + overlapIds.length + ' shared block' + (overlapIds.length === 1 ? '' : 's') + '.'
+                );
+            } else {
+                const failedMethod = successful[FIND_METHODS.STANDARD] ? 'Decisions beta' : 'Standard';
+                setStatus('Comparison partially completed. ' + failedMethod + ' failed; the successful result is shown.', true);
+            }
+        } catch (error) {
+            handleAiError(error);
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    function prepareFindContext() {
+        const lensInput = shadow.getElementById('sr-lens-input');
+        const lens = String(lensInput?.value || '').trim();
+        if (lens.length < 3) {
+            setStatus('Write or select a research lens before finding evidence.', true);
+            lensInput?.focus();
+            return null;
+        }
+        const token = ensureReadyForAi();
+        return token ? { lens, token } : null;
+    }
+
+    function resetFindResults() {
+        clearHighlights();
+        state.findings = [];
+        state.activeFindingIndex = -1;
+        state.activeExperimentRunId = null;
+        state.activeFindMethod = null;
+        state.report = null;
+        renderFindings();
+        renderReport();
+    }
+
+    async function timedFindRequest(method, token, lens) {
+        const path = method === FIND_METHODS.DECISIONS ? '/find-decisions' : '/find';
+        const started = performance.now();
+        const response = await requestAi(path, token, {
+            page: state.snapshot.page,
+            lens,
+            blocks: serializableBlocks()
+        });
+        return {
+            response,
+            elapsedMs: Math.max(0, Math.round(performance.now() - started))
+        };
+    }
+
+    function normalizeGroundedFindings(response) {
+        const result = response?.result;
+        if (!result || !Array.isArray(result.findings)) throw serviceShapeError();
+
+        return result.findings.flatMap((finding) => {
+            const block = state.snapshot.blockMap.get(finding?.block_id);
+            if (!block || typeof finding?.quote !== 'string' || !block.text.includes(finding.quote)) {
+                return [];
+            }
+            return [{
+                blockId: finding.block_id,
+                quote: finding.quote,
+                category: String(finding.category || 'Finding'),
+                reason: String(finding.reason || ''),
+                assessmentType: String(finding.assessment_type || 'ai_assessment'),
+                confidence: Number.isFinite(finding.confidence) ? finding.confidence : null,
+                selected: true
+            }];
+        });
+    }
+
+    function activateFindingSet(findings, runId, method) {
+        clearHighlights();
+        state.findings = findings;
+        state.activeFindingIndex = findings.length ? 0 : -1;
+        state.activeExperimentRunId = runId || null;
+        state.activeFindMethod = method || null;
+        state.highlightsVisible = true;
+        applyHighlights();
+        if (findings.length) scrollToFinding(0, false);
+        renderFindings();
+        renderBusyControls();
     }
 
     async function runSynthesize() {

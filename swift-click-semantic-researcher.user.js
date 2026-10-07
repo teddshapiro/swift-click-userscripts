@@ -670,6 +670,9 @@
         clearHighlights();
         state.findings = [];
         state.activeFindingIndex = -1;
+        state.activeExperimentRunId = null;
+        state.activeFindMethod = null;
+        state.comparison = null;
         state.report = null;
         state.discovery = null;
         state.sensitiveConfirmationFingerprint = null;
@@ -1126,6 +1129,9 @@
 
         const token = ensureReadyForAi();
         if (!token) return;
+
+        updateExperimentSelection(state.activeExperimentRunId, selected.length);
+        renderExperimentSummary();
 
         const findings = selected.map((finding) => {
             const block = state.snapshot.blockMap.get(finding.blockId);
@@ -1766,6 +1772,9 @@
         state.discovery = null;
         state.findings = [];
         state.activeFindingIndex = -1;
+        state.activeExperimentRunId = null;
+        state.activeFindMethod = null;
+        state.comparison = null;
         state.report = null;
         state.sensitiveConfirmationFingerprint = null;
 

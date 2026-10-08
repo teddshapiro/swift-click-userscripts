@@ -1,0 +1,29 @@
+name: Userscript compatibility
+on:
+  push:
+    branches:
+      - fix/per-site-csp-compat-20261007
+  pull_request:
+    paths:
+      - '*.user.js'
+      - 'tests/**'
+      - '.github/workflows/userscript-compatibility.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check userscript syntax
+        run: |
+          node --check swift-click-gpt-swiss-army-knife.user.js
+          node --check swift-click-semantic-researcher.user.js
+      - name: Run compatibility regression suite
+        run: node --test tests/userscript-compatibility.test.cjs

@@ -24,6 +24,7 @@ function boot(spec, hostname, options = {}) {
             "    buildLauncher = function () { launcher = {}; };\n" +
             "    buildPanel = function () { panel = {}; };\n" +
             "    buildToast = function () {};\n" +
+            "    openPanel = function () {};\n" +
             "    globalThis.__testApi = { hostMode, setHostEnabled, mount, getStyles: () => uiStylesUnavailable };\n" +
             swissStartup);
     } else {

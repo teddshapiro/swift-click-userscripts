@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click GPT Swiss Army Knife
 // @namespace    https://swiftclick.com/
-// @version      1.0.1
+// @version      1.0.2
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-gpt-swiss-army-knife.user.js
 // @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-gpt-swiss-army-knife.user.js
 // @description  Capture useful web content, add intent/context, build reusable prompts, copy them, and launch ChatGPT.
@@ -23,7 +23,7 @@
     'use strict';
 
     const APP_NAME = 'Swift Click GPT Swiss Army Knife';
-    const APP_VERSION = '1.0.1';
+    const APP_VERSION = '1.0.2';
     const CHATGPT_URL = 'https://chatgpt.com/';
     const AI_SERVICE_URL = 'https://swiss-army-knife-ai-service.tedd-7f4.workers.dev/tools/annotate-key-passages';
 
@@ -44,6 +44,12 @@
         preserveFormatting: false,
         maxCaptureChars: 30000
     };
+
+    // Exact private admin hosts, not a blanket workers.dev / swiftclick exclusion.
+    // A saved explicit per-host enable always takes precedence.
+    const PRIVATE_ADMIN_HOSTS = new Set([
+        'swiftclick-project-dashboard.tedd-7f4.workers.dev'
+    ]);
 
     // Conservative heuristic. These sites are not "blocked" because they are
     // dangerous; the launcher simply stays hidden unless the user explicitly
@@ -117,6 +123,7 @@
     let userTemplates = loadValue(STORAGE.TEMPLATES, []);
     let hostOverrides = loadValue(STORAGE.OVERRIDES, {});
 
+    let uiStylesUnavailable = false;
     let rootHost = null;
     let shadow = null;
     let launcher = null;
@@ -176,6 +183,7 @@
         const normalized = normalizeHost(host);
         if (hostOverrides[normalized] === true) return 'enabled';
         if (hostOverrides[normalized] === false) return 'disabled';
+        if (PRIVATE_ADMIN_HOSTS.has(normalized)) return 'disabled';
         if (hostLooksSensitive(normalized)) return 'sensitive';
         return 'enabled';
     }
@@ -185,8 +193,8 @@
         hostOverrides[host] = Boolean(enabled);
         saveValue(STORAGE.OVERRIDES, hostOverrides);
         if (enabled) {
-            mount();
-            toast(`Swift Click enabled on ${host}`);
+            uiStylesUnavailable = false; // Explicit retry if browser policy has changed.
+            if (mount()) toast(`Swift Click enabled on ${host}`);
         } else {
             unmount();
         }
@@ -195,8 +203,10 @@
     function registerMenuCommands() {
         try {
             GM_registerMenuCommand('Open Swift Click GPT Swiss Army Knife', () => {
-                if (!rootHost) mount(true);
-                openPanel();
+                const mode = hostMode(location.hostname);
+                if (mode === 'disabled') return; // Use "Enable on this site" first.
+                if (!rootHost) mount(mode === 'sensitive');
+                if (rootHost?.isConnected) openPanel();
             });
             GM_registerMenuCommand('Enable on this site', () => setHostEnabled(true));
             GM_registerMenuCommand('Disable on this site', () => setHostEnabled(false));
@@ -984,23 +994,28 @@
     function mount(force = false) {
         resetDisconnectedUiRefs();
 
-        if (rootHost?.isConnected) return;
-        if (!force && hostMode(location.hostname) !== 'enabled') return;
-        if (!document.documentElement) return;
+        if (rootHost?.isConnected) return true;
+        if (uiStylesUnavailable || (!force && hostMode(location.hostname) !== 'enabled')) return false;
+        if (!document.documentElement) return false;
 
-        rootHost = document.createElement('div');
-        rootHost.id = 'swift-click-gpt-swiss-army-knife-root';
-        rootHost.style.position = 'fixed';
-        rootHost.style.inset = '0';
-        rootHost.style.zIndex = '2147483646';
-        rootHost.style.pointerEvents = 'none';
-        document.documentElement.appendChild(rootHost);
+        try {
+            rootHost = document.createElement('div');
+            rootHost.id = 'swift-click-gpt-swiss-army-knife-root';
+            document.documentElement.appendChild(rootHost);
 
-        shadow = rootHost.attachShadow({ mode: 'closed' });
-        injectStyles();
-        buildLauncher();
-        buildPanel();
-        buildToast();
+            shadow = rootHost.attachShadow({ mode: 'closed' });
+            injectStyles();
+            buildLauncher();
+            buildPanel();
+            buildToast();
+            if (!uiStylesApplied()) throw new Error('Required floating UI styles did not apply');
+            return true;
+        } catch (error) {
+            unmount(); // Never leave unstyled controls covering host content.
+            uiStylesUnavailable = true; // Avoid a MutationObserver remount loop.
+            console.warn(`[${APP_NAME}] UI unavailable on this page (possibly CSP).`, error);
+            return false;
+        }
     }
 
     function ensureMounted() {
@@ -1052,9 +1067,8 @@
     }
 
     function injectStyles() {
-        const style = document.createElement('style');
-        style.textContent = `
-            :host { all: initial; }
+        const cssText = `
+            :host { all: initial; position: fixed; inset: 0; z-index: 2147483646; pointer-events: none; }
             * { box-sizing: border-box; }
             button, input, textarea, select { font: inherit; }
             .sc-launcher {
@@ -1366,7 +1380,30 @@
             .sc-small { font-size:11px; color:#9199a6; }
             .sc-danger-link { color:#ff8f96; cursor:pointer; text-decoration:underline; }
         `;
+        applyShadowStyles(cssText);
+    }
+
+    function applyShadowStyles(cssText) {
+        // Constructed stylesheets can work where page CSP blocks inline <style>.
+        try {
+            if (typeof CSSStyleSheet === 'function' && 'adoptedStyleSheets' in shadow) {
+                const sheet = new CSSStyleSheet();
+                sheet.replaceSync(cssText);
+                shadow.adoptedStyleSheets = [...shadow.adoptedStyleSheets, sheet];
+                return;
+            }
+        } catch (error) {
+            console.warn(`[${APP_NAME}] Constructed stylesheet unavailable; trying inline style.`, error);
+        }
+        const style = document.createElement('style');
+        style.textContent = cssText;
         shadow.appendChild(style);
+    }
+
+    function uiStylesApplied() {
+        return getComputedStyle(rootHost).position === 'fixed'
+            && getComputedStyle(launcher).position === 'fixed'
+            && getComputedStyle(panel).position === 'fixed';
     }
 
     function buildLauncher() {

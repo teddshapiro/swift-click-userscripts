@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Swift Click Semantic Researcher
 // @namespace    https://swiftclick.com/
-// @version      0.2.0
+// @version      0.2.1
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-semantic-researcher.user.js
 // @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/swift-click-semantic-researcher.user.js
 // @description  Discover research lenses, find grounded evidence, highlight it in the page, and synthesize selected findings.
@@ -23,7 +23,7 @@
     'use strict';
 
     const APP_NAME = 'Swift Click Semantic Researcher';
-    const APP_VERSION = '0.2.0';
+    const APP_VERSION = '0.2.1';
     const AI_SERVICE_BASE = 'https://semantic-researcher-ai-service.tedd-7f4.workers.dev';
     const MAX_BLOCKS = 220;
     const MAX_DOCUMENT_CHARS = 50000;
@@ -33,7 +33,8 @@
     const STORAGE = {
         AI_TOKEN: 'sc_semantic_researcher_access_token_v1',
         LAUNCHER_POSITION: 'sc_semantic_researcher_launcher_position_v1',
-        EXPERIMENT_LOG: 'sc_semantic_researcher_experiment_log_v1'
+        EXPERIMENT_LOG: 'sc_semantic_researcher_experiment_log_v1',
+        HOST_OVERRIDES: 'sc_semantic_researcher_host_overrides_v1'
     };
 
     const FIND_METHODS = Object.freeze({
@@ -41,6 +42,11 @@
         DECISIONS: 'decisions_hybrid_v1'
     });
     const MAX_EXPERIMENT_RUNS = 100;
+
+    // Maintain an explicit list of private SwiftClick admin apps; no broad domain block.
+    const PRIVATE_ADMIN_HOSTS = new Set([
+        'swiftclick-project-dashboard.tedd-7f4.workers.dev'
+    ]);
 
     const SENSITIVE_HOST_HINTS = [
         'bank', 'banking', 'creditunion', 'credit-union', 'brokerage',
@@ -50,6 +56,8 @@
         'login.', 'auth.', 'signin.', 'accounts.'
     ];
 
+    let hostOverrides = loadValue(STORAGE.HOST_OVERRIDES, {});
+    let uiStylesUnavailable = false;
     let rootHost = null;
     let shadow = null;
     let launcher = null;
@@ -73,33 +81,85 @@
 
     init();
 
+    function normalizeHost(hostname) {
+        return String(hostname || '').toLowerCase().replace(/^www\\./, '');
+    }
+
+    function hostMode(hostname) {
+        const host = normalizeHost(hostname);
+        if (hostOverrides[host] === true) return 'enabled';
+        if (hostOverrides[host] === false) return 'disabled';
+        return PRIVATE_ADMIN_HOSTS.has(host) ? 'disabled' : 'enabled';
+    }
+
+    function setHostEnabled(enabled) {
+        const host = normalizeHost(location.hostname);
+        hostOverrides[host] = Boolean(enabled);
+        saveValue(STORAGE.HOST_OVERRIDES, hostOverrides);
+        if (enabled) {
+            uiStylesUnavailable = false;
+            buildShell();
+        } else {
+            unmountShell();
+        }
+    }
+
+    function resetHostOverride() {
+        delete hostOverrides[normalizeHost(location.hostname)];
+        saveValue(STORAGE.HOST_OVERRIDES, hostOverrides);
+        unmountShell();
+        if (hostMode(location.hostname) === 'enabled') buildShell();
+    }
+
     function init() {
         state.experimentLog = loadExperimentLog();
-        buildShell();
+        try {
+            GM_registerMenuCommand('Semantic Researcher: set AI access key', setAiAccessKey);
+            GM_registerMenuCommand('Semantic Researcher: clear AI access key', clearAiAccessKey);
+            GM_registerMenuCommand('Semantic Researcher: clear page analysis', clearAnalysis);
+            GM_registerMenuCommand('Enable on this site', () => setHostEnabled(true));
+            GM_registerMenuCommand('Disable on this site', () => setHostEnabled(false));
+            GM_registerMenuCommand('Reset this site to automatic mode', resetHostOverride);
+        } catch (error) {
+            console.warn(`[${APP_NAME}] Could not register script menu commands.`, error);
+        }
+        if (hostMode(location.hostname) === 'enabled') buildShell();
+    }
 
-        GM_registerMenuCommand('Semantic Researcher: set AI access key', setAiAccessKey);
-        GM_registerMenuCommand('Semantic Researcher: clear AI access key', clearAiAccessKey);
-        GM_registerMenuCommand('Semantic Researcher: clear page analysis', clearAnalysis);
+    function unmountShell() {
+        clearHighlights(); // Remove page modifications, not analysis or saved experiment data.
+        rootHost?.remove();
+        rootHost = shadow = launcher = panel = null;
     }
 
     function buildShell() {
-        if (rootHost?.isConnected) return;
+        if (rootHost?.isConnected) return true;
+        if (uiStylesUnavailable || hostMode(location.hostname) !== 'enabled') return false;
+        if (!document.documentElement) return false;
 
-        rootHost = document.createElement('div');
-        rootHost.id = 'swiftclick-semantic-researcher-root';
-        rootHost.setAttribute('data-swiftclick-semantic-researcher-ui', 'true');
-        document.documentElement.appendChild(rootHost);
+        try {
+            rootHost = document.createElement('div');
+            rootHost.id = 'swiftclick-semantic-researcher-root';
+            rootHost.setAttribute('data-swiftclick-semantic-researcher-ui', 'true');
+            document.documentElement.appendChild(rootHost);
 
-        shadow = rootHost.attachShadow({ mode: 'open' });
-        addStyles();
-        buildLauncher();
-        buildPanel();
-        refreshSnapshot();
+            shadow = rootHost.attachShadow({ mode: 'open' });
+            addStyles();
+            buildLauncher();
+            buildPanel();
+            if (!uiStylesApplied()) throw new Error('Required floating UI styles did not apply');
+            refreshSnapshot();
+            return true;
+        } catch (error) {
+            unmountShell();
+            uiStylesUnavailable = true;
+            console.warn(`[${APP_NAME}] UI unavailable on this page (possibly CSP).`, error);
+            return false;
+        }
     }
 
     function addStyles() {
-        const style = document.createElement('style');
-        style.textContent = `
+        const cssText = `
             :host { all: initial; }
             * { box-sizing: border-box; }
             button, textarea { font: inherit; }
@@ -335,7 +395,28 @@
                 .sr-launcher { right: 10px; }
             }
         `;
+        applyShadowStyles(cssText);
+    }
+
+    function applyShadowStyles(cssText) {
+        try {
+            if (typeof CSSStyleSheet === 'function' && 'adoptedStyleSheets' in shadow) {
+                const sheet = new CSSStyleSheet();
+                sheet.replaceSync(cssText);
+                shadow.adoptedStyleSheets = [...shadow.adoptedStyleSheets, sheet];
+                return;
+            }
+        } catch (error) {
+            console.warn(`[${APP_NAME}] Constructed stylesheet unavailable; trying inline style.`, error);
+        }
+        const style = document.createElement('style');
+        style.textContent = cssText;
         shadow.appendChild(style);
+    }
+
+    function uiStylesApplied() {
+        return getComputedStyle(launcher).position === 'fixed'
+            && getComputedStyle(panel).position === 'fixed';
     }
 
     function buildLauncher() {
@@ -1693,7 +1774,7 @@
 
     function applyHighlights() {
         clearHighlights(false);
-        if (!state.highlightsVisible) return;
+        if (!rootHost?.isConnected || hostMode(location.hostname) !== 'enabled' || !state.highlightsVisible) return;
 
         const blockIds = new Set(state.findings.map((finding) => finding.blockId));
         for (const blockId of blockIds) {

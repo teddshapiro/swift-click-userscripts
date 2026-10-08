@@ -4,7 +4,7 @@ Status: development branch only. Do not publish to main without browser review.
 
 ## October 7, 2026 incident
 
-Both Swiss Army Knife and Semantic Researcher created Shadow DOM panels using a style element whose CSS might be rejected by a strict page Content Security Policy (CSP). That leaves controls unpositioned and unstyled. The code-level cause is confirmed; the deployed private dashboard response headers could not be independently inspected.
+Both Swiss Army Knife and Semantic Researcher created Shadow DOM panels using a style element whose CSS might be rejected by a strict page Content Security Policy (CSP). That leaves controls unpositioned and unstyled. The dashboard Worker's current source was inspected read-only through Cloudflare: its Content-Security-Policy contains style-src 'self', excluding ordinary inline style elements. The combination of that policy and both scripts' original Shadow DOM style-element injection confirms the mechanism. A live Firefox response header and rendered-page test remain outstanding.
 
 Private dashboard: https://swiftclick-project-dashboard.tedd-7f4.workers.dev/
 
@@ -45,7 +45,7 @@ Run from repository root:
 
 The Node tests cover dashboard default exclusion; explicit enable, disable and persisted settings; normal sibling hosts; Swiss sensitive-mode behavior; constructed stylesheets; traditional inline fallback; cleanup and retry suppression if CSS is blocked; update URLs; DOM safety; and Semantic Researcher experiment-log preservation. A development-branch GitHub Actions workflow runs the same commands when available.
 
-Tests simulate DOM/CSP behavior and do not prove the dashboard response headers or actual Firefox/Chromium behavior.
+Tests simulate DOM/CSP behavior and do not establish actual Firefox/Chromium rendering. The dashboard Worker's current CSP configuration has been checked read-only; browser-level confirmation remains outstanding.
 
 ## Before releasing
 

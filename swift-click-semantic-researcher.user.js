@@ -82,7 +82,7 @@
     init();
 
     function normalizeHost(hostname) {
-        return String(hostname || '').toLowerCase().replace(/^www\\./, '');
+        return String(hostname || '').toLowerCase().replace(/^www\./, '');
     }
 
     function hostMode(hostname) {

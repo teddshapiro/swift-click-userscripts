@@ -5,6 +5,7 @@ Canonical distribution repository for Swift Click Tampermonkey userscripts.
 ## Canonical userscripts
 
 - `swift-click-gpt-swiss-army-knife.user.js`
+- `swift-click-semantic-researcher.user.js`
 - `cinema-decoder-plot-bridge.user.js`
 - `nyt-connections-tools.user.js`
 - `bypass-skimresources-redirect.user.js`
@@ -29,6 +30,12 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 6. Tampermonkey clients discover the newer version from `@updateURL` and install it from `@downloadURL`.
 
 Do not publish partially tested development versions to the canonical file on `main`.
+
+## Cross-site compatibility and test guidance
+
+See [Userscript Compatibility Standard](docs/USERSCRIPT_COMPATIBILITY.md) for per-host enable/disable, private SwiftClick admin exclusions, CSP-safe stylesheet handling, fail-closed UI, and the release acceptance checklist.
+
+Development-branch regressions: `node --test tests/userscript-compatibility.test.cjs` (Node 22).
 
 ## Compatibility note
 

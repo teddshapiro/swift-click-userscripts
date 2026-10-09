@@ -1,0 +1,61 @@
+{
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "id": "scraps-from-the-loft",
+      "displayName": "Scraps from the Loft",
+      "hostnames": [
+        "scrapsfromtheloft.com",
+        "www.scrapsfromtheloft.com"
+      ],
+      "resourceType": "dialogue-transcript",
+      "supportedWorks": [
+        "film",
+        "episode"
+      ],
+      "archives": [
+        {
+          "kind": "film",
+          "url": "https://scrapsfromtheloft.com/movie-transcripts/"
+        },
+        {
+          "kind": "episode",
+          "url": "https://scrapsfromtheloft.com/tv-series-transcripts/"
+        }
+      ],
+      "currentAdapter": "page-dom-read-only-v0.1.0-alpha.1",
+      "eligibleArticlePaths": [
+        "/movies/{slug}/",
+        "/movie-transcripts/{slug}/",
+        "/tv-series/{slug}/",
+        "/tv-series-transcripts/{slug}/"
+      ],
+      "discoveryPermissions": "not-verified",
+      "liveSitemapApiAccess": "not-verified; remote probes inaccessible",
+      "autoPagination": false,
+      "bulkArticleFetching": false,
+      "remotePublication": false
+    },
+    {
+      "id": "the-movie-spoiler",
+      "displayName": "The Movie Spoiler",
+      "hostnames": [
+        "themoviespoiler.com",
+        "www.themoviespoiler.com"
+      ],
+      "resourceType": "detailed-synopsis",
+      "supportedWorks": [
+        "film"
+      ],
+      "archives": [
+        {
+          "kind": "film",
+          "url": "https://themoviespoiler.com/"
+        }
+      ],
+      "currentAdapter": null,
+      "discoveryPermissions": "not-assessed",
+      "enabled": false
+    }
+  ]
+}

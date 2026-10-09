@@ -51,9 +51,32 @@ The exported 61 movie entries are only a **page-level discovery sample**, not a 
 
 **Next in-browser validation:** After installing/updating alpha.2, reopen either archive and verify that the staging panel shows **61 movies, 328 series indexes, 3 TV episodes** without clearing old storage. Then manually open a series index, e.g. `https://scrapsfromtheloft.com/tv-series-transcripts/the-bear-tv-series/`, and click **Discover visible titles** to test whether child episode article links can be found. Capture a metadata-only JSON export; **no automated page crawling**. If the series page contains no qualifying links, inspect its visible link destinations and stop rather than guessing the markup.
 
+## Second in-browser export — 2026-10-09
+
+The operator opened the **The Bear** index at `https://scrapsfromtheloft.com/tv-series-transcripts/the-bear-tv-series/` with alpha.2, clicked **Discover visible titles**, and provided a new metadata-only export. This confirms that manual navigation from a series index to individual episode links works.
+
+| Classification | Count |
+| --- | ---: |
+| Film transcript links (existing) | 61 |
+| TV series index links (reclassified from alpha.1) | 328 |
+| TV episode transcript links, including 3 previously collected | 40 |
+| **Total distinct links** | **429** |
+| Newly added The Bear episode links | 37 |
+| Duplicated URLs | 0 |
+| Distinct pages inspected | 3 |
+| ReviewStatus=candidate | 429 |
+
+Each of the 37 new episodes has a canonical `/tv-series/` URL, `seriesTitle = "The Bear"`, and `seriesIndexUrl` pointing to its parent series page. Season and episode numbers and episode titles were parsed from the visible link titles. Original alpha.1 metadata was preserved and the 328 series index records were migrated to `workType=series`, `resourceType=transcript-index`. Both same-title **Dark Matter** index URLs remain separate.
+
+**Observed The Bear season distribution:** S01=8, S02=10, S03=10, S04=0, S05=9, including `S05E00 — Gary`. All links were marked `candidate`, but this does **not** imply completeness or confirm episode existence independently. The missing S04 sequence and episode 00 numbering merit manual verification of source organization, paging, and actual publication state.
+
+A third research build, `0.1.0-alpha.3`, adds **non-destructive coverage hints** after a manually initiated series-page scan: gaps *between observed season numbers*, gaps *within observed episode number sequences*, and episode-00 notation. It does not modify or discard candidates or imply that a successful scan is complete.
+
+**Next tests:** Repeat on a different series page with different episode naming conventions; manually check whether its archive indexes all seasons and/or exposes pagination. Repeat discovery to prove idempotence. Also manually inspect movie archive paging before claiming coverage. Do not enable unattended multi-series crawling or publish the findings to production.
+
 ## Current research build on this branch
 
-File: `cinema-decoder-source-discovery.user.js` (research build **0.1.0-alpha.2**)
+File: `cinema-decoder-source-discovery.user.js` (research build **0.1.0-alpha.3**)
 
 - Separate installable Tampermonkey userscript, scoped only to the two Scraps archive URL families.
 - Read-only page-local link extraction for movies, TV series landing indexes, and linked episodes from a manually opened series page.

@@ -5,6 +5,8 @@ Canonical distribution repository for Swift Click Tampermonkey userscripts.
 ## Canonical userscripts
 
 - `swift-click-gpt-swiss-army-knife.user.js`
+- `swift-click-semantic-researcher.user.js`
+- `swift-click-haunted-web.user.js`
 - `cinema-decoder-plot-bridge.user.js`
 - `nyt-connections-tools.user.js`
 - `bypass-skimresources-redirect.user.js`

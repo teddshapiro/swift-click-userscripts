@@ -8,9 +8,9 @@
         "scrapsfromtheloft.com",
         "www.scrapsfromtheloft.com"
       ],
-      "resourceType": "dialogue-transcript",
       "supportedWorks": [
         "film",
+        "series",
         "episode"
       ],
       "archives": [
@@ -23,7 +23,7 @@
           "url": "https://scrapsfromtheloft.com/tv-series-transcripts/"
         }
       ],
-      "currentAdapter": "page-dom-read-only-v0.1.0-alpha.1",
+      "currentAdapter": "page-dom-read-only-v0.1.0-alpha.2",
       "eligibleArticlePaths": [
         "/movies/{slug}/",
         "/movie-transcripts/{slug}/",
@@ -34,7 +34,12 @@
       "liveSitemapApiAccess": "not-verified; remote probes inaccessible",
       "autoPagination": false,
       "bulkArticleFetching": false,
-      "remotePublication": false
+      "remotePublication": false,
+      "resourceTypes": [
+        "dialogue-transcript",
+        "transcript-index"
+      ],
+      "indexBehavior": "The top-level TV directory includes both episode transcript links and series index links; manually visit individual series index pages for child episodes."
     },
     {
       "id": "the-movie-spoiler",

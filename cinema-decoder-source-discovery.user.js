@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.1.0-alpha.1
+// @version      0.1.0-alpha.2
 // @description  Read-only metadata discovery on Scraps from the Loft movie and TV archives. No article fetches or publication.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -21,9 +21,9 @@
 (function () {
   'use strict';
 
-  const STORAGE_KEY = 'cinema-source-discovery-staged-v1';
+  const STORAGE_KEY = 'cinema-source-discovery-staged-v1'; // Keep key stable: v1 records are migrated in place.
   const SOURCE_ID = 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.1.0-alpha.1';
+  const SCRIPT_VERSION = '0.1.0-alpha.2';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const VALID_HOSTS = new Set(['scrapsfromtheloft.com', 'www.scrapsfromtheloft.com']);
@@ -34,7 +34,8 @@
 
   function archiveKind(path) {
     if (/^\/movie-transcripts(?:\/|$)/i.test(path)) return 'film';
-    if (/^\/tv-series-transcripts(?:\/|$)/i.test(path)) return 'episode';
+    if (/^\/tv-series-transcripts\/(?:page\/\d+\/?)?$/i.test(path)) return 'tv-archive';
+    if (/^\/tv-series-transcripts\/[^/]+\/?$/i.test(path)) return 'tv-series-page';
     return null;
   }
 
@@ -58,7 +59,8 @@
     try {
       const path = new URL(url).pathname;
       if (/^\/(?:movies|movie-transcripts)\/[^/]+\/?$/i.test(path)) return 'film';
-      if (/^\/(?:tv-series|tv-series-transcripts)\/[^/]+\/?$/i.test(path)) return 'episode';
+      if (/^\/tv-series\/[^/]+\/?$/i.test(path)) return 'episode';
+      if (/^\/tv-series-transcripts\/[^/]+\/?$/i.test(path) && !/^\/tv-series-transcripts\/page\/\d+\/?$/i.test(path)) return 'series';
     } catch {}
     return null;
   }
@@ -89,42 +91,61 @@
     return { seriesTitle: null, seasonNumber: null, episodeNumber: null, episodeTitle: null };
   }
 
-  function candidateFromLink(link, archiveType, pageUrl) {
-    if (archiveType !== 'film' && archiveType !== 'episode') return null;
+  // The top-level TV directory contains both episode articles and series landing
+  // pages. A series landing page is an index, NOT a transcript or an episode.
+  function candidateFromLink(link, archiveType, pageUrl, parentSeriesTitle = null) {
     const canonical = canonicalUrl(link.href, pageUrl);
-    if (!canonical || resourceKind(canonical) !== archiveType) return null;
-    const title = cleanTitle(link.contextTitle || link.text);
+    if (!canonical) return null;
+    const kind = resourceKind(canonical);
+    if (archiveType === 'film' && kind !== 'film') return null;
+    if (archiveType === 'tv-archive' && kind !== 'series' && kind !== 'episode') return null;
+    if (archiveType === 'tv-series-page' && kind !== 'episode') return null;
+    if (archiveType !== 'film' && archiveType !== 'tv-archive' && archiveType !== 'tv-series-page') return null;
+
     const path = new URL(canonical).pathname;
-    if (!/transcript/i.test(String(link.contextTitle || '') + ' ' + String(link.text || '') + ' ' + path)) return null;
+    // On full-series pages, wrapper headings often describe the show, not the
+    // individual linked episode. Prefer a link's specific SxxExx title.
+    const anchorText = cleanTitle(link.text);
+    const contextText = cleanTitle(link.contextTitle);
+    let title = kind === 'series' ? (anchorText || contextText)
+      : (/\bS\d{1,2}\s*E\d{1,3}\b|\bSeason\s+\d+\s*[,—–:-]?\s*Episode\s+\d+\b|\b\d{1,2}x\d{1,3}\b/i.test(anchorText)
+        ? anchorText : (contextText || anchorText));
     if (!title || /^(read more|continue reading|transcript)$/i.test(title)) return null;
-    const filmYear = archiveType === 'film' ? title.match(/\(((?:19|20)\d{2})\)/) : null;
-    const episode = archiveType === 'episode' ? episodeParts(title) : null;
+    if (kind !== 'series' && !/transcript/i.test(String(link.contextTitle || '') + ' ' + String(link.text || '') + ' ' + path)) return null;
+    if (kind === 'episode' && parentSeriesTitle && /^(?:S\d{1,2}\s*E\d{1,3}|Season\s+\d+\s*[,—–:-]?\s*Episode\s+\d+)\b/i.test(title)) {
+      title = parentSeriesTitle + ' ' + title;
+    }
+    const filmYear = kind === 'film' ? title.match(/\(((?:19|20)\d{2})\)/) : null;
+    const episode = kind === 'episode' ? episodeParts(title) : null;
+    const knownSeries = episode ? (episode.seriesTitle || parentSeriesTitle || null) : null;
     return {
       sourceId: SOURCE_ID,
-      resourceType: 'dialogue-transcript',
-      workType: archiveType,
+      resourceType: kind === 'series' ? 'transcript-index' : 'dialogue-transcript',
+      workType: kind,
       articleTitle: title,
       canonicalUrl: canonical,
       releaseYear: filmYear ? Number(filmYear[1]) : null,
-      seriesTitle: episode ? episode.seriesTitle : null,
+      seriesTitle: kind === 'series' ? title : knownSeries,
+      seriesIndexUrl: kind === 'series' ? canonical
+        : kind === 'episode' && archiveType === 'tv-series-page' ? canonicalUrl(pageUrl, pageUrl) : null,
       seasonNumber: episode ? episode.seasonNumber : null,
       episodeNumber: episode ? episode.episodeNumber : null,
       episodeTitle: episode ? episode.episodeTitle : null,
-      reviewStatus: archiveType === 'film'
-        ? (filmYear ? 'candidate' : 'needs-year-review')
-        : (episode.seriesTitle && episode.seasonNumber !== null ? 'candidate' : 'needs-episode-review'),
+      reviewStatus: kind === 'film' ? (filmYear ? 'candidate' : 'needs-year-review')
+        : kind === 'series' ? 'candidate'
+        : (knownSeries && episode.seasonNumber !== null ? 'candidate' : 'needs-episode-review'),
       foundOn: canonicalUrl(pageUrl, pageUrl),
       adapterVersion: SCRIPT_VERSION
     };
   }
 
-  function extractCandidates(links, archiveType, pageUrl) {
+  function extractCandidates(links, archiveType, pageUrl, parentSeriesTitle = null) {
     const items = [];
     const seen = new Set();
     let invalidOrUnrelated = 0;
     let duplicates = 0;
     for (const link of links.slice(0, LIMIT_PER_PAGE)) {
-      const candidate = candidateFromLink(link, archiveType, pageUrl);
+      const candidate = candidateFromLink(link, archiveType, pageUrl, parentSeriesTitle);
       if (!candidate) { invalidOrUnrelated += 1; continue; }
       if (seen.has(candidate.canonicalUrl)) { duplicates += 1; continue; }
       seen.add(candidate.canonicalUrl);
@@ -133,9 +154,28 @@
     return { items, invalidOrUnrelated, duplicates, truncated: links.length > LIMIT_PER_PAGE };
   }
 
+  // Migrate existing alpha.1 local staging without losing the user's discoveries.
+  // The URL, not the display title, is the durable deduplication identifier.
+  function migrateStage(previous) {
+    if (!previous || !Array.isArray(previous.items)) return { version: 2, items: [], pages: [] };
+    if (previous.version === 2) return previous;
+    return {
+      version: 2,
+      pages: Array.isArray(previous.pages) ? previous.pages : [],
+      items: previous.items.map(item => {
+        if (item.workType !== 'episode' || resourceKind(item.canonicalUrl) !== 'series') return item;
+        return {
+          ...item, resourceType: 'transcript-index', workType: 'series',
+          seriesTitle: item.articleTitle, seriesIndexUrl: item.canonicalUrl,
+          seasonNumber: null, episodeNumber: null, episodeTitle: null,
+          reviewStatus: 'candidate', adapterVersion: SCRIPT_VERSION
+        };
+      })
+    };
+  }
+
   function mergeStage(previous, incoming, pageUrl) {
-    const prior = previous && previous.version === 1 && Array.isArray(previous.items)
-      ? previous : { version: 1, items: [], pages: [] };
+    const prior = migrateStage(previous);
     const byUrl = new Map(prior.items.map(x => [x.canonicalUrl, x]));
     let added = 0;
     for (const entry of incoming) {
@@ -147,12 +187,12 @@
     const pages = Array.isArray(prior.pages) ? prior.pages.slice(0, 500) : [];
     const page = canonicalUrl(pageUrl, pageUrl);
     if (page && !pages.includes(page)) pages.push(page);
-    return { stage: { version: 1, items: Array.from(byUrl.values()), pages }, added };
+    return { stage: { version: 2, items: Array.from(byUrl.values()), pages }, added };
   }
 
   // Make the data-only functions testable without mounting UI or requiring Tampermonkey.
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, mergeStage };
+    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage };
     return;
   }
 
@@ -173,7 +213,7 @@
   heading.textContent = 'Cinema Decoder · Source Discovery';
   Object.assign(heading.style, { fontSize: '17px', fontWeight: '700' });
   const subtitle = document.createElement('div');
-  subtitle.textContent = (type === 'film' ? 'Movie' : 'TV episode') + ' archive · research build ' + SCRIPT_VERSION;
+  subtitle.textContent = (type === 'film' ? 'Movie archive' : type === 'tv-archive' ? 'TV series & episodes directory' : 'TV series episode index') + ' · research build ' + SCRIPT_VERSION;
   subtitle.style.marginBottom = '9px';
   const info = document.createElement('div');
   info.textContent = 'Read-only: examines article links on this page. No article downloads and no cloud publication.';
@@ -198,7 +238,10 @@
   }
 
   function staged() {
-    return GM_getValue(STORAGE_KEY, { version: 1, items: [], pages: [] });
+    const raw = GM_getValue(STORAGE_KEY, { version: 2, items: [], pages: [] });
+    const migrated = migrateStage(raw);
+    if (raw.version !== 2) GM_setValue(STORAGE_KEY, migrated);
+    return migrated;
   }
 
   function show(message) {
@@ -206,9 +249,11 @@
     const items = Array.isArray(saved.items) ? saved.items : [];
     const film = items.filter(x => x.workType === 'film').length;
     const episodes = items.filter(x => x.workType === 'episode').length;
+    const series = items.filter(x => x.workType === 'series').length;
     const uncertain = items.filter(x => x.reviewStatus !== 'candidate').length;
-    status.textContent = message + '\nStaged: ' + items.length + ' links (' + film + ' movies, ' + episodes +
-      ' TV episodes). Review flags: ' + uncertain + '. Pages inspected: ' + (saved.pages || []).length + '.';
+    status.textContent = message + '\nStaged: ' + items.length + ' links (' + film + ' movies, ' + series +
+      ' series indexes, ' + episodes + ' TV episodes). Review flags: ' + uncertain +
+      '. Pages inspected: ' + (saved.pages || []).length + '.';
     preview.replaceChildren();
     for (const item of items.slice(-15).reverse()) {
       const li = document.createElement('li');
@@ -231,7 +276,15 @@
 
   button('Discover visible titles', () => {
     const links = pageLinks();
-    const result = extractCandidates(links, type, location.href);
+    const currentPage = canonicalUrl(location.href, location.href);
+    const matchingSeries = type === 'tv-series-page'
+      ? staged().items.find(x => x.workType === 'series' && x.canonicalUrl === currentPage)
+      : null;
+    const heading = document.querySelector('main h1, h1.entry-title, .entry-header h1');
+    const fallbackSeries = heading ? cleanTitle(heading.textContent).replace(/\s*[-–—|:]\s*(?:TV\s+)?(?:Series\s+)?Transcripts?\s*$/i, '').trim() : null;
+    const parentSeriesTitle = type === 'tv-series-page'
+      ? (matchingSeries ? matchingSeries.articleTitle : fallbackSeries || null) : null;
+    const result = extractCandidates(links, type, location.href, parentSeriesTitle);
     if (result.truncated || result.items.length === 0) {
       show('WARNING: ' + (result.truncated ? 'Page link safety cap reached. ' : '') +
         (result.items.length ? '' : 'No qualifying transcript article links found. Layout may be unsupported. ') +
@@ -240,7 +293,7 @@
     }
     const merged = mergeStage(staged(), result.items, location.href);
     GM_setValue(STORAGE_KEY, merged.stage);
-    show('Page discovered: ' + result.items.length + ' distinct articles; ' + merged.added +
+    show('Page discovered: ' + result.items.length + ' distinct source links; ' + merged.added +
       ' newly staged; ' + result.duplicates + ' duplicate links. Preview is not a completeness check.');
   });
 
@@ -289,5 +342,5 @@
       if (!panel.isConnected) document.body.append(panel);
     });
   }
-  show('Ready. Open archive pages manually and click Discover on each page.');
+  show('Ready. Manually visit movie archives, the TV directory, or a listed TV series page; click Discover on each page.');
 })();

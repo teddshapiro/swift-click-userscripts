@@ -74,6 +74,26 @@ A third research build, `0.1.0-alpha.3`, adds **non-destructive coverage hints**
 
 **Next tests:** Repeat on a different series page with different episode naming conventions; manually check whether its archive indexes all seasons and/or exposes pagination. Repeat discovery to prove idempotence. Also manually inspect movie archive paging before claiming coverage. Do not enable unattended multi-series crawling or publish the findings to production.
 
+## Third in-browser export — Andor, 2026-10-09
+
+The operator updated to research build `0.1.0-alpha.3` and manually discovered linked episodes on `https://scrapsfromtheloft.com/tv-series-transcripts/andor-tv-series/`. The resulting metadata-only export has `version=2`, `publicationApproved=false`, and **four** manually inspected source pages.
+
+| Classification | Count | Change from second export |
+| --- | ---: | ---: |
+| Direct film transcript links | 61 | 0 |
+| TV series index links | 328 | 0 |
+| TV episode transcript links | 52 | +12 |
+| **Unique URLs** | **441** | **+12** |
+| Duplicate canonical URLs | 0 | 0 |
+
+The added 12 links are exactly `Andor S01E01` through `Andor S01E12` in order, each retaining `seriesTitle="Andor"`, the source series index URL, an individually parsed episode title, provenance, and `adapterVersion="0.1.0-alpha.3"`. All 429 earlier URLs are preserved. No missing numbered episodes *within the observed S01 sequence*; there are zero flagged records in the export.
+
+**Critical distinction: contiguous observed numbering does not establish source coverage.** Official Lucasfilm/Disney press information confirms `Andor` has a **second season with 12 episodes**, released starting April 2025 (e.g. https://press.disney.co.uk/news/lucasfilms-andor-season-2-cast-andfilmmakers-gather-at-londons-lightroom-for-sneak-peek-at-the-final-season and https://news.disney.com/next-on-disney-plus-may-2025). The current **Scraps archive page export** contains only the first season, and a source-site 403 prevented automated inspection of the live series index. We cannot infer whether second-season transcript links are elsewhere on that site, absent from the site, or excluded by page rendering/navigation. `seriesCoverage()` deliberately cannot flag a trailing season that is not observable in the dataset. Do not mark this series complete or create speculative S02 transcript URLs.
+
+**Manual follow-up:** Inspect the Andor series index in Firefox for source-specific pagination, alternate seasons/tabs, separately linked episode pages, or links to another archive. Record which parts of the source were visibly inspected; do not automatically follow all 328 series pages or fetch transcript bodies. Other valid outcomes are "only S01 linked in this index" or "navigation differs"—both are catalog coverage findings, not a parser failure.
+
+The cross-series test confirms the same extraction works for `The Bear` and `Andor`; the next priority should be **coverage/scan provenance and a deliberate admin review/import boundary**, rather than claiming that discovered listings represent all available titles.
+
 ## Current research build on this branch
 
 File: `cinema-decoder-source-discovery.user.js` (research build **0.1.0-alpha.3**)

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Plot Bridge
 // @namespace    https://cinemadecoder.com/
-// @version      0.5.0
+// @version      0.5.1
 // @description  Capture movie plots and full Scraps from the Loft transcripts, save long sources as TXT, and prepare Cinema Decoder requests.
 // @author       Tedd / Cinema Decoder
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/cinema-decoder-plot-bridge.user.js
@@ -602,8 +602,10 @@
         // Remove the standard source note; preserve stage/sound cues and dialogue.
         text = normalizeText(text)
             .replace(/^Note for Students\s*&\s*Writers:[^\n]*\n*/i, '');
-        // Do not allow website furniture after the dialogue to enter the text.
-        const stop = /(?:^|\n)(?:More|Share this article|Leave a Comment|Related movies\s*&\s*coverage|Related movies|Post navigation)(?:\n|$)/i.exec(text);
+        // Stop before post-transcript links/comments. Scraps sometimes renders
+        // the "More" link adjacent to "Movie Transcripts" with no space:
+        // "MoreMovie Transcripts" (as seen in the v0.5.0 live export).
+        const stop = /(?:^|\n)(?:More\s*Movie Transcripts\b|More(?=\n|$)|Share this article\b|\d+\s+responses?\s+to\b|Leave a Comment\b|Related movies\s*&\s*coverage\b|Related movies\b|Post navigation\b)/i.exec(text);
         if (stop) text = text.slice(0, stop.index).trim();
 
         const chars = text.length;
@@ -1403,7 +1405,7 @@
                         Curious how Cinema Decoder works?
                         <a href="https://cinemadecoder.com/" target="_blank" rel="noopener noreferrer">Learn more at CinemaDecoder.com ↗</a>
                     </div>
-                    <div class="cd-footer-version">v0.5.0</div>
+                    <div class="cd-footer-version">v0.5.1</div>
                 </div>
             </div>
         `;

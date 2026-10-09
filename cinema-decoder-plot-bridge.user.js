@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Plot Bridge
 // @namespace    https://cinemadecoder.com/
-// @version      0.5.2
+// @version      0.5.3
 // @description  Capture movie plots and Scraps from the Loft movie/TV transcripts; save long sources as TXT and prepare decoding requests.
 // @author       Tedd / Cinema Decoder
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/cinema-decoder-plot-bridge.user.js
@@ -706,7 +706,10 @@
     }
 
     function renderSourceStrip(title, year) {
-        const current = getSiteType();
+        // Movie and TV archives share a hostname but have separate source pills.
+        const current = getSiteType() === 'scraps' && /^\/tv-series\//i.test(location.pathname)
+            ? 'scraps-tv'
+            : getSiteType();
         const items = buildSourceDestinations();
 
         return `
@@ -1424,7 +1427,7 @@
                         Curious how Cinema Decoder works?
                         <a href="https://cinemadecoder.com/" target="_blank" rel="noopener noreferrer">Learn more at CinemaDecoder.com ↗</a>
                     </div>
-                    <div class="cd-footer-version">v0.5.2</div>
+                    <div class="cd-footer-version">v0.5.3</div>
                 </div>
             </div>
         `;

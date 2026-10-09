@@ -227,3 +227,32 @@ test('season coverage distinguishes a gap in observed episode numbers from a con
   assert.equal(r.unnumbered, 1);
   assert.equal(r.completenessVerified, false);
 });
+
+test('Andor actual browser sample: 12 numbered Season 1 links from a different series index', () => {
+  const index = 'https://scrapsfromtheloft.com/tv-series-transcripts/andor-tv-series/';
+  const episodeTitles = [
+    'Kassa', 'That Would Be Me', 'Reckoning', 'Aldhani',
+    'The Axe Forgets', 'The Eye', 'Announcement', 'Narkina 5',
+    'Nobody’s Listening!', 'One Way Out', 'Daughter of Ferrix', 'Rix Road'
+  ];
+  const links = episodeTitles.map((title, i) => {
+    const seq = String(i + 1).padStart(2, '0');
+    return {
+      href: '/tv-series/andor-s01e' + seq + '-transcript/',
+      text: 'Andor S01E' + seq + ' – ' + title
+    };
+  });
+  const candidates = core.extractCandidates(links, 'tv-series-page', index, 'Andor');
+  assert.equal(candidates.items.length, 12);
+  assert.equal(candidates.items.every(x => x.workType === 'episode' && x.seriesTitle === 'Andor'), true);
+  assert.deepEqual(candidates.items.map(x => x.episodeNumber), Array.from({length: 12}, (_, n) => n+1));
+  assert.deepEqual(candidates.items.map(x => x.episodeTitle), episodeTitles);
+  assert.equal(candidates.items.every(x => x.seriesIndexUrl === index && x.reviewStatus === 'candidate'), true);
+  const coverage = core.seriesCoverage(candidates.items, index);
+  assert.deepEqual(coverage.observedSeasons, [1]);
+  assert.deepEqual(coverage.missingSeasons, []);
+  assert.deepEqual(coverage.missingWithinSeasons, []);
+  // A season beyond the observed season cannot be deduced from its numbering.
+  assert.equal(coverage.completenessVerified, false);
+});
+

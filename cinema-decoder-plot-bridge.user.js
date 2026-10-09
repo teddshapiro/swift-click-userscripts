@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cinema Decoder — Plot Bridge
 // @namespace    https://cinemadecoder.com/
-// @version      0.5.1
-// @description  Capture movie plots and full Scraps from the Loft transcripts, save long sources as TXT, and prepare Cinema Decoder requests.
+// @version      0.5.2
+// @description  Capture movie plots and Scraps from the Loft movie/TV transcripts; save long sources as TXT and prepare decoding requests.
 // @author       Tedd / Cinema Decoder
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/cinema-decoder-plot-bridge.user.js
 // @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/cinema-decoder-plot-bridge.user.js
@@ -15,6 +15,10 @@
 // @match        https://www.scrapsfromtheloft.com/movies/*
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
 // @match        https://www.scrapsfromtheloft.com/movie-transcripts/*
+// @match        https://scrapsfromtheloft.com/tv-series/*
+// @match        https://www.scrapsfromtheloft.com/tv-series/*
+// @match        https://scrapsfromtheloft.com/tv-series-transcripts/*
+// @match        https://www.scrapsfromtheloft.com/tv-series-transcripts/*
 // @grant        GM_setClipboard
 // @grant        GM_registerMenuCommand
 // @grant        GM_openInTab
@@ -560,7 +564,7 @@
     function isTranscriptArticle() {
         if (getSiteType() !== 'scraps') return false;
         const path = location.pathname;
-        if (path === '/movie-transcripts/' || path === '/movies/') return false;
+        if (['/movie-transcripts/', '/movies/', '/tv-series-transcripts/', '/tv-series/'].includes(path)) return false;
         const title = normalizeText(document.querySelector('h1')?.textContent || document.title || '');
         return /\bTranscript\b/i.test(title) &&
             !!document.querySelector('article, .entry-content, .post-content, main');
@@ -568,7 +572,7 @@
 
     function extractScrapsTranscript() {
         if (!isTranscriptArticle()) {
-            return { ok: false, error: 'Open an individual movie transcript article rather than the transcript archive.' };
+            return { ok: false, error: 'Open an individual movie or TV episode transcript article rather than an archive index.' };
         }
 
         const selectors = ['article .entry-content', '.entry-content', '.post-content', 'article .post-content', 'article', 'main'];
@@ -605,12 +609,16 @@
         // Stop before post-transcript links/comments. Scraps sometimes renders
         // the "More" link adjacent to "Movie Transcripts" with no space:
         // "MoreMovie Transcripts" (as seen in the v0.5.0 live export).
-        const stop = /(?:^|\n)(?:More\s*Movie Transcripts\b|More(?=\n|$)|Share this article\b|\d+\s+responses?\s+to\b|Leave a Comment\b|Related movies\s*&\s*coverage\b|Related movies\b|Post navigation\b)/i.exec(text);
+        const stop = /(?:^|\n)(?:More\s*(?:Movie Transcripts|TV Series Transcripts)\b|More(?=\n|$)|Share this article\b|\d+\s+responses?\s+to\b|Leave a Comment\b|Related movies\s*&\s*coverage\b|Related movies\b|Post navigation\b)/i.exec(text);
         if (stop) text = text.slice(0, stop.index).trim();
 
         const chars = text.length;
         const words = countWords(text);
-        if (chars < TRANSCRIPT_MIN_CHARS || words < 700) {
+        // Short TV episodes may legitimately have less dialogue than full films.
+        const isTVEpisode = /^\/tv-series\//i.test(location.pathname);
+        const minChars = isTVEpisode ? 2000 : TRANSCRIPT_MIN_CHARS;
+        const minWords = isTVEpisode ? 250 : 700;
+        if (chars < minChars || words < minWords) {
             return {
                 ok: false,
                 error: 'The transcript body could not be isolated reliably. Try saving the webpage text manually; no partial capture will be presented as complete.'
@@ -622,7 +630,8 @@
             plot: text,
             chars,
             words,
-            source: 'Scraps from the Loft — Transcript',
+            source: isTVEpisode ? 'Scraps from the Loft — TV Episode Transcript' : 'Scraps from the Loft — Transcript',
+            mediaType: isTVEpisode ? 'tv_episode' : 'movie',
             kind: 'transcript',
             extractionMethod
         };
@@ -679,6 +688,11 @@
                 url: 'https://scrapsfromtheloft.com/movie-transcripts/'
             },
             {
+                key: 'scraps-tv',
+                label: 'TV Transcripts',
+                url: 'https://scrapsfromtheloft.com/tv-series-transcripts/'
+            },
+            {
                 key: 'imdb',
                 label: 'IMDb',
                 url: 'https://www.imdb.com/'
@@ -710,7 +724,7 @@
                     }).join('')}
                 </div>
                 <div class="cd-source-note">
-                    The Movie Spoiler, Scraps from the Loft, IMDb, and Wikipedia are supported. Open another source and find the movie there to switch.
+                    The Movie Spoiler, Scraps from the Loft movie and TV transcripts, IMDb, and Wikipedia are supported. Open a source and select a film or episode to capture it.
                 </div>
             </div>
         `;
@@ -749,7 +763,12 @@
         const plotPayload = tooLong ? '' : buildPlotPayload(capture);
 
         return [
-            `Use the Cinema Decoder framework to decode ${capture.title}.`,
+            capture.mediaType === 'tv_episode'
+                ? `Use the Cinema Decoder framework to decode the TV episode ${capture.title}.`
+                : `Use the Cinema Decoder framework to decode ${capture.title}.`,
+            ...(capture.mediaType === 'tv_episode'
+                ? ['Treat this as an episode-level decoding. Distinguish the episode\'s own narrative and character arcs from longer series arcs; do not invent events in other episodes not supplied as context.', '']
+                : []),
             '',
             focusInstruction(focus),
             depthInstruction(depth),
@@ -1405,7 +1424,7 @@
                         Curious how Cinema Decoder works?
                         <a href="https://cinemadecoder.com/" target="_blank" rel="noopener noreferrer">Learn more at CinemaDecoder.com ↗</a>
                     </div>
-                    <div class="cd-footer-version">v0.5.1</div>
+                    <div class="cd-footer-version">v0.5.2</div>
                 </div>
             </div>
         `;

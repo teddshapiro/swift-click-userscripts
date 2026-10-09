@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.1.0-alpha.2
+// @version      0.1.0-alpha.3
 // @description  Read-only metadata discovery on Scraps from the Loft movie and TV archives. No article fetches or publication.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -23,7 +23,7 @@
 
   const STORAGE_KEY = 'cinema-source-discovery-staged-v1'; // Keep key stable: v1 records are migrated in place.
   const SOURCE_ID = 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.1.0-alpha.2';
+  const SCRIPT_VERSION = '0.1.0-alpha.3';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const VALID_HOSTS = new Set(['scrapsfromtheloft.com', 'www.scrapsfromtheloft.com']);
@@ -190,9 +190,57 @@
     return { stage: { version: 2, items: Array.from(byUrl.values()), pages }, added };
   }
 
+  // These are discovery diagnostics, NOT publication judgments. Missing links
+  // may mean incomplete indexing or unavailable source material, not a missing
+  // or nonexistent episode. Never invent or remove an episode from this report.
+  function seriesCoverage(items, indexUrl) {
+    const episodeLinks = (Array.isArray(items) ? items : []).filter(item =>
+      item.workType === 'episode' && item.seriesIndexUrl === indexUrl);
+    const seasons = new Map();
+    let unnumbered = 0;
+    for (const item of episodeLinks) {
+      const season = item.seasonNumber;
+      const episode = item.episodeNumber;
+      if (!Number.isInteger(season) || !Number.isInteger(episode) ||
+        season < 0 || episode < 0) {
+        unnumbered += 1;
+        continue;
+      }
+      if (!seasons.has(season)) seasons.set(season, new Set());
+      seasons.get(season).add(episode);
+    }
+    const observedSeasons = Array.from(seasons.keys()).sort((a,b) => a-b);
+    const missingSeasons = [];
+    for (let i = 1; i < observedSeasons.length; i++) {
+      for (let k = observedSeasons[i-1]+1; k < observedSeasons[i] && missingSeasons.length < 100; k++) {
+        missingSeasons.push(k);
+      }
+    }
+    const episodeZeroSeasons = observedSeasons.filter(k => seasons.get(k).has(0));
+    const missingWithinSeasons = [];
+    for (const season of observedSeasons) {
+      const episodes = seasons.get(season);
+      const max = Math.min(Math.max(...episodes), 999);
+      const missing = [];
+      for (let n = 1; n <= max && missing.length < 100; n++) {
+        if (!episodes.has(n)) missing.push(n);
+      }
+      if (missing.length) missingWithinSeasons.push({ season, episodes: missing });
+    }
+    return {
+      observedLinks: episodeLinks.length,
+      observedSeasons,
+      missingSeasons,
+      episodeZeroSeasons,
+      missingWithinSeasons,
+      unnumbered,
+      completenessVerified: false
+    };
+  }
+
   // Make the data-only functions testable without mounting UI or requiring Tampermonkey.
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage };
+    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage };
     return;
   }
 
@@ -293,8 +341,24 @@
     }
     const merged = mergeStage(staged(), result.items, location.href);
     GM_setValue(STORAGE_KEY, merged.stage);
+    let diagnostic = '';
+    if (type === 'tv-series-page') {
+      const coverage = seriesCoverage(merged.stage.items, currentPage);
+      const notices = [];
+      if (coverage.missingSeasons.length) {
+        notices.push('unrepresented season(s): ' + coverage.missingSeasons.map(n => 'S' + String(n).padStart(2,'0')).join(', '));
+      }
+      if (coverage.episodeZeroSeasons.length) {
+        notices.push('episode 00 notation in: ' + coverage.episodeZeroSeasons.map(n => 'S' + String(n).padStart(2,'0')).join(', '));
+      }
+      if (coverage.missingWithinSeasons.length) {
+        notices.push('other gaps in observed season sequences');
+      }
+      if (coverage.unnumbered) notices.push(coverage.unnumbered + ' unnumbered episode link(s)');
+      if (notices.length) diagnostic = '\nCoverage hints (not proof of missing material): ' + notices.join('; ') + '.';
+    }
     show('Page discovered: ' + result.items.length + ' distinct source links; ' + merged.added +
-      ' newly staged; ' + result.duplicates + ' duplicate links. Preview is not a completeness check.');
+      ' newly staged; ' + result.duplicates + ' duplicate links. Preview is not a completeness check.' + diagnostic);
   });
 
   button('Copy staged JSON', () => {

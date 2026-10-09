@@ -1,0 +1,26 @@
+name: Cinema Source Discovery Research Build
+
+on:
+  push:
+    branches:
+      - cinema-source-discovery-phase0
+  pull_request:
+    paths:
+      - 'cinema-decoder-source-discovery.user.js'
+      - 'tests/cinema-source-discovery.test.cjs'
+      - '.github/workflows/cinema-source-discovery.yml'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check userscript syntax
+        run: node --check cinema-decoder-source-discovery.user.js
+      - name: Run Source Discovery unit tests
+        run: node --test tests/cinema-source-discovery.test.cjs

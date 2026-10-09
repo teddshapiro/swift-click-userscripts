@@ -190,3 +190,40 @@ test('a series page with no accessible episodes produces no false episode record
   ], 'tv-series-page', index, 'The Bear');
   assert.equal(r.items.length, 0);
 });
+
+test('series coverage describes observed numbering gaps without inventing missing episodes', () => {
+  const index = 'https://scrapsfromtheloft.com/tv-series-transcripts/the-bear-tv-series/';
+  const episode = (season, n) => ({
+    workType: 'episode', seasonNumber: season, episodeNumber: n, seriesIndexUrl: index
+  });
+  const items = [
+    ...Array.from({ length: 8 }, (_, n) => episode(1, n+1)),
+    ...Array.from({ length: 10 }, (_, n) => episode(2, n+1)),
+    ...Array.from({ length: 10 }, (_, n) => episode(3, n+1)),
+    episode(5, 0),
+    ...Array.from({ length: 8 }, (_, n) => episode(5, n+1)),
+    { workType: 'episode', seasonNumber: 4, episodeNumber: 1, seriesIndexUrl: 'https://other.example/' },
+    { workType: 'series', seasonNumber: 4, seriesIndexUrl: index }
+  ];
+  const c = core.seriesCoverage(items, index);
+  assert.equal(c.observedLinks, 37);
+  assert.deepEqual(c.observedSeasons, [1, 2, 3, 5]);
+  assert.deepEqual(c.missingSeasons, [4]);
+  assert.deepEqual(c.episodeZeroSeasons, [5]);
+  assert.deepEqual(c.missingWithinSeasons, []);
+  assert.equal(c.unnumbered, 0);
+  assert.equal(c.completenessVerified, false);
+});
+
+test('season coverage distinguishes a gap in observed episode numbers from a confirmed missing episode', () => {
+  const index = 'https://scrapsfromtheloft.com/tv-series-transcripts/other-show/';
+  const r = core.seriesCoverage([
+    { workType: 'episode', seasonNumber: 1, episodeNumber: 1, seriesIndexUrl: index },
+    { workType: 'episode', seasonNumber: 1, episodeNumber: 3, seriesIndexUrl: index },
+    { workType: 'episode', seasonNumber: null, episodeNumber: null, seriesIndexUrl: index }
+  ], index);
+  assert.deepEqual(r.missingSeasons, []);
+  assert.deepEqual(r.missingWithinSeasons, [{ season: 1, episodes: [2] }]);
+  assert.equal(r.unnumbered, 1);
+  assert.equal(r.completenessVerified, false);
+});

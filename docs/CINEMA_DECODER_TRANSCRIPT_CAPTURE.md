@@ -1,8 +1,8 @@
-# Cinema Decoder transcript capture (v0.5.1)
+# Cinema Decoder transcript capture (v0.5.3)
 
 ## Source
-- Scraps from the Loft individual transcript articles on `/movies/*` and `/movie-transcripts/*`
-- Archive index itself is intentionally not recognized as a movie transcript.
+- Scraps from the Loft movie transcript articles on `/movies/*` and `/movie-transcripts/*`, plus television episode transcripts on `/tv-series/*` and the `/tv-series-transcripts/` archive.
+- Movie and TV archive indexes are navigation pages, not individual transcripts, and are intentionally not capture targets.
 - The Movie Spoiler, IMDb, and Wikipedia keep their existing extraction paths.
 
 ## Behavior
@@ -34,3 +34,12 @@
 - The footer guard now handles `MoreMovie Transcripts`, `More Movie Transcripts`, a standalone `More` link, and common comment/share headings.
 - Tested the footer boundary against the uploaded export and six focused JavaScript cases. The script also passed a JavaScript syntax check.
 - Browser re-test for v0.5.1: capture the same film and confirm the exported TXT ends at `[BEEPING RAPIDLY]` with no article links or reader comments.
+
+## v0.5.3 television episode expansion (2026-10-09)
+- Added Scraps from the Loft TV transcript archive `https://scrapsfromtheloft.com/tv-series-transcripts/` to the source navigator and userscript scope.
+- Added TV episode article paths under `/tv-series/*`; title and source metadata identify an episode, and the generated request calls for episode-level decoding without inventing longer series arcs.
+- TV episodes use a lower minimum transcript length than movies, while retaining the requirement for a substantial transcript body.
+- Footer cleanup recognizes both `MoreMovie Transcripts` and `MoreTV Series Transcripts` site furniture.
+- The active source pill follows the TV archive on TV episode pages; existing movie behavior is unchanged.
+- Syntax, 6 URL-routing test cases, 4 footer cases, and static checks passed. Direct live-site readback was unavailable; **browser confirmation is still needed**.
+- Acceptance: open `https://scrapsfromtheloft.com/tv-series/the-bear-s03e03-doors-transcript/`, verify the Plot Bridge button and TV source pill, inspect beginning/end of preview, save TXT, and confirm it contains the episode body without website comments. Confirm the source archive index itself does not show the capture button.

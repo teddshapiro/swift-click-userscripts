@@ -153,6 +153,14 @@ Run from repository root:
 
 Tests cover archive scope, URL host checks, film years, TV episode parsing, ambiguous episodes, exclusion, deduplication, local staging idempotence and zero-result cases. Browser validation is still essential; no live archive DOM could be collected from this environment.
 
+## Next-phase private catalog design (2026-10-09)
+
+The approved direction is an **owner-only review/import workflow** integrated into Cinema Decoder's existing Cloudflare Studio security boundary, with canonical film/series/episode works stored independently of source-resource links. An episode may exist in the registry without an available transcript; a resource URL does not prove a unique work identity and no unobserved missing episodes should be invented by this discovery tool. A simple private Cloudflare catalog search/browse page is a planned later phase.
+
+**Authoritative design/handoff:** [Cinema Decoder Private Catalog Import Design v0.1](https://github.com/teddshapiro/cinema-decoder/blob/catalog-private-import-design/docs/CATALOG_PRIVATE_IMPORT_DESIGN_V0_1.md) on `teddshapiro/cinema-decoder` branch `catalog-private-import-design`.
+
+Keep the independent Tampermonkey metadata-only export and no auto-crawl/no body scraping/no production publication boundary unchanged. The user directly inspected Andor's index: its 12 visitor-visible S01 transcript listings are precisely the 12 links captured, so this is a **successful page-inventory** test even though the show has other episodes in the world.
+
 ## Next implementation milestones
 
 1. Validate the read-only adapter on actual archive pages in the operator's browser and capture anonymized metadata-only test exports.

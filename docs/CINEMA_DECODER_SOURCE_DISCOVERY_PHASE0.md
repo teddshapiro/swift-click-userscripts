@@ -30,15 +30,36 @@ Archive pages returned HTTP 403 to the reader; robots/sitemaps were unavailable 
 
 The current proof avoids automated network requests entirely: it inspects metadata links only on archive pages explicitly opened by the operator in their normal browser.
 
+## Actual browser export — 2026-10-09
+
+An operator opened both archives in Firefox with Tampermonkey `0.1.0-alpha.1` and exported `cinema-source-discovery-preview.json` (metadata only). A complete local inspection of the supplied JSON found:
+
+| Finding | Count |
+| --- | ---: |
+| Distinct URLs | 392 |
+| Direct movie transcript URLs (`/movies/`) | 61 |
+| Direct television episode transcript URLs (`/tv-series/`) | 3 |
+| Television series index URLs (`/tv-series-transcripts/{series}/`) | 328 |
+| Duplicate URLs | 0 |
+| Archive pages inspected | 2 |
+
+**Key discovery:** The TV directory is primarily a **series-index catalog**, not an episode catalog. In the first alpha, the 328 series index pages were wrongly marked `workType=episode` and `resourceType=dialogue-transcript`. The corrected `0.1.0-alpha.2` recognizes `workType=series` and `resourceType=transcript-index` instead. This is a link to a landing page, **not proof that the URL hosts an individual transcript**.
+
+Alpha.2 migrates locally staged alpha.1 records in-place (version 1 → version 2) while preserving canonical URL, title, first-seen timestamps, and scan-page provenance. The same-title pairs **Dark Matter** and **Slow Horses** have separate URLs and must not be silently merged by title. The three direct television episode links were Chicago P.D. S14E01, Chicago Fire S15E01, and Chicago Med S12E01; all three were parsed for series/season/episode successfully in the initial export.
+
+The exported 61 movie entries are only a **page-level discovery sample**, not a measure of full archive coverage. Do not claim all available movies or TV episodes have been found.
+
+**Next in-browser validation:** After installing/updating alpha.2, reopen either archive and verify that the staging panel shows **61 movies, 328 series indexes, 3 TV episodes** without clearing old storage. Then manually open a series index, e.g. `https://scrapsfromtheloft.com/tv-series-transcripts/the-bear-tv-series/`, and click **Discover visible titles** to test whether child episode article links can be found. Capture a metadata-only JSON export; **no automated page crawling**. If the series page contains no qualifying links, inspect its visible link destinations and stop rather than guessing the markup.
+
 ## Current research build on this branch
 
-File: `cinema-decoder-source-discovery.user.js`
+File: `cinema-decoder-source-discovery.user.js` (research build **0.1.0-alpha.2**)
 
 - Separate installable Tampermonkey userscript, scoped only to the two Scraps archive URL families.
-- Read-only page-local link extraction for movie and TV episode candidates.
-- Strict HTTPS host/path filtering; movie versus episode classification; title-only film-year detection; `S03E03`, `Season 3 Episode 3`, and `3x03` parsing; review flags for unclear identities.
+- Read-only page-local link extraction for movies, TV series landing indexes, and linked episodes from a manually opened series page.
+- Strict HTTPS host/path filtering; movie versus TV series versus episode classification; title-only film-year detection; `S03E03`, `Season 3 Episode 3`, and `3x03` parsing; review flags for unclear identities.
 - Canonical URL normalization and duplicate suppression.
-- User-initiated collection of currently loaded page links only. Manual pagination; locally staged results persist in Tampermonkey storage across archive page navigation.
+- User-initiated collection of currently loaded page links only. Manual pagination and per-series navigation; locally staged results persist in Tampermonkey storage across archive page navigation, with alpha.1-to-alpha.2 migration.
 - Preview counts and flags, JSON copy/download, explicit local clear. No transcript/article fetch, sitewide crawl, cloud upload, or administrative credential.
 - Refuses to stage a scan containing zero eligible article links or more than the per-page safety limit. **The adapter has not been verified against actual live archive DOM markup; metadata completeness cannot yet be claimed.**
 
@@ -56,7 +77,7 @@ The research build's Tampermonkey update/download URLs deliberately point at the
 ## Acceptance gate before any automated discovery
 
 - Direct review of source access restrictions, robots rules and terms completed and recorded.
-- Representative **real** archive markup for movie and TV obtained through normal browsing.
+- Representative **real** archive listing output for movie and TV obtained through normal browsing; verify child-series page extraction separately.
 - The test parser finds real source article links on both categories; false positives sampled and corrected.
 - Manual paging behavior and approximate coverage baseline measured.
 - Only then consider testing the lowest-impact explicitly permitted sitemap, API metadata, or archive pagination method with bounded rate and abort controls.

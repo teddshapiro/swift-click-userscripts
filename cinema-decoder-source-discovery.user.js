@@ -682,6 +682,33 @@
       added,sharedArticleUrls,sharedReferences,
       newSharedArticleUrls:[...newSharedArticleUrls],error:null};
   }
+  // If a source index later restores a previously absent link, backfill only
+  // the missing source relationship. Never discard or rewrite accepted links.
+  function tvBackfillIncompleteIndex(stage,state,audit){
+    const visit=(state?.visited||[]).find(v=>v.url===audit?.indexUrl);
+    if(!visit||!Array.isArray(visit.sourceGaps)||visit.sourceGaps.length!==1)
+      return {error:'This index has no single unresolved source-link shortfall'};
+    if(!audit.valid||audit.deferred||audit.items.length!==visit.expected)
+      return {error:'The source index is still incomplete or has a new validation problem'};
+    const prior=migrateStage(stage);
+    const old=prior.items.filter(item=>item.workType==='episode'&&
+      item.seriesIndexUrl===audit.indexUrl);
+    if(old.length!==visit.accepted)return {error:'Saved episode count does not match recorded index visit'};
+    const oldUrls=new Set(old.map(x=>x.canonicalUrl));
+    const newUrls=new Set(audit.items.map(x=>x.canonicalUrl));
+    if(oldUrls.size!==old.length||!old.every(x=>newUrls.has(x.canonicalUrl)))
+      return {error:'Previously saved source links changed or disappeared; manual review required'};
+    const fresh=audit.items.filter(x=>!oldUrls.has(x.canonicalUrl));
+    if(fresh.length!==visit.expected-visit.accepted||fresh.length!==1)
+      return {error:'Exactly one new source-listed article is required for backfill'};
+    const merged=mergeTvStage(prior,fresh,audit.indexUrl);
+    if(merged.error||merged.added!==fresh.length)
+      return {error:merged.error||'Backfill merge did not add exactly one source-list reference'};
+    const visited=state.visited.map(v=>v.url===audit.indexUrl ?
+      {...v,accepted:audit.items.length,coverage:audit.coverage,sourceGaps:[]} : v);
+    return {error:null,stage:merged.stage,state:{...state,visited,failed:null},
+      recovered:fresh.length,url:fresh[0].canonicalUrl};
+  }
   // Alpha.7 pilot saves predate the 'mode' property introduced in alpha.8.
   // Recover only after verifying the complete three-index/47-episode receipt set.
   // Never reinterpret a partial pilot or an already-expanded full scan.
@@ -806,7 +833,7 @@
 
   // Make the data-only functions testable without mounting UI or requiring Tampermonkey.
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, filmArchiveExtractionAudit, robotsMovieArchivePolicy, movieArchiveCoverage, tvDirectoryAudit, tvDirectorySnapshot, tvSeriesAudit, tvSeriesSnapshot, mergeTvStage, tvPilotExpansionAudit, tvFullCoverage, tvImportBatches, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
+    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, filmArchiveExtractionAudit, robotsMovieArchivePolicy, movieArchiveCoverage, tvDirectoryAudit, tvDirectorySnapshot, tvSeriesAudit, tvSeriesSnapshot, mergeTvStage, tvBackfillIncompleteIndex, tvPilotExpansionAudit, tvFullCoverage, tvImportBatches, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
     return;
   }
 
@@ -1111,8 +1138,25 @@
     if(!isTvPilot||type!=='tv-series-page')return false;
     const state=tvState(),url=canonicalUrl(location.href,location.href);
     if(!state.active||!state.queue?.includes(url))return false;
-    if(state.visited.some(v=>v.url===url)){show('TV pilot: already captured this series.');return true;}
+    const priorVisit=state.visited.find(v=>v.url===url);
     const entry=state.entries.find(x=>x.url===url);
+    if(priorVisit){
+      if(!priorVisit.sourceGaps?.length){
+        show('TV series index already captured and validated.');return true;
+      }
+      const refreshed=tvSeriesSnapshot(document,url,entry);
+      const backfill=tvBackfillIncompleteIndex(tvStage(),state,refreshed);
+      if(backfill.error){
+        show('TV source index remains provisional ('+entry?.title+'): '+backfill.error+
+          '. Existing links and scan progress remain unchanged.');return false;
+      }
+      GM_setValue(TV_STAGE_KEY,backfill.stage);
+      GM_setValue(TV_GUIDE_KEY,backfill.state);
+      show('TV index '+entry.title+' recovered '+backfill.recovered+
+        ' source-listed link: '+backfill.url+
+        '. Previous links retained. Index now fully reconciled; continue or export after all 328 indexes.');
+      return true;
+    }
     const audit=tvSeriesSnapshot(document,url,entry);
     if(!audit.valid){
       tvPause('TV pilot paused before saving '+(entry?.title||url)+': '+

@@ -256,3 +256,69 @@ test('Andor actual browser sample: 12 numbered Season 1 links from a different s
   assert.equal(coverage.completenessVerified, false);
 });
 
+
+
+test('The Movie Spoiler adapter accepts manually visited listing pages and actual movie articles only',()=>{
+  assert.equal(core.spoilerPageKind('/'), 'spoiler-list');
+  assert.equal(core.spoilerPageKind('/genres/action/'), 'spoiler-list');
+  assert.equal(core.spoilerPageKind('/details/avengers/'), 'spoiler-list');
+  assert.equal(core.spoilerPageKind('/page/2/'), 'spoiler-list');
+  assert.equal(core.spoilerPageKind('/genres/horror/page/3/'), 'spoiler-list');
+  assert.equal(core.spoilerPageKind('/movies/obsession/'), 'spoiler-article');
+  assert.equal(core.spoilerPageKind('/Pages/Spoilers.html'), null);
+  assert.equal(core.spoilerPageKind('/cdn-cgi/access/login'), null);
+});
+test('The Movie Spoiler canonicalization preserves search-page provenance but not article tracking queries',()=>{
+  assert.equal(core.spoilerCanonicalUrl('https://www.themoviespoiler.com/movies/obsession/?utm_source=spam#read','https://themoviespoiler.com/'),
+    'https://themoviespoiler.com/movies/obsession/');
+  assert.equal(core.spoilerCanonicalUrl('/?s=obsession&vm=r','https://themoviespoiler.com/'),
+    'https://themoviespoiler.com/?s=obsession');
+  assert.equal(core.spoilerCanonicalUrl('http://themoviespoiler.com/movies/obsession/','https://themoviespoiler.com/'),null);
+  assert.equal(core.spoilerCanonicalUrl('https://not-the-movie-spoiler.com/movies/obsession/','https://themoviespoiler.com/'),null);
+  assert.equal(core.spoilerCanonicalUrl('javascript:alert(1)','https://themoviespoiler.com/'),null);
+});
+test('The Movie Spoiler listing extracts only movie-page metadata, excluding detail indexes and off-site links',()=>{
+  const base='https://themoviespoiler.com/';
+  const out=core.extractSpoilerCandidates([
+    {href:'/movies/obsession/',text:'OBSESSION',contextTitle:'OBSESSION'},
+    {href:'/movies/verity/',text:'Image',contextTitle:'VERITY (2026)'},
+    {href:'/movies/the-430-movie/',text:'THE 4:30 MOVIE',contextTitle:'THE 4:30 MOVIE'},
+    {href:'/details/avengers/',text:'Avengers'},
+    {href:'/genres/action/',text:'Action'},
+    {href:'https://imdb.com/title/tt0123456/',text:'IMDb'},
+    {href:'/movies/obsession/?utm_campaign=x',text:'OBSESSION'},
+    {href:'/movies/a-movie-without-plot-yet/',text:'A MOVIE',surroundingText:'Spoiler Needed, Check Back Later'}
+  ],'spoiler-list',base);
+  assert.equal(out.items.length,4);
+  assert.equal(out.duplicates,1);
+  assert.equal(out.items[0].sourceId,'the-movie-spoiler');
+  assert.equal(out.items[0].resourceType,'plot-synopsis');
+  assert.equal(out.items[0].workType,'film');
+  assert.equal(out.items[0].releaseYear,null);
+  assert.equal(out.items[1].articleTitle,'VERITY (2026)');
+  assert.equal(out.items[1].releaseYear,2026);
+  assert.equal(out.items[1].reviewStatus,'candidate');
+  assert.equal(out.items[3].reviewStatus,'needs-plot-review');
+  assert.equal(out.items[0].foundOn,base);
+  assert.equal(out.items[0].seriesIndexUrl,null);
+});
+test('The Movie Spoiler scan of a search page is not confused with a transcript or a series index',()=>{
+ const out=core.extractSpoilerCandidates([
+  {href:'/movies/obsession/',text:'OBSESSION'},
+  {href:'/movies/verity/',text:'VERITY'}
+ ],'spoiler-list','https://themoviespoiler.com/?s=obsession&vm=r');
+ assert.equal(out.items.length,2);
+ assert.equal(out.items[0].foundOn,'https://themoviespoiler.com/?s=obsession');
+ assert.ok(out.items.every(x=>x.resourceType==='plot-synopsis'&&x.workType==='film'));
+});
+test('The Movie Spoiler stage merging preserves distinct URLs, pages and separate source metadata',()=>{
+ const base='https://themoviespoiler.com/';
+ const one=core.extractSpoilerCandidates([{href:'/movies/obsession/',text:'OBSESSION'}],'spoiler-list',base);
+ const first=core.mergeStage(null,one.items,base);
+ const second=core.mergeStage(first.stage,one.items,'https://themoviespoiler.com/?s=obsession');
+ assert.equal(first.stage.items.length,1);
+ assert.equal(second.stage.items.length,1);
+ assert.equal(second.added,0);
+ assert.deepEqual(second.stage.pages,[base,'https://themoviespoiler.com/?s=obsession']);
+ assert.ok(second.stage.items[0].firstSeenAt);
+});

@@ -597,7 +597,8 @@
     const canDeferSingleGap=issues.length===0&&seasonMismatches.length===0 &&
       sourceGaps.length===1&&sourceGaps[0].missing===1 &&
       Number.isInteger(expected)&&reportedCount===expected &&
-      links.length===expected-1&&candidates.length===links.length;
+      links.length===expected-1&&candidates.length===links.length&&
+      candidates.length>0;
     if(!canDeferSingleGap)
       issues.push(...seasonMismatches,...sourceGaps.map(g=>({
         reason:'Season count mismatch',section:g.section,reported:g.reported,observed:g.observed

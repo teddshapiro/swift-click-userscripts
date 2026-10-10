@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.5
+// @version      0.2.0-alpha.6
 // @description  Optional paced A-Z Scraps movie archive scanning; metadata-only TV/Movie Spoiler discovery.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -29,7 +29,7 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.5';
+  const SCRIPT_VERSION = '0.2.0-alpha.6';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const MOVIE_GUIDE_KEY = 'cinema-source-discovery-scraps-movies-guided-v1';
@@ -66,9 +66,10 @@
     try {
       const path = new URL(url).pathname;
       if (/^\/(?:movies|movie-transcripts)\/[^/]+\/?$/i.test(path)) return 'film';
-      // Exception: archive-listed movie articles can be stored under /comedy/.
+      // Scraps explicitly lists certain movie-archive articles under /comedy/ or /business/.
+      // Trust these only when linked from the actual movie archive index cards.
       // These links are only accepted when they come from the trusted movie-index card.
-      if (/^\/comedy\/[a-z0-9-]+\/$/i.test(path)) return 'film';
+      if (/^\/(?:comedy|business)\/[a-z0-9-]+\/$/i.test(path)) return 'film';
       if (/^\/tv-series\/[^/]+\/?$/i.test(path)) return 'episode';
       if (/^\/tv-series-transcripts\/[^/]+\/?$/i.test(path) && !/^\/tv-series-transcripts\/page\/\d+\/?$/i.test(path)) return 'series';
     } catch {}
@@ -107,7 +108,7 @@
     const canonical = canonicalUrl(link.href, pageUrl);
     if (!canonical) return null;
     const kind = resourceKind(canonical);
-    if (archiveType === 'film' && (kind !== 'film' || (new URL(canonical).pathname.startsWith('/comedy/') && !link.archiveListed))) return null;
+    if (archiveType === 'film' && (kind !== 'film' || (/^\/(?:comedy|business)\//.test(new URL(canonical).pathname) && !link.archiveListed))) return null;
     if (archiveType === 'tv-archive' && kind !== 'series' && kind !== 'episode') return null;
     if (archiveType === 'tv-series-page' && kind !== 'episode') return null;
     if (archiveType !== 'film' && archiveType !== 'tv-archive' && archiveType !== 'tv-series-page') return null;

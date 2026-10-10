@@ -200,11 +200,14 @@
     const article=pageType==='spoiler-article' ? anchor||context :
       !anchor || placeholder.test(anchor) ? context : anchor;
     if(!article || placeholder.test(article))return null;
-    const title=article.replace(/\s*[|–—-]\s*The Movie Spoiler\s*$/i,'').trim();
+    const title=article
+      .replace(/^\s*#?\d{1,2}\s+(?:New\s+)?/i,'')
+      .replace(/^\s*(?:NEW|NOW PLAYING|ENDING SOON|SPOILER COMING|CHECK BACK LATER)\s+(?=[A-Z])/i,'')
+      .replace(/^\s*\d{4}\s+Re-Release\s+/i,'')
+      .replace(/\s*[|–—-]\s*The Movie Spoiler\s*$/i,'').trim();
     if(!title)return null;
     const m=title.match(/\(((?:19|20)\d{2})\)/);
-    const flagged=/spoiler\s+(?:needed|coming)|check back later|not yet available/i.test(
-      [link.contextTitle,link.surroundingText,link.text].join(' '));
+    // Do not infer availability from a listing link, even if the title has a year.
     return {
       sourceId:'the-movie-spoiler',
       resourceType:'plot-synopsis',
@@ -215,7 +218,7 @@
       seriesTitle:null,seriesIndexUrl:null,
       seasonNumber:null,episodeNumber:null,episodeTitle:null,
       // A link alone cannot prove that the page contains a full plot.
-      reviewStatus:flagged?'needs-plot-review':m?'candidate':'needs-year-review',
+      reviewStatus:'needs-plot-review', // All linked plots require explicit content verification.
       foundOn:spoilerCanonicalUrl(pageUrl,pageUrl),
       adapterVersion:SCRIPT_VERSION
     };

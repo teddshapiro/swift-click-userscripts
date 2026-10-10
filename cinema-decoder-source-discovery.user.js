@@ -1046,6 +1046,72 @@
     });
     button('Pause TV scan',()=>tvPause('TV scan paused; all inspected series and discovered URLs preserved.'));
 
+    button('Download next TV archive batch',()=>{
+      const state=tvState(),stage=tvStage();
+      const coverage=tvFullCoverage(state,stage);
+      if(state.mode!=='full'||!coverage.complete){
+        show('TV archive batch export requires all 328 indexes and 3,332 episode URLs to reconcile. Current: '+
+          coverage.visited+'/328 indexes and '+coverage.episodes+'/3,332 episodes.');return;
+      }
+      let batches;
+      try{batches=tvImportBatches(stage.items,600)}
+      catch(e){show('TV archive export blocked: '+e.message);return;}
+      const cursor=Number(state.exportCursor)||0;
+      if(cursor>=batches.length){
+        show('All '+batches.length+' TV archive batches already downloaded in this browser. Retain the originals, or reset the batch cursor to download again.');return;
+      }
+      const batch=batches[cursor];
+      const documentData={format:'cinema-decoder-source-discovery-preview-v1',
+        version:2,sourceId:SOURCE_ID,exportedAt:new Date().toISOString(),
+        publicationApproved:false,pages:batch.pages,items:batch.items};
+      const json=JSON.stringify(documentData,null,2),bytes=new TextEncoder().encode(json).length;
+      if(bytes>2*1024*1024||batch.items.length>750){
+        show('TV batch '+batch.index+' exceeds the 2 MB / 750-item safety cap. No data exported.');return;
+      }
+      const blob=new Blob([json],{type:'application/json'}),url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;
+      a.download='cinema-scraps-tv-archive-batch-'+
+        String(batch.index).padStart(2,'0')+'-of-'+
+        String(batch.total).padStart(2,'0')+'.json';
+      document.body.append(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),2000);
+      GM_setValue(TV_GUIDE_KEY,{...state,exportCursor:cursor+1});
+      show('Downloaded TV archive batch '+batch.index+'/'+batch.total+
+        ': '+batch.items.length+' index/episode source URLs ('+bytes+
+        ' bytes). Click Download next TV archive batch again for the next file. Not imported.');
+    });
+    button('Copy TV archive manifest',()=>{
+      const state=tvState(),stage=tvStage(),coverage=tvFullCoverage(state,stage);
+      if(state.mode!=='full'||!coverage.complete){
+        show('TV manifest requires fully reconciled index scan, not a partial capture.');return;
+      }
+      let batches;
+      try{batches=tvImportBatches(stage.items,600)}
+      catch(e){show('TV manifest blocked: '+e.message);return;}
+      const manifest={sourceId:SOURCE_ID,sourceDirectory:'https://scrapsfromtheloft.com/tv-series-transcripts/',
+        scanStatus:'source-index-reconciled-content-not-verified',at:new Date().toISOString(),
+        series:coverage.series,episodes:coverage.episodes,visitedIndexes:coverage.visited,
+        total:batches.length,imported:false,
+        batches:batches.map(batch=>({part:batch.index,of:batch.total,items:batch.items.length,
+          file:'cinema-scraps-tv-archive-batch-'+String(batch.index).padStart(2,'0')+
+            '-of-'+String(batch.total).padStart(2,'0')+'.json',
+          series:batch.items.filter(x=>x.workType==='series').length,
+          episodes:batch.items.filter(x=>x.workType==='episode').length}))};
+      try{
+        GM_setClipboard(JSON.stringify(manifest,null,2),'text');
+        show('Copied complete TV archive manifest: '+batches.length+
+          ' batches, 328 series, 3,332 episodes. Source metadata only. Paste it into Cinema Decoder chat with the batch files.');
+      }catch(e){show('Unable to copy TV manifest: '+e.message);}
+    });
+    button('Restart TV batch downloads',()=>{
+      const state=tvState();
+      if(state.mode!=='full')return;
+      if(!window.confirm('Reset only the TV export batch cursor to batch 1? No scans or staged links will be deleted.'))return;
+      GM_setValue(TV_GUIDE_KEY,{...state,exportCursor:0});
+      show('TV export batch cursor reset to 1. All saved source and movie metadata preserved.');
+    });
+
     button('Download TV pilot JSON',()=>{
       const state=tvState(),stage=tvStage();
       if(!state.queue?.length||!stage.items.length){show('Nothing to export. Prepare TV pilot first.');return;}

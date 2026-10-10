@@ -512,7 +512,11 @@ test('TV series index pilot handles 8 and 2 listed episodes without inventing ga
   assert.equal(audit.valid,true); assert.equal(audit.items.length,nums.length);
   assert.ok(audit.items.every(x=>x.seriesTitle===name&&x.seriesIndexUrl===url));
   assert.equal(audit.coverage.missingSeasons.length,0);
-  assert.equal(core.tvSeriesAudit({indexUrl:url,entry:{url,title:name,count:nums.length},pageTitle:name,reportedCount:nums.length,sections:[{id:'season-'+season,count:nums.length,links:links.slice(1)}]}).valid,false);
+  const partial=core.tvSeriesAudit({indexUrl:url,entry:{url,title:name,count:nums.length},pageTitle:name,reportedCount:nums.length,sections:[{id:'season-'+season,count:nums.length,links:links.slice(1)}]});
+  assert.equal(partial.valid,true,'one missing link is explicitly provisional');
+  assert.equal(partial.deferred,true);
+  assert.equal(partial.items.length,nums.length-1);
+  assert.equal(partial.sourceGaps[0].missing,1);
  }
 });
 
@@ -531,7 +535,11 @@ test('The Bear TV pilot counts all 37 episodes; absent season 4 and S05E00 are d
  assert.deepEqual(audit.coverage.episodeZeroSeasons,[5]);
  assert.equal(audit.coverage.completenessVerified,false);
  const altered=structuredClone(input);altered.sections[3].links.pop();
- assert.equal(core.tvSeriesAudit(altered).valid,false);
+ const partial=core.tvSeriesAudit(altered);
+ assert.equal(partial.valid,true);
+ assert.equal(partial.deferred,true);
+ assert.equal(partial.sourceGaps[0].missing,1);
+ assert.equal(partial.items.length,36);
 });
 
 
@@ -964,10 +972,13 @@ test('Last Week Tonight accepts source-listed politics articles without assertin
   'tv-series-page',series,'Last Week Tonight with John Oliver');
  assert.equal(unsafe,null,'query-bearing politics URLs must still fail');
  const missing=structuredClone(links);missing.pop();
- assert.equal(core.tvSeriesAudit({indexUrl:series,
+ const provisional=core.tvSeriesAudit({indexUrl:series,
   entry:{title:'Last Week Tonight with John Oliver',url:series,count:3},
   pageTitle:'Last Week Tonight with John Oliver',reportedCount:3,
-  sections:[{id:'season-1',count:3,links:missing}]}).valid,false);
+  sections:[{id:'season-1',count:3,links:missing}]});
+ assert.equal(provisional.valid,true);
+ assert.equal(provisional.deferred,true);
+ assert.equal(provisional.sourceGaps[0].missing,1);
 });
 
 test('alpha.13: cross-category John Oliver episode-list links are accepted without adding category allowlist entries',()=>{
@@ -1010,7 +1021,10 @@ test('alpha.13: cross-category John Oliver episode-list links are accepted witho
  }
  const mismatched=structuredClone(args);
  mismatched.sections[0].links.pop();
- assert.equal(core.tvSeriesAudit(mismatched).valid,false,'missing a source-listed row must fail');
+ const provisional=core.tvSeriesAudit(mismatched);
+ assert.equal(provisional.valid,true,'one missing source-list row is recorded as provisional');
+ assert.equal(provisional.deferred,true);
+ assert.equal(provisional.sourceGaps[0].missing,1);
 });
 
 test('alpha.13: open-ended category matching rejects non-article and unsafe URL shapes',()=>{
@@ -1067,5 +1081,8 @@ test('TV index audit still stops on incomplete season link counts and duplicates
   ]}]};
  assert.equal(core.tvSeriesAudit(source).valid,false);
  const missing=structuredClone(source);missing.sections[0].links.pop();
- assert.equal(core.tvSeriesAudit(missing).valid,false);
+ const partial=core.tvSeriesAudit(missing);
+ assert.equal(partial.valid,true,'one missing source link is captured provisionally');
+ assert.equal(partial.deferred,true);
+ assert.equal(partial.sourceGaps[0].missing,1);
 });

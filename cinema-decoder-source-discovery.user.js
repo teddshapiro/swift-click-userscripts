@@ -406,7 +406,10 @@
       }
       if(!r.value)continue;
       if(!r.value.startsWith('/'))return {allowed:false,reason:'Unrecognized robots.txt path pattern.'};
-      const source=r.value.replace(/[-/\\^$+?.()|[\]{}]/g,'\\  // Make the data-only functions testable without mounting UI or requiring Tampermonkey.').replace(/\*/g,'.*');
+      const anchored=r.value.endsWith('$');
+      const pattern=anchored?r.value.slice(0,-1):r.value;
+      const reserved='\\.^$+?()[]{}|';
+      const source=pattern.split('*').map(part=>[...part].map(ch=>reserved.includes(ch)?'\\'+ch:ch).join('')).join('.*')+(anchored?'$':'');
       const regex=new RegExp('^'+source);
       if(regex.test(path)){
         const weight=r.value.replace(/\*/g,'').length;

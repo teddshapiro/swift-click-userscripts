@@ -34,3 +34,12 @@ A full 3,660-entry export exceeds the private staging import's per-file 1,500-it
 6. If halted, send a screenshot and do not override the source mismatch. The scanner should resume after a targeted parser fix without rescanning successful indexes.
 
 No Cloudflare staging/production deployment, canonical catalog writes or previously imported metadata changes were performed in this step.
+
+
+## Compatibility correction — alpha.9 (important)
+
+The owner successfully finished the TV pilot under alpha.7 and upgraded to alpha.8, but the **Expand pilot to all 328 series** button incorrectly said the completed pilot was incomplete. Investigation of the exact alpha.7 GitHub source revealed the root cause: alpha.7's initial saved `TV_GUIDE_KEY` object did **not** have a `mode` field; alpha.8's expansion gate incorrectly required `state.mode==='pilot'`. The browser panel showed 328 staged series, 47 episodes and 3 of 3 pilot indexes, matching the prior successful run. **No data was lost or proven missing.**
+
+Version `0.2.0-alpha.9` fixes this by using `tvPilotExpansionAudit`. It accepts both a legacy missing mode and the newer `mode:'pilot'` *only after* verifying 328 distinct directory indexes, 3 exact pilot queue URLs, all three individual expected/accepted counts (8, 2, 37), a 3,332 directory total and 47 distinct staged episodes linked to the correct three series. Any mismatch now produces a specific reason. `mode:'full'` is not treated as a pilot; incomplete data cannot be promoted. A dedicated regression test uses an old-format pilot state with no mode, verifies it passes, and confirms incomplete/mismatched cases fail.
+
+**User recovery:** Do NOT Clear staged, Reset TV pilot only or Prepare 3-series TV pilot. Update installed userscript to alpha.9, remain on The Bear index page, and click **Expand pilot to all 328 series** again. It should report successful alpha.7 state migration and queue all 328 series while retaining 3 scanned and 47 episodes. After reviewing site permissions, click **Auto scan TV pilot / archive** to navigate the remaining 325 pages. If a specific problem still appears, copy its new diagnostic line and stop; never restart the pilot unnecessarily.

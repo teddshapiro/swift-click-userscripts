@@ -468,7 +468,7 @@
   // Keep the TV pilot separate from the completed movie archive local data.
   const TV_PILOT_SLUGS=['3-body-problem-tv-series','american-gods-tv-series','the-bear-tv-series'];
   function tvDirectorySnapshot(doc){
-    const summary=collapse(doc.querySelector('.kubrick-hero p')?.textContent);
+    const summary=collapse(doc.querySelector('.kubrick-hero .site-shell > p:last-of-type')?.textContent);
     const m=summary.replace(/,/g,'').match(/\bBrowse\s+(\d+)\s+series\s+and\s+(\d+)\s+complete\s+television episode transcripts\b/i);
     const entries=Array.from(doc.querySelectorAll('.series-list .series-item')).map(card=>{
       const a=card.querySelector('h3 a[href]');

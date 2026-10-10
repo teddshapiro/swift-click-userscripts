@@ -397,6 +397,9 @@ test('automatic movie archive robots gate respects generic archive blocks, allow
  const allowed=p('User-agent: *\nDisallow: /wp-admin/\nAllow: /wp-admin/admin-ajax.php');
  assert.equal(allowed.allowed,true);
  assert.equal(allowed.delayMs,15000);
+ assert.equal(p('User-agent: *\nDisallow: /wp-admin/','/tv-series-transcripts/law-order/',5000).delayMs,5000);
+ assert.equal(p('User-agent: *\nCrawl-delay: 12\nDisallow: /wp-admin/','/tv-series-transcripts/law-order/',5000).delayMs,12000);
+ assert.equal(p('User-agent: *\nDisallow: /tv-series-transcripts/','/tv-series-transcripts/law-order/',5000).allowed,false);
  assert.equal(p('User-agent: *\nDisallow: /').allowed,false);
  assert.equal(p('User-agent: *\nDisallow: /movie-transcripts/').allowed,false);
  assert.equal(p('User-agent: *\nDisallow: /*?mt_letter').allowed,false);
@@ -585,6 +588,87 @@ test('TV collection safely exceeds legacy 1500 source cap and splits into seven 
  invalid[1].canonicalUrl=invalid[0].canonicalUrl;
  assert.throws(()=>core.tvImportBatches(invalid,600),/duplicate/i);
  assert.throws(()=>core.tvImportBatches(stage.stage.items,751),/size/);
+});
+
+test('alpha.14: Law & Order can save a source-list link already listed by another series',()=>{
+ const root='https://scrapsfromtheloft.com/tv-series-transcripts/';
+ const article='https://scrapsfromtheloft.com/tv-series/shared-law-order-transcript/';
+ const other=root+'another-law-order-series/';
+ const law=root+'law-order/';
+ const indexRows=[
+  {workType:'series',canonicalUrl:other,foundOn:root},
+  {workType:'series',canonicalUrl:law,foundOn:root}
+ ];
+ const previous={version:2,items:[...indexRows,{
+  workType:'episode',canonicalUrl:article,seriesIndexUrl:other,seriesTitle:'Another Law & Order Series',
+  articleTitle:'Shared transcript',foundOn:other,reviewStatus:'candidate',
+  firstSeenAt:'2026-10-09T10:00:00.000Z'}],pages:[root,other]};
+ const incoming=[{workType:'episode',canonicalUrl:article,seriesIndexUrl:law,
+  seriesTitle:'Law & Order',articleTitle:'Law & Order linked entry',
+  foundOn:law,reviewStatus:'candidate'}];
+ const result=core.mergeTvStage(previous,incoming,law);
+ assert.equal(result.error,null);
+ assert.equal(result.added,1,'source-list relationship should count as a new reference');
+ assert.equal(result.sharedArticleUrls,1);
+ assert.equal(result.sharedReferences,2);
+ assert.equal(result.stage.items.length,4);
+ const related=result.stage.items.filter(x=>x.workType==='episode');
+ assert.deepEqual(related.map(x=>x.seriesIndexUrl),[other,law]);
+ assert.ok(related.every(x=>x.sharedAcrossSeries&&x.reviewStatus==='needs-episode-review'));
+ assert.deepEqual(related[0].sharedWithSeriesIndexUrls,[law]);
+ assert.deepEqual(related[1].sharedWithSeriesIndexUrls,[other]);
+ assert.equal(related[0].firstSeenAt,'2026-10-09T10:00:00.000Z','earlier stage provenance preserved');
+ assert.equal(previous.items[2].reviewStatus,'candidate','previous input object must not be mutated');
+ const batches=core.tvImportBatches(result.stage.items,2);
+ assert.equal(batches.length,2,'shared article relationships must survive across batches');
+ assert.equal(batches[1].items.filter(x=>x.canonicalUrl===article).length,2);
+ const same=core.mergeTvStage(result.stage,incoming,law);
+ assert.match(same.error,/duplicate|identity/i);
+ assert.equal(same.stage.items.length,result.stage.items.length,'duplicate same index must not overwrite stored stage');
+ const unsafe=structuredClone(result.stage.items);
+ unsafe.push({...unsafe[3]});
+ assert.throws(()=>core.tvImportBatches(unsafe,600),/duplicate/i);
+ const unflagged=structuredClone(result.stage.items);
+ unflagged[2].sharedAcrossSeries=false;
+ assert.throws(()=>core.tvImportBatches(unflagged,600),/shared|review/i);
+});
+
+test('alpha.14: full TV reconciliation counts source listings, not exclusively unique article URLs',()=>{
+ const root='https://scrapsfromtheloft.com/tv-series-transcripts/';
+ const entries=Array.from({length:328},(_,i)=>({
+  title:'Series '+i,url:root+'series-'+i+'/',count:i<52?11:10
+ }));
+ // 3280 + 52 = 3332 source-listed relationships.
+ const queue=entries.map(x=>x.url);
+ const visited=entries.map(x=>({url:x.url,title:x.title,expected:x.count,accepted:x.count}));
+ const series=entries.map(e=>({workType:'series',canonicalUrl:e.url,foundOn:root}));
+ const episodes=entries.flatMap((e,i)=>Array.from({length:e.count},(_,j)=>({
+  workType:'episode',canonicalUrl:'https://scrapsfromtheloft.com/tv-series/article-'+i+'-'+j+'/',
+  seriesIndexUrl:e.url,foundOn:e.url,reviewStatus:'candidate'
+ })));
+ assert.equal(episodes.length,3332);
+ // Two independently validated indexes list the same article URL.
+ episodes[entries[0].count].canonicalUrl=episodes[0].canonicalUrl;
+ const staged={version:2,items:[...series,...episodes],pages:queue};
+ const unreviewed=core.tvFullCoverage({entries,queue,visited,directoryTotal:3332},staged);
+ assert.equal(unreviewed.complete,false,'unflagged reuse cannot be reported as fully reconciled');
+ const shared=core.mergeTvStage(null,staged.items,root);
+ assert.equal(shared.error,null);
+ const audited=core.tvFullCoverage({entries,queue,visited,directoryTotal:3332},shared.stage);
+ assert.equal(audited.complete,true,JSON.stringify(audited));
+ assert.equal(audited.episodes,3332);
+ assert.equal(audited.uniqueEpisodes,3331);
+ assert.equal(audited.sharedArticleUrls,1);
+ assert.equal(audited.sharedReferences,2);
+ assert.equal(audited.listingKeysValid,true);
+ assert.equal(core.tvImportBatches(shared.stage.items,600).length,7);
+ const wrongParent=structuredClone(shared.stage);
+ const bad=wrongParent.items.find(x=>x.workType==='episode');
+ bad.foundOn=entries[1].url;
+ assert.equal(core.tvFullCoverage({entries,queue,visited,directoryTotal:3332},wrongParent).complete,false);
+ const missing=structuredClone(shared.stage);
+ missing.items.pop();
+ assert.equal(core.tvFullCoverage({entries,queue,visited,directoryTotal:3332},missing).complete,false);
 });
 
 test('alpha.7 saved TV pilot expands on alpha.9 without mode or rescanning',()=>{

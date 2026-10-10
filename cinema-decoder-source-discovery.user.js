@@ -1125,11 +1125,16 @@
     }
     GM_setValue(TV_STAGE_KEY,merged.stage);
     const visited=[...state.visited,{url,title:entry.title,expected:entry.count,
-      accepted:audit.items.length,coverage:audit.coverage}];
+      accepted:audit.items.length,coverage:audit.coverage,sourceGaps:audit.sourceGaps}];
     GM_setValue(TV_GUIDE_KEY,{...state,visited,failed:null});
     const counts=tvCounts();
     const coverage=audit.coverage;
     const diagnostics=[];
+    if(audit.sourceGaps.length)diagnostics.push('SOURCE INDEX INCOMPLETE: '+
+      audit.sourceGaps.map(g=>g.section+' declares '+g.reported+' but links '+g.observed+
+        ' (missing '+g.missing+' source link; '+g.domRows+' list rows; unlinked rows: '+
+        JSON.stringify(g.unlinkedRows)+')').join('; ')+
+      '. No missing URL fabricated; review required before import');
     if(coverage.missingSeasons.length)diagnostics.push('unrepresented season numbers '+coverage.missingSeasons.join(','));
     if(coverage.episodeZeroSeasons.length)diagnostics.push('episode 00 in season '+coverage.episodeZeroSeasons.join(','));
     if(coverage.missingWithinSeasons.length)diagnostics.push('gaps within listed seasons');
@@ -1138,7 +1143,8 @@
       merged.newSharedArticleUrls[0]+'); both series references flagged for review');
     if(audit.reviewable.length)diagnostics.push(audit.reviewable.length+
       ' source-listed episode article(s) need identity review (e.g. cross-category article URLs)');
-    show('TV '+(state.mode==='full'?'archive':'pilot')+' captured '+entry.title+': '+audit.items.length+'/'+entry.count+
+    show('TV '+(state.mode==='full'?'archive':'pilot')+
+      (audit.deferred?' provisionally captured ':' captured ')+entry.title+': '+audit.items.length+'/'+entry.count+
       ' source-listed episode URLs. Progress '+visited.length+'/'+state.queue.length+
       ' series; TV stage '+counts.series+' series and '+counts.episodes+
       ' episodes.'+(diagnostics.length?' Numbering observations only: '+diagnostics.join('; '):'')+
@@ -1160,6 +1166,10 @@
         if(coverage.complete)tvPause('Full TV archive index scan complete: 328 series pages, 3,332 source-listed episode references ('+
           coverage.uniqueEpisodes+' distinct article URLs; '+coverage.sharedArticleUrls+
           ' shared across series). No transcript bodies or cloud writes. Download the batch files and manifest for review.');
+        else if(coverage.readyForReview)tvPause('TV source-index scan traversed all 328 series with '+
+          coverage.episodes+' real episode links and '+coverage.missingSourceLinks+
+          ' declared-but-unlinked episode(s) requiring review. This is NOT fully reconciled.'+
+          ' Provisional metadata batches and exception manifest may be downloaded for audit; do not import or publish.');
         else tvPause('Full TV scan reached the end, but reconciliation failed: '+
           JSON.stringify(coverage)+'. Retain all data for diagnosis.',true);
       }else if(state.visited.length===3 && state.visited.reduce((n,v)=>n+v.accepted,0)===47){
@@ -1260,9 +1270,9 @@
     button('Download next TV archive batch',()=>{
       const state=tvState(),stage=tvStage();
       const coverage=tvFullCoverage(state,stage);
-      if(state.mode!=='full'||!coverage.complete){
-        show('TV archive batch export requires all 328 indexes and 3,332 episode URLs to reconcile. Current: '+
-          coverage.visited+'/328 indexes and '+coverage.episodes+'/3,332 episodes.');return;
+      if(state.mode!=='full'||!coverage.readyForReview){
+        show('TV archive export requires 328 safely inspected indexes (fully reconciled or explicit source-link shortfall). Current: '+
+          coverage.visited+'/328 indexes and '+coverage.episodes+' observed links.');return;
       }
       let batches;
       try{batches=tvImportBatches(stage.items,600)}
@@ -1274,7 +1284,10 @@
       const batch=batches[cursor];
       const documentData={format:'cinema-decoder-source-discovery-preview-v1',
         version:2,sourceId:SOURCE_ID,exportedAt:new Date().toISOString(),
-        publicationApproved:false,pages:batch.pages,items:batch.items};
+        publicationApproved:false,
+        scanStatus:coverage.complete?'source-index-reconciled':'partial-source-index-missing-links-review-required',
+        missingSourceLinks:coverage.missingSourceLinks,
+        sourceGaps:coverage.sourceGaps,pages:batch.pages,items:batch.items};
       const json=JSON.stringify(documentData,null,2),bytes=new TextEncoder().encode(json).length;
       if(bytes>2*1024*1024||batch.items.length>750){
         show('TV batch '+batch.index+' exceeds the 2 MB / 750-item safety cap. No data exported.');return;
@@ -1288,20 +1301,25 @@
       document.body.append(a);a.click();a.remove();
       setTimeout(()=>URL.revokeObjectURL(url),2000);
       GM_setValue(TV_GUIDE_KEY,{...state,exportCursor:cursor+1});
-      show('Downloaded TV archive batch '+batch.index+'/'+batch.total+
-        ': '+batch.items.length+' index/episode source URLs ('+bytes+
-        ' bytes). Click Download next TV archive batch again for the next file. Not imported.');
+      show('Downloaded '+(coverage.complete?'reconciled':'PROVISIONAL / INCOMPLETE')+
+        ' TV archive batch '+batch.index+'/'+batch.total+
+        ': '+batch.items.length+' source-list records ('+bytes+
+        ' bytes). '+coverage.missingSourceLinks+
+        ' links still absent in the source index. Not imported or approved.');
     });
     button('Copy TV archive manifest',()=>{
       const state=tvState(),stage=tvStage(),coverage=tvFullCoverage(state,stage);
-      if(state.mode!=='full'||!coverage.complete){
-        show('TV manifest requires fully reconciled index scan, not a partial capture.');return;
+      if(state.mode!=='full'||!coverage.readyForReview){
+        show('TV manifest requires all 328 safely inspected indexes; retain scan data.');return;
       }
       let batches;
       try{batches=tvImportBatches(stage.items,600)}
       catch(e){show('TV manifest blocked: '+e.message);return;}
       const manifest={sourceId:SOURCE_ID,sourceDirectory:'https://scrapsfromtheloft.com/tv-series-transcripts/',
-        scanStatus:'source-index-reconciled-content-not-verified',at:new Date().toISOString(),
+        scanStatus:coverage.complete?'source-index-reconciled-content-not-verified':
+          'partial-source-index-missing-links-review-required',
+        missingSourceLinks:coverage.missingSourceLinks,sourceGaps:coverage.sourceGaps,
+        reviewRequired:!coverage.complete,at:new Date().toISOString(),
         series:coverage.series,episodes:coverage.episodes,uniqueEpisodeArticleUrls:coverage.uniqueEpisodes,
         crossSeriesSharedArticleUrls:coverage.sharedArticleUrls,
         visitedIndexes:coverage.visited,
@@ -1313,8 +1331,10 @@
           episodes:batch.items.filter(x=>x.workType==='episode').length}))};
       try{
         GM_setClipboard(JSON.stringify(manifest,null,2),'text');
-        show('Copied complete TV archive manifest: '+batches.length+
-          ' batches, 328 series, 3,332 episodes. Source metadata only. Paste it into Cinema Decoder chat with the batch files.');
+        show('Copied '+(coverage.complete?'reconciled':'PROVISIONAL / INCOMPLETE')+
+          ' TV archive manifest: '+batches.length+' batches, 328 series, '+
+          coverage.episodes+' observed episode links, '+coverage.missingSourceLinks+
+          ' missing index link(s). Source metadata only. Do not import until reviewed.');
       }catch(e){show('Unable to copy TV manifest: '+e.message);}
     });
     button('Restart TV batch downloads',()=>{

@@ -23,7 +23,7 @@
           "url": "https://scrapsfromtheloft.com/tv-series-transcripts/"
         }
       ],
-      "currentAdapter": "page-dom-read-only-v0.1.0-alpha.2",
+      "currentAdapter": "page-dom-read-only-v0.2.0-alpha.1",
       "eligibleArticlePaths": [
         "/movies/{slug}/",
         "/movie-transcripts/{slug}/",
@@ -48,19 +48,35 @@
         "themoviespoiler.com",
         "www.themoviespoiler.com"
       ],
-      "resourceType": "detailed-synopsis",
+      "resourceType": "plot-synopsis",
       "supportedWorks": [
         "film"
       ],
       "archives": [
         {
-          "kind": "film",
+          "kind": "movie-list",
           "url": "https://themoviespoiler.com/"
+        },
+        {
+          "kind": "search-results",
+          "url": "https://themoviespoiler.com/?s={query}"
+        },
+        {
+          "kind": "genre-index",
+          "url": "https://themoviespoiler.com/genres/{genre}/"
         }
       ],
-      "currentAdapter": null,
-      "discoveryPermissions": "not-assessed",
-      "enabled": false
+      "currentAdapter": "page-dom-read-only-v0.2.0-alpha.1",
+      "discoveryPermissions": "not-verified; manual current-page DOM only; no crawling",
+      "enabled": true,
+      "eligibleArticlePaths": [
+        "/movies/{slug}/"
+      ],
+      "releaseYearPolicy": "From visible linked title only; no URL or page date inference",
+      "sourceAvailability": "Link does not prove full spoiler exists. Review coming-soon titles before import",
+      "autoPagination": false,
+      "bulkArticleFetching": false,
+      "remotePublication": false
     }
   ]
 }

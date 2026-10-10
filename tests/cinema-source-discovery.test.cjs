@@ -789,6 +789,92 @@ test('Last Week Tonight accepts source-listed politics articles without assertin
   sections:[{id:'season-1',count:3,links:missing}]}).valid,false);
 });
 
+test('alpha.13: cross-category John Oliver episode-list links are accepted without adding category allowlist entries',()=>{
+ const series='https://scrapsfromtheloft.com/tv-series-transcripts/last-week-tonight-with-john-oliver/';
+ const rows=[
+  ['Facial Recognition: Last Week Tonight with John Oliver',
+   'https://scrapsfromtheloft.com/technology/facial-recognition-last-week-tonight-with-john-oliver-transcript/'],
+  ['Food Waste: Last Week Tonight with John Oliver',
+   'https://scrapsfromtheloft.com/food/food-waste-last-week-tonight-with-john-oliver-transcript/'],
+  ['Native Advertising: Last Week Tonight with John Oliver',
+   'https://scrapsfromtheloft.com/business/native-advertising-last-week-tonight-with-john-oliver-transcript/']
+ ];
+ const links=rows.map(([text,href])=>({href,text,contextTitle:'',indexEpisodeListed:true}));
+ const args={indexUrl:series,
+  entry:{title:'Last Week Tonight with John Oliver',url:series,count:links.length},
+  pageTitle:'Last Week Tonight with John Oliver',reportedCount:links.length,
+  sections:[{id:'season-1',count:links.length,links}]};
+ const audit=core.tvSeriesAudit(args);
+ assert.deepEqual(audit.issues,[]);
+ assert.equal(audit.valid,true);
+ assert.equal(audit.items.length,3);
+ assert.equal(audit.reviewable.length,3);
+ for(let i=0;i<3;i++){
+  const item=audit.items[i];
+  assert.equal(item.articleTitle,rows[i][0]);
+  assert.equal(item.canonicalUrl,rows[i][1]);
+  assert.equal(item.seriesIndexUrl,series);
+  assert.equal(item.seriesTitle,'Last Week Tonight with John Oliver');
+  assert.equal(item.workType,'episode');
+  assert.equal(item.reviewStatus,'needs-episode-review');
+  assert.equal(item.seasonNumber,null);
+  assert.equal(item.episodeNumber,null);
+  assert.match(audit.reviewable[i].reason,/cross-category/);
+  const unlisted=core.candidateFromLink({...links[i],indexEpisodeListed:false},
+   'tv-series-page',series,'Last Week Tonight with John Oliver');
+  assert.equal(unlisted,null,'cross-category link without source-list provenance must be rejected');
+  assert.equal(core.candidateFromLink(links[i],'tv-series-page',series,null),null);
+  assert.equal(core.candidateFromLink(links[i],'tv-archive',
+   'https://scrapsfromtheloft.com/tv-series-transcripts/','Last Week Tonight with John Oliver'),null);
+ }
+ const mismatched=structuredClone(args);
+ mismatched.sections[0].links.pop();
+ assert.equal(core.tvSeriesAudit(mismatched).valid,false,'missing a source-listed row must fail');
+});
+
+test('alpha.13: open-ended category matching rejects non-article and unsafe URL shapes',()=>{
+ const parent='https://scrapsfromtheloft.com/tv-series-transcripts/last-week-tonight-with-john-oliver/';
+ const title='Facial Recognition: Last Week Tonight with John Oliver';
+ const paths=[
+  '/tv-series-transcripts/an-unrelated-series/',
+  '/movie-transcripts/archive/',
+  '/category/technology/',
+  '/tag/tv/',
+  '/author/editor/',
+  '/page/7/',
+  '/uncategorized/random-transcript/',
+  '/wp-admin/admin/',
+  '/wp-content/uploads/',
+  '/wp-json/posts/',
+  '/technology/page/',
+  '/technology/feed/',
+  '/technology/index/',
+  '/technology/another/story-transcript/',
+  '/technology/'
+ ];
+ for(const pathname of paths){
+  const item=core.candidateFromLink({href:'https://scrapsfromtheloft.com'+pathname,
+   text:title,indexEpisodeListed:true},'tv-series-page',parent,'Last Week Tonight with John Oliver');
+  assert.equal(item,null,pathname);
+ }
+ for(const href of [
+  'https://different.example/technology/episode-transcript/',
+  'http://scrapsfromtheloft.com/technology/episode-transcript/',
+  'https://scrapsfromtheloft.com/technology/episode-transcript/?preview=yes',
+  'https://someone@scrapsfromtheloft.com/technology/episode-transcript/',
+  'https://scrapsfromtheloft.com:8443/technology/episode-transcript/'
+ ]){
+  assert.equal(core.candidateFromLink({href,text:title,indexEpisodeListed:true},
+   'tv-series-page',parent,'Last Week Tonight with John Oliver'),null,href);
+ }
+ const generic=core.candidateFromLink({
+  href:'https://scrapsfromtheloft.com/culture/future-entry-no-transcript-marker/',
+  text:'An unnumbered special',indexEpisodeListed:true},'tv-series-page',parent,'Last Week Tonight with John Oliver');
+ assert.equal(generic?.workType,'episode');
+ assert.equal(generic?.reviewStatus,'needs-episode-review');
+ assert.equal(generic?.episodeNumber,null);
+});
+
 test('TV index audit still stops on incomplete season link counts and duplicates',()=>{
  const series='https://scrapsfromtheloft.com/tv-series-transcripts/the-daily-show-tv-series/';
  const url='https://scrapsfromtheloft.com/comedy/jon-stewart-on-jimmy-kimmel-transcript/';

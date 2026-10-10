@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.4
+// @version      0.2.0-alpha.5
 // @description  Optional paced A-Z Scraps movie archive scanning; metadata-only TV/Movie Spoiler discovery.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -29,7 +29,7 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.4';
+  const SCRIPT_VERSION = '0.2.0-alpha.5';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const MOVIE_GUIDE_KEY = 'cinema-source-discovery-scraps-movies-guided-v1';
@@ -372,6 +372,35 @@
     }));
   }
 
+  // Explain every card rejected by the same extractor used for staging.
+  // These are source-index labels/URLs only. Never fetch article bodies.
+  function filmArchiveExtractionAudit(links,pageUrl){
+    const result=extractCandidates(links,'film',pageUrl);
+    const issues=[],accepted=new Map();
+    for(const link of links){
+      const entry=candidateFromLink(link,'film',pageUrl);
+      if(entry){
+        if(accepted.has(entry.canonicalUrl)){
+          issues.push({kind:'duplicate-url',title:collapse(link.text),
+            url:entry.canonicalUrl,previousTitle:accepted.get(entry.canonicalUrl),
+            reason:'Two archive cards point to the same canonical URL'});
+        }else accepted.set(entry.canonicalUrl,entry.articleTitle);
+        continue;
+      }
+      const canonical=canonicalUrl(link.href,pageUrl);
+      const kind=canonical?resourceKind(canonical):null;
+      const reason=!canonical?'External, non-HTTPS, or invalid destination URL'
+        :kind!=='film'?'Article path not recognized as a movie URL'
+        :!cleanTitle(link.text||link.contextTitle)?'No usable article title'
+        :'Archive card did not meet the source-extraction rules';
+      issues.push({kind:'rejected-card',title:collapse(link.text||link.contextTitle)||'(no title)',
+        url:String(link.href||'').slice(0,350),reason});
+    }
+    return {listed:links.length,accepted:result.items.length,
+      duplicateUrls:result.duplicates,rejected:result.invalidOrUnrelated,
+      truncated:result.truncated,issues,items:result.items};
+  }
+
   // A conservative robots.txt rule reader for this specific archive path.
   // If rules are unavailable, malformed or ambiguous, DO NOT auto-navigate.
   function robotsMovieArchivePolicy(body) {
@@ -433,7 +462,7 @@
 
   // Make the data-only functions testable without mounting UI or requiring Tampermonkey.
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, robotsMovieArchivePolicy, movieArchiveCoverage, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
+    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, filmArchiveExtractionAudit, robotsMovieArchivePolicy, movieArchiveCoverage, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
     return;
   }
 
@@ -533,14 +562,20 @@
       return;
     }
     const links=filmArchiveListedLinks(document);
-    const result=extractCandidates(links,'film',location.href);
-    // A movie index card not captured is a blocking exception.
-    const listed=links.length;
-    if(!listed||result.items.length!==listed||result.truncated){
-      const why='Expected '+listed+' movie cards, extracted '+result.items.length+
-        '. Paused: fix extraction or unexpected page before continuing.';
-      GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false,auto:false,failed:{url:current,reason:why}});
-      show(why);return;
+    const audit=filmArchiveExtractionAudit(links,location.href);
+    const result={items:audit.items,truncated:audit.truncated};
+    // Keep the strict stop but identify the precise missing card(s).
+    const listed=audit.listed;
+    if(!listed||audit.accepted!==listed||audit.truncated){
+      const first=audit.issues[0];
+      const detail=first?' First exception: "'+first.title+'" — '+first.reason+
+        ' — '+first.url+'.':' No individual card exception detected.';
+      const why='Expected '+listed+' movie cards, extracted '+audit.accepted+
+        ' ('+audit.rejected+' rejected, '+audit.duplicateUrls+' duplicate URLs). '+
+        'Paused without saving this page.'+detail;
+      GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false,auto:false,
+        failed:{url:current,reason:why,issues:audit.issues.slice(0,20)}});
+      show(why+' Use Copy scan diagnostics if the details are hard to read.');return;
     }
     const expectedText=document.querySelector('.results-summary')?.textContent||'';
     const expectedMatch=expectedText.replace(/,/g,'').match(/(\d+)\s+movie transcripts?/i);
@@ -745,6 +780,25 @@
       ' newly staged; ' + result.duplicates + ' duplicate links. Preview is not a completeness check.' + diagnostic);
   });
 
+  if(isGuidedFilm)button('Copy scan diagnostics',()=>{
+    const state=guideState(),failed=state.failed;
+    const current=canonicalUrl(location.href,location.href);
+    const links=filmArchiveListedLinks(document);
+    const audit=filmArchiveExtractionAudit(links,location.href);
+    const summary=document.querySelector('.results-summary')?.textContent||'';
+    const details={source:'Scraps movie archive',page:current,
+      reportedSummary:summary,listed:audit.listed,accepted:audit.accepted,
+      rejected:audit.rejected,duplicateUrls:audit.duplicateUrls,
+      exceptions:audit.issues,pausedReason:failed?.reason||null,
+      pageWasSaved:state.visited.some(v=>v.url===current)};
+    try{
+      GM_setClipboard(JSON.stringify(details,null,2),'text');
+      show('Copied current-page extraction diagnostics (titles and URLs only). No article text or cookies included.');
+    }catch{
+      show('Could not copy diagnostics. Try reloading and click Start / resume movie scan for the first rejected title.');
+    }
+  });
+
   if(isGuidedFilm)button('Download movie archive JSON',()=>{
     const saved=staged();
     const films=saved.items.filter(item=>item.workType==='film');
@@ -818,5 +872,7 @@
   if(isGuidedFilm && guideState().active){
     scanGuidedMoviePage();
     if(guideState().auto)scheduleAutoListing();
+  }else if(isGuidedFilm && guideState().failed?.url===canonicalUrl(location.href,location.href)){
+    show('Previous scan paused on this page. Click Start / resume movie scan to retry and identify the rejected card, or Copy scan diagnostics for the full exception report.');
   }
 })();

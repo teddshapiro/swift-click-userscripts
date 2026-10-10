@@ -512,3 +512,21 @@ test('TV series index pilot handles 8 and 2 listed episodes without inventing ga
   assert.equal(core.tvSeriesAudit({indexUrl:url,entry:{url,title:name,count:nums.length},pageTitle:name,reportedCount:nums.length,sections:[{id:'season-'+season,count:nums.length,links:links.slice(1)}]}).valid,false);
  }
 });
+
+test('The Bear TV pilot counts all 37 episodes; absent season 4 and S05E00 are diagnostic',()=>{
+ const url='https://scrapsfromtheloft.com/tv-series-transcripts/the-bear-tv-series/';
+ const seasons=[[1,8,1],[2,10,1],[3,10,1],[5,9,0]];
+ const groups=seasons.map(([season,count,start])=>({id:'season-'+season,count,links:Array.from({length:count},(_,i)=>{
+  const ep=start+i;const tag='S'+String(season).padStart(2,'0')+'E'+String(ep).padStart(2,'0');
+  return {href:'https://scrapsfromtheloft.com/tv-series/the-bear-'+tag.toLowerCase()+'-episode-transcript/',text:tag+' – Episode '+ep};
+ })}));
+ const input={indexUrl:url,entry:{url,title:'The Bear',count:37},pageTitle:'The Bear',reportedCount:37,sections:groups};
+ const audit=core.tvSeriesAudit(input);
+ assert.equal(audit.valid,true);assert.equal(audit.items.length,37);
+ assert.deepEqual(audit.coverage.observedSeasons,[1,2,3,5]);
+ assert.deepEqual(audit.coverage.missingSeasons,[4]);
+ assert.deepEqual(audit.coverage.episodeZeroSeasons,[5]);
+ assert.equal(audit.coverage.completenessVerified,false);
+ const altered=structuredClone(input);altered.sections[3].links.pop();
+ assert.equal(core.tvSeriesAudit(altered).valid,false);
+});

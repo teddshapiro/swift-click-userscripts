@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - cinema-source-discovery-phase0
+      - cinema-source-discovery-phase2
   pull_request:
     paths:
       - 'cinema-decoder-source-discovery.user.js'

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.13
+// @version      0.2.0-alpha.14
 // @description  Optional paced A-Z Scraps movie archive scanning; metadata-only TV/Movie Spoiler discovery.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -29,9 +29,10 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.13';
+  const SCRIPT_VERSION = '0.2.0-alpha.14';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
+  const TV_MIN_DELAY_MS = 5000; // TV-only, subject to any longer robots.txt Crawl-delay.
   const MOVIE_GUIDE_KEY = 'cinema-source-discovery-scraps-movies-guided-v1';
   const TV_GUIDE_KEY = 'cinema-source-discovery-scraps-tv-pilot-v1';
   const TV_STAGE_KEY = 'cinema-source-discovery-scraps-tv-stage-v1';
@@ -438,7 +439,7 @@
 
   // A conservative robots.txt rule reader for this specific archive path.
   // If rules are unavailable, malformed or ambiguous, DO NOT auto-navigate.
-  function robotsMovieArchivePolicy(body,targetPath='/movie-transcripts/?mt_letter=A&mt_page=2') {
+  function robotsMovieArchivePolicy(body,targetPath='/movie-transcripts/?mt_letter=A&mt_page=2',minimumDelayMs=15000) {
     if(typeof body!=='string'||body.length>100000||!/(?:^|\n)\s*User-agent\s*:/i.test(body))
       return {allowed:false,reason:'Missing or unrecognized robots.txt rules.'};
     const groups=[];
@@ -483,7 +484,7 @@
     }
     if(match&&!match.allowed)return {allowed:false,reason:'robots.txt disallows movie archive ('+match.pattern+').' };
     if(!Number.isFinite(delaySeconds)||delaySeconds>120)return {allowed:false,reason:'robots.txt crawling delay exceeds pilot safety limit.'};
-    return {allowed:true,delayMs:Math.max(15000,Math.ceil(delaySeconds*1000)),
+    return {allowed:true,delayMs:Math.max(minimumDelayMs,Math.ceil(delaySeconds*1000)),
       reason:'The archive is not disallowed in the general robots rules.'};
   }
   function movieArchiveCoverage(visited) {
@@ -591,22 +592,66 @@
       reviewable,issues,valid:issues.length===0};
   }
 
+  // TV stage identity is a source listing, not a globally unique article URL.
+  // A single article can be listed under two series. Preserve BOTH relationships,
+  // and flag them for identity review. Duplicate links within one series still fail.
+  function tvStageItemKey(item){
+    if(!item?.canonicalUrl)return null;
+    if(item.workType==='series')return 'series|'+item.canonicalUrl;
+    if(item.workType==='episode' && item.seriesIndexUrl)
+      return 'episode|'+item.seriesIndexUrl+'|'+item.canonicalUrl;
+    return null;
+  }
+  function tvSharedArticleGroups(items){
+    const groups=new Map();
+    for(const item of items){
+      if(item.workType!=='episode')continue;
+      const current=groups.get(item.canonicalUrl)||[];
+      current.push(item);groups.set(item.canonicalUrl,current);
+    }
+    return groups;
+  }
   // A separate source-only TV stage deliberately exceeds the legacy 1,500-item
-  // import cap: 328 indexes + up to 3,332 episodes, but never sent as one import.
+  // import cap: 328 series indexes and 3,332 source-listed episode references.
   function mergeTvStage(previous,incoming,pageUrl){
     const prior=migrateStage(previous);
-    const byUrl=new Map((prior.items||[]).map(item=>[item.canonicalUrl,item]));
+    const items=(prior.items||[]).slice();
+    const keys=new Set();
+    for(const item of items){
+      const key=tvStageItemKey(item);
+      if(!key||keys.has(key))return {stage:prior,added:0,error:'Existing TV stage has an invalid or repeated source-list identity'};
+      keys.add(key);
+    }
     let added=0;
     for(const item of incoming||[]){
-      if(byUrl.has(item.canonicalUrl))continue;
-      if(byUrl.size>=4200)return {stage:prior,added:0,error:'TV source collection exceeded 4,200-link safety cap'};
-      byUrl.set(item.canonicalUrl,{...item,firstSeenAt:new Date().toISOString()});added++;
+      const key=tvStageItemKey(item);
+      if(!key||keys.has(key))return {stage:prior,added:0,error:'Duplicate or invalid TV source-list identity: '+(item?.canonicalUrl||'unknown')};
+      if(items.length>=4200)return {stage:prior,added:0,error:'TV source collection exceeded 4,200-link safety cap'};
+      items.push({...item,firstSeenAt:new Date().toISOString()});
+      keys.add(key);added++;
     }
     const pages=[...(prior.pages||[])];
     const page=canonicalUrl(pageUrl,pageUrl);
     if(page&&!pages.includes(page))pages.push(page);
     if(pages.length>370)return {stage:prior,added:0,error:'TV index page count exceeded safety cap'};
-    return {stage:{version:2,items:Array.from(byUrl.values()),pages},added,error:null};
+    let sharedArticleUrls=0,sharedReferences=0;
+    const sharedByKey=new Map();
+    for(const [canonical,group] of tvSharedArticleGroups(items)){
+      const parents=new Set(group.map(item=>item.seriesIndexUrl));
+      if(parents.size<2)continue;
+      sharedArticleUrls++;
+      sharedReferences+=group.length;
+      for(const item of group){
+        sharedByKey.set(tvStageItemKey(item),{
+          ...item,reviewStatus:'needs-episode-review',sharedAcrossSeries:true,
+          sharedWithSeriesIndexUrls:[...parents].filter(url=>url!==item.seriesIndexUrl).sort()
+        });
+      }
+    }
+    // Previously accepted source listings are preserved, but a newly discovered
+    // cross-series collision also upgrades their provisional review status.
+    return {stage:{version:2,items:items.map(item=>sharedByKey.get(tvStageItemKey(item))||item),pages},
+      added,sharedArticleUrls,sharedReferences,error:null};
   }
   // Alpha.7 pilot saves predate the 'mode' property introduced in alpha.8.
   // Recover only after verifying the complete three-index/47-episode receipt set.
@@ -658,27 +703,55 @@
     const expected=Number(state?.directoryTotal);
     const sourceEntries=entries.length===328&&queue.length===328 &&
       new Set(queue).size===328&&queue.every(u=>entries.some(x=>x.url===u));
-    const visitsValid=new Set(visited.map(v=>v.url)).size===visited.length &&
-      visited.length===328&&visited.every(v=>queue.includes(v.url)&&
-        v.expected===v.accepted&&entries.some(e=>e.url===v.url&&e.count===v.accepted));
     const episodeItems=items.filter(x=>x.workType==='episode');
     const seriesItems=items.filter(x=>x.workType==='series');
+    const countsByIndex=new Map();
+    for(const item of episodeItems)
+      countsByIndex.set(item.seriesIndexUrl,(countsByIndex.get(item.seriesIndexUrl)||0)+1);
+    const visitsValid=new Set(visited.map(v=>v.url)).size===visited.length &&
+      visited.length===328&&visited.every(v=>queue.includes(v.url)&&
+        v.expected===v.accepted&&countsByIndex.get(v.url)===v.accepted&&
+        entries.some(e=>e.url===v.url&&e.count===v.accepted));
     const sumVisits=visited.reduce((n,v)=>n+v.accepted,0);
     const uniqueEpisodes=new Set(episodeItems.map(x=>x.canonicalUrl)).size;
-    const linkedEpisodes=episodeItems.every(item=>visited.some(v=>v.url===item.seriesIndexUrl));
+    const identityKeys=items.map(tvStageItemKey);
+    const listingKeysValid=identityKeys.every(Boolean)&&new Set(identityKeys).size===items.length;
+    const linkedEpisodes=episodeItems.every(item=>visited.some(v=>v.url===item.seriesIndexUrl) &&
+      item.foundOn===item.seriesIndexUrl);
+    let sharedArticleUrls=0,sharedReferences=0,sharedFlagsValid=true;
+    for(const group of tvSharedArticleGroups(episodeItems).values()){
+      const parents=[...new Set(group.map(item=>item.seriesIndexUrl))];
+      if(parents.length<2)continue;
+      sharedArticleUrls++;sharedReferences+=group.length;
+      if(group.some(item=>item.sharedAcrossSeries!==true||
+        item.reviewStatus!=='needs-episode-review' ||
+        !Array.isArray(item.sharedWithSeriesIndexUrls) ||
+        !parents.filter(u=>u!==item.seriesIndexUrl).every(u=>item.sharedWithSeriesIndexUrls.includes(u))))
+        sharedFlagsValid=false;
+    }
     return {complete:sourceEntries&&visitsValid&&expected===3332&&sumVisits===expected&&
-        uniqueEpisodes===3332&&episodeItems.length===3332&&seriesItems.length===328&&linkedEpisodes,
+        listingKeysValid&&sharedFlagsValid&&episodeItems.length===3332&&seriesItems.length===328&&
+        new Set(seriesItems.map(x=>x.canonicalUrl)).size===328&&linkedEpisodes,
       series:seriesItems.length,episodes:episodeItems.length,expected,
-      visited:visited.length,sumVisits,uniqueEpisodes,linkedEpisodes};
+      visited:visited.length,sumVisits,uniqueEpisodes,sharedArticleUrls,
+      sharedReferences,listingKeysValid,sharedFlagsValid,linkedEpisodes};
   }
   function tvImportBatches(items,size=600){
     if(!Number.isInteger(size)||size<1||size>750)throw Error('Invalid TV export batch size');
     const source=Array.isArray(items)?items:[];
-    const urls=new Set();
+    const keys=new Set();
     for(const item of source){
-      if(!item.canonicalUrl||urls.has(item.canonicalUrl))throw Error('Missing or duplicate TV source URL');
-      urls.add(item.canonicalUrl);
+      const key=tvStageItemKey(item);
+      if(!key||keys.has(key))throw Error('Missing or duplicate TV source-list identity');
+      keys.add(key);
       if(!item.foundOn)throw Error('Missing TV source-page provenance');
+      if(item.workType==='episode'&&item.foundOn!==item.seriesIndexUrl)
+        throw Error('Episode provenance does not match its series index');
+    }
+    for(const group of tvSharedArticleGroups(source).values()){
+      if(new Set(group.map(x=>x.seriesIndexUrl)).size<2)continue;
+      if(group.some(x=>x.reviewStatus!=='needs-episode-review'||x.sharedAcrossSeries!==true))
+        throw Error('Cross-series shared source URL needs identity review markers before export');
     }
     return Array.from({length:Math.ceil(source.length/size)},(_,index)=>{
       const rows=source.slice(index*size,(index+1)*size);
@@ -1005,9 +1078,7 @@
     const merged=mergeTvStage(stagedTv,audit.items,url);
     if(merged.error){tvPause('TV scan paused: '+merged.error,true);return false;}
     if(merged.added!==audit.items.length){
-      // A repeated episode URL within another series deserves human review.
-      tvPause('TV pilot paused: '+entry.title+' listed '+audit.items.length+
-        ' episodes but only '+merged.added+' were new in the TV pilot.',true);return false;
+      tvPause('TV scan paused: '+entry.title+' source-list accounting mismatch; saved TV progress preserved.',true);return false;
     }
     GM_setValue(TV_STAGE_KEY,merged.stage);
     const visited=[...state.visited,{url,title:entry.title,expected:entry.count,
@@ -1019,6 +1090,8 @@
     if(coverage.missingSeasons.length)diagnostics.push('unrepresented season numbers '+coverage.missingSeasons.join(','));
     if(coverage.episodeZeroSeasons.length)diagnostics.push('episode 00 in season '+coverage.episodeZeroSeasons.join(','));
     if(coverage.missingWithinSeasons.length)diagnostics.push('gaps within listed seasons');
+    if(merged.sharedArticleUrls)diagnostics.push(merged.sharedArticleUrls+
+      ' article URL(s) listed under multiple series; all affected links marked for identity review');
     if(audit.reviewable.length)diagnostics.push(audit.reviewable.length+
       ' source-listed episode article(s) need identity review (e.g. cross-category article URLs)');
     show('TV '+(state.mode==='full'?'archive':'pilot')+' captured '+entry.title+': '+audit.items.length+'/'+entry.count+
@@ -1040,7 +1113,9 @@
     if(!next){
       if(state.mode==='full'){
         const coverage=tvFullCoverage(state,tvStage());
-        if(coverage.complete)tvPause('Full TV archive index scan complete: 328 series pages validated, 3,332 unique episode URLs, matching the source directory. No transcript bodies or cloud writes. Download the batch files and manifest.');
+        if(coverage.complete)tvPause('Full TV archive index scan complete: 328 series pages, 3,332 source-listed episode references ('+
+          coverage.uniqueEpisodes+' distinct article URLs; '+coverage.sharedArticleUrls+
+          ' shared across series). No transcript bodies or cloud writes. Download the batch files and manifest for review.');
         else tvPause('Full TV scan reached the end, but reconciliation failed: '+
           JSON.stringify(coverage)+'. Retain all data for diagnosis.',true);
       }else if(state.visited.length===3 && state.visited.reduce((n,v)=>n+v.accepted,0)===47){
@@ -1048,7 +1123,7 @@
       }else tvPause('TV pilot ended without exact 3-series / 47-episode reconciliation.',true);
       return;
     }
-    const delay=Math.max(15000,Number(state.delayMs)||15000);
+    const delay=Math.max(TV_MIN_DELAY_MS,Number(state.delayMs)||TV_MIN_DELAY_MS);
     if(delay>120000){tvPause('TV pilot stopped: invalid pacing.',true);return;}
     show('TV '+(state.mode==='full'?'archive':'pilot')+' auto-navigation: '+state.visited.length+'/'+state.queue.length+' series done. Next: '+
       (state.entries.find(x=>x.url===next)?.title||next)+
@@ -1074,13 +1149,13 @@
       if(!r.ok)throw new Error('HTTP '+r.status);
       const robotsText=await r.text();
       const targets=[...new Set((state.queue||[]).map(url=>new URL(url).pathname))];
-      const checks=targets.map(path=>({path,policy:robotsMovieArchivePolicy(robotsText,path)}));
+      const checks=targets.map(path=>({path,policy:robotsMovieArchivePolicy(robotsText,path,TV_MIN_DELAY_MS)}));
       const blocked=checks.find(c=>!c.policy.allowed);
       if(blocked){
         tvPause('TV archive automation blocked by robots.txt for '+blocked.path+
           ': '+blocked.policy.reason,true);return;
       }
-      const delay=Math.max(15000,...checks.map(c=>c.policy.delayMs||15000));
+      const delay=Math.max(TV_MIN_DELAY_MS,...checks.map(c=>c.policy.delayMs||TV_MIN_DELAY_MS));
       policy={allowed:true,delayMs:delay};
     }catch(e){tvPause('TV pilot automation blocked: cannot verify robots.txt ('+e.message+').',true);return;}
     if(!policy.allowed){tvPause('TV pilot automation blocked: '+policy.reason,true);return;}
@@ -1183,7 +1258,9 @@
       catch(e){show('TV manifest blocked: '+e.message);return;}
       const manifest={sourceId:SOURCE_ID,sourceDirectory:'https://scrapsfromtheloft.com/tv-series-transcripts/',
         scanStatus:'source-index-reconciled-content-not-verified',at:new Date().toISOString(),
-        series:coverage.series,episodes:coverage.episodes,visitedIndexes:coverage.visited,
+        series:coverage.series,episodes:coverage.episodes,uniqueEpisodeArticleUrls:coverage.uniqueEpisodes,
+        crossSeriesSharedArticleUrls:coverage.sharedArticleUrls,
+        visitedIndexes:coverage.visited,
         total:batches.length,imported:false,
         batches:batches.map(batch=>({part:batch.index,of:batch.total,items:batch.items.length,
           file:'cinema-scraps-tv-archive-batch-'+String(batch.index).padStart(2,'0')+

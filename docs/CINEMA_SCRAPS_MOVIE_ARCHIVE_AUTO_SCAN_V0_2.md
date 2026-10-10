@@ -36,3 +36,11 @@ The user previously completed the guided scan of the source's All page plus **A 
 - This is a single user-supervised browser-tab session, **not a detached/background continuous crawler**. It does not verify that transcripts exist or their text is complete.
 - The Cloudflare staging importer was previously updated to accept `mt_letter`/`mt_page` provenance and atypical source-indexed movie URLs. No new Cloudflare deployment is required solely to activate the research userscript.
 - Never promote directly to userscript `main` or public Cinema Decoder production without a separate review.
+
+## H page 1 stop; extraction diagnostics v0.2.0-alpha.5
+
+At approximately 2026-10-10 10:30 ET the owner's Firefox scan stopped on H page 1. The site rendered **60 index cards**, but the extractor accepted **59**, pausing automatically with **486 previously staged unique film URLs and 13 completed listing pages** intact. No unreviewed H page data was written, and no catalog/production data was changed. The exceptional title or URL is **not yet identified** because the screenshot contains no underlying article-href evidence.
+
+Update the existing userscript research branch to **0.2.0-alpha.5**. Its audit reuses the actual extraction rules and distinguishes rejected cards, duplicated canonical URLs, and other validation errors. On the still-open H page click **Start / resume movie scan** to get the first offending card's title, URL and cause. Alternatively click **Copy scan diagnostics** and paste its small, metadata-only JSON report. **Do not clear staged data or manually skip H.** With that concrete evidence, make the narrowly scoped correction and rerun H before resuming the automatic scan. The B/C and earlier page work is preserved by separate GM storage.
+
+Commit: `fe47f92de8b81329c30d1211935c4356286bf4c3` (test CI passing); the diagnostic release has no new catalog deployment or cloud writes.

@@ -622,11 +622,19 @@
       if(!key||keys.has(key))return {stage:prior,added:0,error:'Existing TV stage has an invalid or repeated source-list identity'};
       keys.add(key);
     }
+    const seenArticles=tvSharedArticleGroups(items);
+    const newSharedArticleUrls=new Set();
     let added=0;
     for(const item of incoming||[]){
       const key=tvStageItemKey(item);
       if(!key||keys.has(key))return {stage:prior,added:0,error:'Duplicate or invalid TV source-list identity: '+(item?.canonicalUrl||'unknown')};
       if(items.length>=4200)return {stage:prior,added:0,error:'TV source collection exceeded 4,200-link safety cap'};
+      if(item.workType==='episode'){
+        const previouslyListed=seenArticles.get(item.canonicalUrl)||[];
+        if(previouslyListed.some(old=>old.seriesIndexUrl!==item.seriesIndexUrl))
+          newSharedArticleUrls.add(item.canonicalUrl);
+        seenArticles.set(item.canonicalUrl,[...previouslyListed,item]);
+      }
       items.push({...item,firstSeenAt:new Date().toISOString()});
       keys.add(key);added++;
     }
@@ -651,7 +659,8 @@
     // Previously accepted source listings are preserved, but a newly discovered
     // cross-series collision also upgrades their provisional review status.
     return {stage:{version:2,items:items.map(item=>sharedByKey.get(tvStageItemKey(item))||item),pages},
-      added,sharedArticleUrls,sharedReferences,error:null};
+      added,sharedArticleUrls,sharedReferences,
+      newSharedArticleUrls:[...newSharedArticleUrls],error:null};
   }
   // Alpha.7 pilot saves predate the 'mode' property introduced in alpha.8.
   // Recover only after verifying the complete three-index/47-episode receipt set.
@@ -1090,8 +1099,9 @@
     if(coverage.missingSeasons.length)diagnostics.push('unrepresented season numbers '+coverage.missingSeasons.join(','));
     if(coverage.episodeZeroSeasons.length)diagnostics.push('episode 00 in season '+coverage.episodeZeroSeasons.join(','));
     if(coverage.missingWithinSeasons.length)diagnostics.push('gaps within listed seasons');
-    if(merged.sharedArticleUrls)diagnostics.push(merged.sharedArticleUrls+
-      ' article URL(s) listed under multiple series; all affected links marked for identity review');
+    if(merged.newSharedArticleUrls.length)diagnostics.push(merged.newSharedArticleUrls.length+
+      ' article URL(s) also listed by earlier series (e.g. '+
+      merged.newSharedArticleUrls[0]+'); both series references flagged for review');
     if(audit.reviewable.length)diagnostics.push(audit.reviewable.length+
       ' source-listed episode article(s) need identity review (e.g. cross-category article URLs)');
     show('TV '+(state.mode==='full'?'archive':'pilot')+' captured '+entry.title+': '+audit.items.length+'/'+entry.count+

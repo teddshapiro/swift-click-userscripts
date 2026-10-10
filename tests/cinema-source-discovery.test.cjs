@@ -675,3 +675,84 @@ test('American Masters unnumbered cross-category item stays subject to count and
  const unlabeled=structuredClone(base);unlabeled.sections[0].links[0].indexEpisodeListed=false;
  assert.equal(core.tvSeriesAudit(unlabeled).valid,false);
 });
+
+
+test('The Daily Show captures source-listed comedy and non-transcript TV URLs but flags uncertain identities',()=>{
+ const series='https://scrapsfromtheloft.com/tv-series-transcripts/the-daily-show-tv-series/';
+ const entries=[
+  ['Jimmy Kimmel’s Suspension Was Always About Censorship (Just Ask Trump)',
+   'https://scrapsfromtheloft.com/comedy/jimmy-kimmels-suspension-was-always-about-censorship-transcript/'],
+  ['Jon Stewart on Butker, Conservative “Outrage” & The Real Cancel Culture | The Daily Show',
+   'https://scrapsfromtheloft.com/tv-series/jon-stewart-butker-conservative-outrage-real-cancel-culture/'],
+  ['Jon Stewart’s Post-Kimmel Primer on Free Speech in the Glorious Trump Era',
+   'https://scrapsfromtheloft.com/comedy/jon-stewart-on-jimmy-kimmel-transcript/']
+ ];
+ const links=entries.map(([title,href])=>({
+   href,text:title,contextTitle:'',indexEpisodeListed:true
+ }));
+ const audit=core.tvSeriesAudit({indexUrl:series,
+   entry:{title:'The Daily Show',url:series,count:3},
+   pageTitle:'The Daily Show',reportedCount:3,
+   sections:[{id:'season-1',count:3,links}]});
+ assert.deepEqual(audit.issues,[]);
+ assert.equal(audit.valid,true);
+ assert.equal(audit.items.length,3);
+ assert.equal(audit.reviewable.length,3);
+ for(let i=0;i<3;i++){
+   const item=audit.items[i];
+   assert.equal(item.canonicalUrl,entries[i][1]);
+   assert.equal(item.articleTitle,entries[i][0]);
+   assert.equal(item.workType,'episode');
+   assert.equal(item.seriesTitle,'The Daily Show');
+   assert.equal(item.seriesIndexUrl,series);
+   assert.equal(item.reviewStatus,'needs-episode-review');
+   assert.equal(item.seasonNumber,null);
+   assert.equal(item.episodeNumber,null);
+ }
+ assert.match(audit.reviewable[1].reason,/without transcript URL marker/);
+ assert.match(audit.reviewable[0].reason,/cross-category/);
+});
+
+test('TV indexed exceptions remain strictly scoped to actual season episode-list links',()=>{
+ const parent='https://scrapsfromtheloft.com/tv-series-transcripts/the-daily-show-tv-series/';
+ const unusual=[
+  'https://scrapsfromtheloft.com/comedy/jimmy-kimmels-suspension-was-always-about-censorship-transcript/',
+  'https://scrapsfromtheloft.com/tv-series/jon-stewart-butker-conservative-outrage-real-cancel-culture/',
+  'https://scrapsfromtheloft.com/movies/edgar-allan-poe-buried-alive-transcript/'
+ ];
+ for(const href of unusual){
+   const base={href,text:'Article title',contextTitle:'',indexEpisodeListed:true};
+   const good=core.candidateFromLink(base,'tv-series-page',parent,'The Daily Show');
+   assert.equal(good?.workType,'episode',href);
+   assert.equal(core.candidateFromLink({...base,indexEpisodeListed:false},'tv-series-page',parent,'The Daily Show'),null,href);
+   assert.equal(core.candidateFromLink(base,'tv-series-page',parent,null),null,href);
+   assert.equal(core.candidateFromLink(base,'tv-archive','https://scrapsfromtheloft.com/tv-series-transcripts/','The Daily Show'),null,href);
+   assert.equal(core.candidateFromLink(base,'tv-series-page','https://scrapsfromtheloft.com/movies/other-transcript/','The Daily Show'),null,href);
+ }
+ for(const href of [
+  'https://other.example/comedy/other-transcript/',
+  'http://scrapsfromtheloft.com/comedy/other-transcript/',
+  'https://scrapsfromtheloft.com/uncategorized/unverified/',
+  'https://scrapsfromtheloft.com/comedy/other-transcript/?mode=admin',
+  'https://scrapsfromtheloft.com/tv-series-transcripts/another-series/',
+  'https://scrapsfromtheloft.com/wp-admin/admin/'
+ ]){
+   const result=core.candidateFromLink({href,text:'Article title',indexEpisodeListed:true},
+     'tv-series-page',parent,'The Daily Show');
+   assert.equal(result,null,href);
+ }
+});
+
+test('TV index audit still stops on incomplete season link counts and duplicates',()=>{
+ const series='https://scrapsfromtheloft.com/tv-series-transcripts/the-daily-show-tv-series/';
+ const url='https://scrapsfromtheloft.com/comedy/jon-stewart-on-jimmy-kimmel-transcript/';
+ const source={indexUrl:series,entry:{title:'The Daily Show',url:series,count:2},
+  pageTitle:'The Daily Show',reportedCount:2,
+  sections:[{id:'season-1',count:2,links:[
+    {href:url,text:'Jon Stewart Commentary',indexEpisodeListed:true},
+    {href:url,text:'Same linked item duplicated',indexEpisodeListed:true}
+  ]}]};
+ assert.equal(core.tvSeriesAudit(source).valid,false);
+ const missing=structuredClone(source);missing.sections[0].links.pop();
+ assert.equal(core.tvSeriesAudit(missing).valid,false);
+});

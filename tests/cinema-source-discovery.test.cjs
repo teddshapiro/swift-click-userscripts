@@ -619,3 +619,59 @@ test('alpha.7 saved TV pilot expands on alpha.9 without mode or rescanning',()=>
   assert.equal(core.tvPilotExpansionAudit(unvisited,stage).valid,false);
   assert.equal(core.tvPilotExpansionAudit({...oldState,directoryTotal:3333},stage).valid,false);
 });
+
+
+test('American Masters source lists an unnumbered documentary under /movies/ as reviewable TV-index episode',()=>{
+ const series='https://scrapsfromtheloft.com/tv-series-transcripts/american-masters/';
+ const article='https://scrapsfromtheloft.com/movies/edgar-allan-poe-buried-alive-transcript/';
+ const link={href:article,text:'Edgar Allan Poe: Buried Alive (2017)',
+   contextTitle:'',indexEpisodeListed:true};
+ const result=core.tvSeriesAudit({indexUrl:series,
+   entry:{title:'American Masters',url:series,count:1},
+   pageTitle:'American Masters',reportedCount:1,
+   sections:[{id:'season-1',count:1,links:[link]}]});
+ assert.equal(result.valid,true,JSON.stringify(result.issues));
+ assert.equal(result.items.length,1);
+ const entry=result.items[0];
+ assert.equal(entry.canonicalUrl,article);
+ assert.equal(entry.workType,'episode');
+ assert.equal(entry.resourceType,'dialogue-transcript');
+ assert.equal(entry.seriesTitle,'American Masters');
+ assert.equal(entry.seriesIndexUrl,series);
+ assert.equal(entry.articleTitle,'Edgar Allan Poe: Buried Alive (2017)');
+ assert.equal(entry.episodeTitle,'Edgar Allan Poe: Buried Alive (2017)');
+ assert.equal(entry.seasonNumber,null);
+ assert.equal(entry.episodeNumber,null);
+ assert.equal(entry.reviewStatus,'needs-episode-review');
+ assert.equal(result.coverage.unnumbered,1);
+ assert.equal(result.reviewable.length,1);
+ assert.match(result.reviewable[0].reason,/movie archive/);
+});
+
+test('cross-category TV exception is allowed only for trusted series episode-list links',()=>{
+ const parent='https://scrapsfromtheloft.com/tv-series-transcripts/american-masters/';
+ const article='https://scrapsfromtheloft.com/movies/edgar-allan-poe-buried-alive-transcript/';
+ const trusted={href:article,text:'Edgar Allan Poe: Buried Alive (2017)',indexEpisodeListed:true};
+ assert.equal(core.candidateFromLink({...trusted,indexEpisodeListed:false},'tv-series-page',parent,'American Masters'),null);
+ assert.equal(core.candidateFromLink(trusted,'tv-series-page',parent,null),null);
+ assert.equal(core.candidateFromLink(trusted,'tv-archive','https://scrapsfromtheloft.com/tv-series-transcripts/','American Masters'),null);
+ assert.equal(core.candidateFromLink(trusted,'tv-series-page','https://scrapsfromtheloft.com/movies/film-transcript/','American Masters'),null);
+ assert.equal(core.candidateFromLink({...trusted,href:'https://evil.example/movies/edgar-allan-poe-buried-alive-transcript/'},'tv-series-page',parent,'American Masters'),null);
+ const movie=core.candidateFromLink({href:article,text:'Edgar Allan Poe: Buried Alive (2017)',archiveListed:true},
+ 'film','https://scrapsfromtheloft.com/movie-transcripts/?mt_letter=E');
+ assert.equal(movie.workType,'film','Existing movie archive metadata must not be retroactively reclassified');
+});
+
+test('American Masters unnumbered cross-category item stays subject to count and path validation',()=>{
+ const parent='https://scrapsfromtheloft.com/tv-series-transcripts/american-masters/';
+ const article='https://scrapsfromtheloft.com/movies/edgar-allan-poe-buried-alive-transcript/';
+ const entry={title:'American Masters',url:parent,count:1};
+ const base={indexUrl:parent,entry,pageTitle:entry.title,reportedCount:1,
+   sections:[{id:'season-3',count:1,links:[{href:article,text:'Edgar Allan Poe: Buried Alive (2017)',indexEpisodeListed:true}]}]};
+ const missing=structuredClone(base);missing.sections[0].links=[];
+ assert.equal(core.tvSeriesAudit(missing).valid,false);
+ const arbitrary=structuredClone(base);arbitrary.sections[0].links[0].href='https://scrapsfromtheloft.com/business/random-transcript/';
+ assert.equal(core.tvSeriesAudit(arbitrary).valid,false);
+ const unlabeled=structuredClone(base);unlabeled.sections[0].links[0].indexEpisodeListed=false;
+ assert.equal(core.tvSeriesAudit(unlabeled).valid,false);
+});

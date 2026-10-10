@@ -423,3 +423,43 @@ test('movie archive complete requires 26 observed letters AND exact unfiltered s
  assert.equal(coverage.complete,true);
  assert.equal(core.movieArchiveCoverage([all,...letters.slice(0,25)]).complete,false);
 });
+
+
+test('movie archive exception audit names unsupported article URL instead of silently losing title',()=>{
+  const base='https://scrapsfromtheloft.com/movie-transcripts/?mt_letter=H';
+  const links=[
+    {href:'https://scrapsfromtheloft.com/movies/heat-1995-transcript/',text:'Heat (1995)',contextTitle:'Heat (1995)',archiveListed:true},
+    {href:'https://scrapsfromtheloft.com/feature/how-to-train-your-dragon/',text:'How to Train Your Dragon (2025)',contextTitle:'How to Train Your Dragon (2025)',archiveListed:true}
+  ];
+  const d=core.filmArchiveExtractionAudit(links,base);
+  assert.equal(d.listed,2);
+  assert.equal(d.accepted,1);
+  assert.equal(d.rejected,1);
+  assert.equal(d.duplicateUrls,0);
+  assert.equal(d.issues.length,1);
+  assert.equal(d.issues[0].kind,'rejected-card');
+  assert.equal(d.issues[0].title,'How to Train Your Dragon (2025)');
+  assert.match(d.issues[0].url,/\/feature\/how-to-train-your-dragon\/$/);
+  assert.match(d.issues[0].reason,/not recognized/);
+});
+test('movie archive exception audit distinguishes duplicate source links from unsupported paths',()=>{
+  const base='https://scrapsfromtheloft.com/movie-transcripts/?mt_letter=H';
+  const links=[
+    {href:'https://scrapsfromtheloft.com/movies/hamnet-transcript/',text:'Hamnet (2025)',archiveListed:true},
+    {href:'https://scrapsfromtheloft.com/movies/hamnet-transcript/?utm_campaign=abc',text:'Hamnet (2025)',archiveListed:true}
+  ];
+  const d=core.filmArchiveExtractionAudit(links,base);
+  assert.equal(d.listed,2);
+  assert.equal(d.accepted,1);
+  assert.equal(d.rejected,0);
+  assert.equal(d.duplicateUrls,1);
+  assert.equal(d.issues[0].kind,'duplicate-url');
+});
+test('archive exception audit includes only source index metadata, not page body text',()=>{
+ const d=core.filmArchiveExtractionAudit([{href:'javascript:alert(1)',text:'Unusual item',contextTitle:'Unusual item',archiveListed:true}],
+ 'https://scrapsfromtheloft.com/movie-transcripts/?mt_letter=H');
+ assert.equal(d.accepted,0);
+ assert.equal(d.issues.length,1);
+ assert.equal(d.issues[0].title,'Unusual item');
+ assert.match(d.issues[0].reason,/invalid destination URL/);
+});

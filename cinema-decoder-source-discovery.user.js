@@ -483,10 +483,22 @@
     const expectedText=document.querySelector('.results-summary')?.textContent||'';
     const expectedMatch=expectedText.replace(/,/g,'').match(/(\d+)\s+movie transcripts?/i);
     const summary=expectedMatch?Number(expectedMatch[1]):null;
+    const visited=[...state.visited,{url:current,letter:loc.letter||'ALL',page:loc.page,
+      listed,expected:summary,urls:result.items.map(x=>x.canonicalUrl)}];
+    if(loc.letter && !document.querySelector('nav.pagination a.next[href]') &&
+      Number.isInteger(summary)){
+      const distinct=new Set(visited.filter(v=>v.letter===loc.letter).flatMap(v=>v.urls||[]));
+      if(distinct.size!==summary){
+        const reason='Letter '+loc.letter+' appears to end with '+distinct.size+
+          ' distinct listed URLs, but the site reports '+summary+
+          '. Pause and inspect before continuing to next letter.';
+        GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false,failed:{url:current,reason}});
+        show(reason);return;
+      }
+    }
     const merged=mergeStage(staged(),result.items,location.href);
     GM_setValue(STORAGE_KEY,merged.stage);
-    const visited=[...state.visited,{url:current,letter:loc.letter||'ALL',page:loc.page,
-      listed,expected:summary,newLinks:merged.added}];
+    visited[visited.length-1].newLinks=merged.added;
     GM_setValue(MOVIE_GUIDE_KEY,{...state,visited,failed:null});
     show('Guided archive captured '+listed+' movie links on '+
       (loc.letter||'ALL')+' page '+loc.page+' ('+merged.added+' new). '+
@@ -563,6 +575,28 @@
     }
     show('Page discovered: ' + result.items.length + ' distinct source links; ' + merged.added +
       ' newly staged; ' + result.duplicates + ' duplicate links. Preview is not a completeness check.' + diagnostic);
+  });
+
+  if(isGuidedFilm)button('Download movie archive JSON',()=>{
+    const saved=staged();
+    const films=saved.items.filter(item=>item.workType==='film');
+    const pages=(saved.pages||[]).filter(url=>filmArchiveLocation(url));
+    if(!films.length){show('No movie catalog links staged yet.');return;}
+    const json=JSON.stringify({
+      format:'cinema-decoder-source-discovery-preview-v1',
+      version:2,sourceId:SOURCE_ID,exportedAt:new Date().toISOString(),
+      publicationApproved:false,pages,items:films
+    },null,2);
+    if(new TextEncoder().encode(json).length>2*1024*1024||films.length>1500){
+      show('Movie export exceeds staging import limits. Split by letters before uploading.');return;
+    }
+    const blob=new Blob([json],{type:'application/json'});
+    const u=URL.createObjectURL(blob);
+    const a=document.createElement('a');a.href=u;
+    a.download='cinema-scraps-movie-archive-discovery.json';
+    document.body.append(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(u),2000);
+    show('Exported '+films.length+' staged film links only. Existing TV links untouched. No cloud changes.');
   });
 
   button('Copy staged JSON', () => {

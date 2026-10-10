@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.1
+// @version      0.2.0-alpha.2
 // @description  Manual link-only discovery for Scraps from the Loft transcripts and The Movie Spoiler plots.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -29,7 +29,7 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.1';
+  const SCRIPT_VERSION = '0.2.0-alpha.2';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const VALID_HOSTS = new Set(['scrapsfromtheloft.com', 'www.scrapsfromtheloft.com']);

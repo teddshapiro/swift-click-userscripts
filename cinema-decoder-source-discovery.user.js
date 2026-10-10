@@ -611,11 +611,17 @@
     const episodes = items.filter(x => x.workType === 'episode').length;
     const series = items.filter(x => x.workType === 'series').length;
     const uncertain = items.filter(x => x.reviewStatus !== 'candidate').length;
-    status.textContent = message + '\nStaged: ' + items.length + ' links (' + film + ' movies, ' + series +
+    const tvSaved=isTvPilot?tvStage():null;
+    const tvProgress=isTvPilot?tvState():null;
+    const tvStatus=isTvPilot?'\nSeparate TV pilot: '+tvSaved.items.filter(x=>x.workType==='series').length+
+      ' series indexes, '+tvSaved.items.filter(x=>x.workType==='episode').length+
+      ' episodes; '+(tvProgress.visited?.length||0)+' of '+(tvProgress.queue?.length||0)+
+      ' pilot indexes scanned.':'';
+    status.textContent = message + tvStatus + '\nLegacy staged: ' + items.length + ' links (' + film + ' movies, ' + series +
       ' series indexes, ' + episodes + ' TV episodes). Review flags: ' + uncertain +
       '. Pages inspected: ' + (saved.pages || []).length + '.';
     preview.replaceChildren();
-    for (const item of items.slice(-15).reverse()) {
+    for (const item of (tvSaved?tvSaved.items:items).slice(-15).reverse()) {
       const li = document.createElement('li');
       li.textContent = item.articleTitle + ' · ' + item.workType +
         (item.reviewStatus !== 'candidate' ? ' · needs review' : '');
@@ -978,7 +984,7 @@
     });
   }
 
-  button('Discover visible titles', () => {
+  const manualDiscovery=button('Discover visible titles', () => {
     const links = type === 'film' && filmArchiveLocation(location.href) ? filmArchiveListedLinks(document) : type === 'spoiler-article' ? [{
       href:location.href,
       text:collapse(document.querySelector('main h1, h1.entry-title, h1')?.textContent),
@@ -1021,6 +1027,7 @@
       ' newly staged; ' + result.duplicates + ' duplicate links. Preview is not a completeness check.' + diagnostic);
   });
 
+  if(isTvPilot)manualDiscovery.textContent='Discover titles (legacy stage)';
   if(isGuidedFilm)button('Copy scan diagnostics',()=>{
     const state=guideState(),failed=state.failed;
     const current=canonicalUrl(location.href,location.href);
@@ -1062,7 +1069,7 @@
     show('Exported '+films.length+' staged film links only. Existing TV links untouched. No cloud changes.');
   });
 
-  button('Copy staged JSON', () => {
+  const legacyCopy=button('Copy staged JSON', () => {
     const items = staged().items || [];
     if (!items.length) { show('Nothing staged to copy.'); return; }
     try {
@@ -1076,7 +1083,7 @@
     }
   });
 
-  button('Download JSON', () => {
+  const legacyExport=button('Download JSON', () => {
     const saved = staged();
     if (!saved.items || !saved.items.length) { show('Nothing staged to download.'); return; }
     const json = JSON.stringify({
@@ -1092,7 +1099,7 @@
     show('Exported local preview JSON. No cloud changes were made.');
   });
 
-  button('Clear staged', () => {
+  const legacyClear=button('Clear staged', () => {
     if (!window.confirm('Clear locally staged '+(IS_SPOILER?'The Movie Spoiler plot links':'Scraps movie and TV source links')+(IS_SPOILER?'?':' and reset the saved guided movie scan progress?') )) return;
     cancelAutoTimer();
     if(!IS_SPOILER)GM_deleteValue(MOVIE_GUIDE_KEY);
@@ -1100,6 +1107,17 @@
     show('Local staging cleared.');
   });
 
+  if(isTvPilot){
+    legacyCopy.textContent='Copy legacy JSON';
+    legacyExport.textContent='Download legacy JSON';
+    legacyClear.textContent='Clear legacy staged (movies too)';
+    button('Reset TV pilot only',()=>{
+      if(!window.confirm('Reset ONLY the TV pilot series indexes and its episode progress? Movie data and cloud catalog stay unchanged.'))return;
+      if(tvTimer!==null){clearTimeout(tvTimer);tvTimer=null;}
+      GM_deleteValue(TV_GUIDE_KEY);GM_deleteValue(TV_STAGE_KEY);
+      show('Separate TV pilot cleared; legacy movie stage and catalog untouched.');
+    });
+  }
   const close = button('Hide', () => panel.remove());
   close.style.background = '#57606a';
   panel.append(heading, subtitle, info, actions, status, preview);
@@ -1109,7 +1127,7 @@
       if (!panel.isConnected) document.body.append(panel);
     });
   }
-  show(IS_SPOILER ? 'Ready for manual scans of The Movie Spoiler home, search, genre and movie pages. Plot availability remains unverified until reviewed.' : 'Ready. For movies use Start / resume movie scan, then Scan next listing, or use manual Discover for TV indexes.');
+  show(IS_SPOILER ? 'Ready for manual scans of The Movie Spoiler home, search, genre and movie pages. Plot availability remains unverified until reviewed.' : isTvPilot ? 'TV pilot ready. Open the unfiltered TV directory and click Prepare 3-series TV pilot; existing movie capture is separate.' : 'Ready. For movies use Start / resume movie scan, then Scan next listing.');
   if(isTvPilot && type==='tv-series-page' && tvState().active){
     const valid=tvScanCurrent();
     if(valid && tvState().auto)tvSchedule();

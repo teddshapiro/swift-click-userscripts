@@ -736,10 +736,22 @@
     const countsByIndex=new Map();
     for(const item of episodeItems)
       countsByIndex.set(item.seriesIndexUrl,(countsByIndex.get(item.seriesIndexUrl)||0)+1);
+    const missingSourceLinks=visited.reduce((n,v)=>n+Math.max(0,v.expected-v.accepted),0);
+    const sourceGaps=visited.flatMap(v=>(v.sourceGaps||[]).map(g=>({
+      indexUrl:v.url,title:v.title,...g
+    })));
     const visitsValid=new Set(visited.map(v=>v.url)).size===visited.length &&
-      visited.length===328&&visited.every(v=>queue.includes(v.url)&&
-        v.expected===v.accepted&&countsByIndex.get(v.url)===v.accepted&&
-        entries.some(e=>e.url===v.url&&e.count===v.accepted));
+      visited.length===328&&visited.every(v=>{
+        const missing=v.expected-v.accepted;
+        const gaps=v.sourceGaps||[];
+        const recordedGap=gaps.reduce((n,g)=>n+g.missing,0);
+        return queue.includes(v.url) &&
+          Number.isInteger(v.expected)&&Number.isInteger(v.accepted) &&
+          v.accepted>=0&&missing>=0&&missing<=1 &&
+          (missing===0?gaps.length===0:gaps.length===1&&recordedGap===missing) &&
+          countsByIndex.get(v.url)===v.accepted &&
+          entries.some(e=>e.url===v.url&&e.count===v.expected);
+      });
     const sumVisits=visited.reduce((n,v)=>n+v.accepted,0);
     const uniqueEpisodes=new Set(episodeItems.map(x=>x.canonicalUrl)).size;
     const identityKeys=items.map(tvStageItemKey);
@@ -757,12 +769,15 @@
         !parents.filter(u=>u!==item.seriesIndexUrl).every(u=>item.sharedWithSeriesIndexUrls.includes(u))))
         sharedFlagsValid=false;
     }
-    return {complete:sourceEntries&&visitsValid&&expected===3332&&sumVisits===expected&&
-        listingKeysValid&&sharedFlagsValid&&episodeItems.length===3332&&seriesItems.length===328&&
-        new Set(seriesItems.map(x=>x.canonicalUrl)).size===328&&linkedEpisodes,
-      series:seriesItems.length,episodes:episodeItems.length,expected,
+    const readyForReview=sourceEntries&&visitsValid&&expected===3332 &&
+      sumVisits+missingSourceLinks===expected&&episodeItems.length===sumVisits &&
+      listingKeysValid&&sharedFlagsValid&&seriesItems.length===328 &&
+      new Set(seriesItems.map(x=>x.canonicalUrl)).size===328&&linkedEpisodes;
+    return {complete:readyForReview&&missingSourceLinks===0,
+      readyForReview,series:seriesItems.length,episodes:episodeItems.length,expected,
       visited:visited.length,sumVisits,uniqueEpisodes,sharedArticleUrls,
-      sharedReferences,listingKeysValid,sharedFlagsValid,linkedEpisodes};
+      sharedReferences,listingKeysValid,sharedFlagsValid,linkedEpisodes,
+      missingSourceLinks,sourceGaps};
   }
   function tvImportBatches(items,size=600){
     if(!Number.isInteger(size)||size<1||size>750)throw Error('Invalid TV export batch size');

@@ -1,15 +1,17 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.1.0-alpha.3
-// @description  Read-only metadata discovery on Scraps from the Loft movie and TV archives. No article fetches or publication.
+// @version      0.2.0-alpha.1
+// @description  Manual link-only discovery for Scraps from the Loft transcripts and The Movie Spoiler plots.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
 // @match        https://www.scrapsfromtheloft.com/movie-transcripts/*
 // @match        https://scrapsfromtheloft.com/tv-series-transcripts/*
 // @match        https://www.scrapsfromtheloft.com/tv-series-transcripts/*
-// @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/cinema-source-discovery-phase0/cinema-decoder-source-discovery.user.js
-// @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/cinema-source-discovery-phase0/cinema-decoder-source-discovery.user.js
+// @match        https://themoviespoiler.com/*
+// @match        https://www.themoviespoiler.com/*
+// @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/cinema-source-discovery-phase2/cinema-decoder-source-discovery.user.js
+// @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/cinema-source-discovery-phase2/cinema-decoder-source-discovery.user.js
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_deleteValue
@@ -21,9 +23,13 @@
 (function () {
   'use strict';
 
-  const STORAGE_KEY = 'cinema-source-discovery-staged-v1'; // Keep key stable: v1 records are migrated in place.
-  const SOURCE_ID = 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.1.0-alpha.3';
+  const SPOILER_HOSTS = new Set(['themoviespoiler.com','www.themoviespoiler.com']);
+  const IS_SPOILER = typeof location !== 'undefined' && SPOILER_HOSTS.has(location.hostname.toLowerCase());
+  // Preserve the existing Scraps research staging unchanged. Separate local storage
+  // avoids mixing source identities or overwriting earlier 441-record exports.
+  const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
+  const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
+  const SCRIPT_VERSION = '0.2.0-alpha.1';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const VALID_HOSTS = new Set(['scrapsfromtheloft.com', 'www.scrapsfromtheloft.com']);
@@ -154,6 +160,77 @@
     return { items, invalidOrUnrelated, duplicates, truncated: links.length > LIMIT_PER_PAGE };
   }
 
+
+  // The Movie Spoiler source: all queries read the CURRENT page only. Never follow
+  // article links in the background. A /movies/{slug}/ URL is a plot-page candidate;
+  // /details/ and /genres/ are browsing indexes, not plot articles.
+  function spoilerPageKind(path) {
+    if (/^\/movies\/[^/]+\/?$/i.test(path)) return 'spoiler-article';
+    if (path === '/' || /^\/(?:genres|details)\/[a-z0-9-]+\/?$/i.test(path) ||
+        /^\/(?:page\/\d+|movies\/page\/\d+|genres\/[a-z0-9-]+\/page\/\d+)\/?$/i.test(path))
+      return 'spoiler-list';
+    return null;
+  }
+  function spoilerCanonicalUrl(value, baseUrl) {
+    try {
+      const u = new URL(value, baseUrl);
+      if (u.protocol !== 'https:' || !SPOILER_HOSTS.has(u.hostname.toLowerCase()) ||
+          u.username || u.password || u.port) return null;
+      u.hostname='themoviespoiler.com';
+      u.pathname=u.pathname.replace(/\/+/g, '/').replace(/\/?$/, '/');
+      u.hash='';
+      // Article URLs are stable identities without query parameters.
+      if (/^\/movies\/[a-z0-9][a-z0-9-]*\/$/i.test(u.pathname)) u.search='';
+      else {
+        for(const key of Array.from(u.searchParams.keys())){
+          if(!['s','paged','page'].includes(key))u.searchParams.delete(key);
+        }
+      }
+      return u.toString();
+    }catch{return null}
+  }
+  function spoilerCandidateFromLink(link, pageType, pageUrl) {
+    const url=spoilerCanonicalUrl(link.href,pageUrl);
+    if(!url || !/^\/movies\/[a-z0-9][a-z0-9-]*\/$/i.test(new URL(url).pathname) ||
+       (pageType!=='spoiler-list' && pageType!=='spoiler-article')) return null;
+    const placeholder=/^(?:image|read more|click here|more|details|view|spoiler coming|check back later|spoiler needed)$/i;
+    const anchor=collapse(link.text||link.imageAlt||link.titleAttr);
+    const context=collapse(link.contextTitle);
+    // A card often puts the film title in a heading and uses its image as the link.
+    const article=pageType==='spoiler-article' ? anchor||context :
+      !anchor || placeholder.test(anchor) ? context : anchor;
+    if(!article || placeholder.test(article))return null;
+    const title=article.replace(/\s*[|–—-]\s*The Movie Spoiler\s*$/i,'').trim();
+    if(!title)return null;
+    const m=title.match(/\(((?:19|20)\d{2})\)/);
+    const flagged=/spoiler\s+(?:needed|coming)|check back later|not yet available/i.test(
+      [link.contextTitle,link.surroundingText,link.text].join(' '));
+    return {
+      sourceId:'the-movie-spoiler',
+      resourceType:'plot-synopsis',
+      workType:'film',
+      articleTitle:title,
+      canonicalUrl:url,
+      releaseYear:m?Number(m[1]):null,
+      seriesTitle:null,seriesIndexUrl:null,
+      seasonNumber:null,episodeNumber:null,episodeTitle:null,
+      // A link alone cannot prove that the page contains a full plot.
+      reviewStatus:flagged?'needs-plot-review':m?'candidate':'needs-year-review',
+      foundOn:spoilerCanonicalUrl(pageUrl,pageUrl),
+      adapterVersion:SCRIPT_VERSION
+    };
+  }
+  function extractSpoilerCandidates(links,pageType,pageUrl){
+    const items=[],seen=new Set();let invalidOrUnrelated=0,duplicates=0;
+    for(const link of links.slice(0,LIMIT_PER_PAGE)){
+      const item=spoilerCandidateFromLink(link,pageType,pageUrl);
+      if(!item){invalidOrUnrelated++;continue;}
+      if(seen.has(item.canonicalUrl)){duplicates++;continue;}
+      seen.add(item.canonicalUrl);items.push(item);
+    }
+    return {items,invalidOrUnrelated,duplicates,truncated:links.length>LIMIT_PER_PAGE};
+  }
+
   // Migrate existing alpha.1 local staging without losing the user's discoveries.
   // The URL, not the display title, is the durable deduplication identifier.
   function migrateStage(previous) {
@@ -185,7 +262,7 @@
       added += 1;
     }
     const pages = Array.isArray(prior.pages) ? prior.pages.slice(0, 500) : [];
-    const page = canonicalUrl(pageUrl, pageUrl);
+    const page = canonicalUrl(pageUrl, pageUrl) || spoilerCanonicalUrl(pageUrl, pageUrl);
     if (page && !pages.includes(page)) pages.push(page);
     return { stage: { version: 2, items: Array.from(byUrl.values()), pages }, added };
   }
@@ -240,12 +317,12 @@
 
   // Make the data-only functions testable without mounting UI or requiring Tampermonkey.
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage };
+    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
     return;
   }
 
-  if (!VALID_HOSTS.has(location.hostname.toLowerCase())) return;
-  const type = archiveKind(location.pathname);
+  if (!VALID_HOSTS.has(location.hostname.toLowerCase()) && !IS_SPOILER) return;
+  const type = IS_SPOILER ? spoilerPageKind(location.pathname) : archiveKind(location.pathname);
   if (!type) return;
 
   const panel = document.createElement('section');
@@ -261,10 +338,10 @@
   heading.textContent = 'Cinema Decoder · Source Discovery';
   Object.assign(heading.style, { fontSize: '17px', fontWeight: '700' });
   const subtitle = document.createElement('div');
-  subtitle.textContent = (type === 'film' ? 'Movie archive' : type === 'tv-archive' ? 'TV series & episodes directory' : 'TV series episode index') + ' · research build ' + SCRIPT_VERSION;
+  subtitle.textContent = (IS_SPOILER ? 'The Movie Spoiler · plot links' : type === 'film' ? 'Movie archive' : type === 'tv-archive' ? 'TV series & episodes directory' : 'TV series episode index') + ' · research build ' + SCRIPT_VERSION;
   subtitle.style.marginBottom = '9px';
   const info = document.createElement('div');
-  info.textContent = 'Read-only: examines article links on this page. No article downloads and no cloud publication.';
+  info.textContent = IS_SPOILER ? 'Manually captures visible movie-page links only. Coming-soon pages may have no plot; review each candidate. No article fetching or publication.' : 'Read-only: examines article links on this page. No article downloads and no cloud publication.';
   info.style.fontSize = '12px';
   const status = document.createElement('div');
   Object.assign(status.style, { margin: '12px 0', whiteSpace: 'pre-wrap', fontSize: '13px' });
@@ -318,13 +395,17 @@
     return elements.map(a => {
       const wrapper = a.closest('article, .post, .entry, .post-card, .archive-item, .listing-item');
       const titleElement = wrapper && wrapper.querySelector('h1, h2, h3, .entry-title, .post-title');
-      return { href: a.href, text: collapse(a.textContent), contextTitle: titleElement ? collapse(titleElement.textContent) : '' };
+      return { href: a.href, text: collapse(a.textContent), imageAlt: collapse(a.querySelector('img')?.alt), titleAttr: collapse(a.getAttribute('title')), contextTitle: titleElement ? collapse(titleElement.textContent) : '', surroundingText: IS_SPOILER && wrapper ? collapse(wrapper.textContent).slice(0,260) : '' };
     });
   }
 
   button('Discover visible titles', () => {
-    const links = pageLinks();
-    const currentPage = canonicalUrl(location.href, location.href);
+    const links = type === 'spoiler-article' ? [{
+      href:location.href,
+      text:collapse(document.querySelector('main h1, h1.entry-title, h1')?.textContent),
+      contextTitle:collapse(document.title)
+    }] : pageLinks();
+    const currentPage = IS_SPOILER ? spoilerCanonicalUrl(location.href, location.href) : canonicalUrl(location.href, location.href);
     const matchingSeries = type === 'tv-series-page'
       ? staged().items.find(x => x.workType === 'series' && x.canonicalUrl === currentPage)
       : null;
@@ -332,10 +413,10 @@
     const fallbackSeries = heading ? cleanTitle(heading.textContent).replace(/\s*[-–—|:]\s*(?:TV\s+)?(?:Series\s+)?Transcripts?\s*$/i, '').trim() : null;
     const parentSeriesTitle = type === 'tv-series-page'
       ? (matchingSeries ? matchingSeries.articleTitle : fallbackSeries || null) : null;
-    const result = extractCandidates(links, type, location.href, parentSeriesTitle);
+    const result = IS_SPOILER ? extractSpoilerCandidates(links,type,location.href) : extractCandidates(links, type, location.href, parentSeriesTitle);
     if (result.truncated || result.items.length === 0) {
       show('WARNING: ' + (result.truncated ? 'Page link safety cap reached. ' : '') +
-        (result.items.length ? '' : 'No qualifying transcript article links found. Layout may be unsupported. ') +
+        (result.items.length ? '' : (IS_SPOILER ? 'No qualifying linked movie plots found on this page. Check the actual listing markup. ' : 'No qualifying transcript article links found. Layout may be unsupported. ')) +
         'Nothing staged.');
       return;
     }
@@ -385,14 +466,14 @@
     const blob = new Blob([json], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = 'cinema-source-discovery-preview.json';
+    a.href = url; a.download = IS_SPOILER ? 'cinema-movie-spoiler-preview.json' : 'cinema-source-discovery-preview.json';
     document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
     show('Exported local preview JSON. No cloud changes were made.');
   });
 
   button('Clear staged', () => {
-    if (!window.confirm('Clear all locally staged movie and TV source links?')) return;
+    if (!window.confirm('Clear locally staged '+(IS_SPOILER?'The Movie Spoiler plot links':'Scraps movie and TV source links')+'?')) return;
     GM_deleteValue(STORAGE_KEY);
     show('Local staging cleared.');
   });
@@ -406,5 +487,5 @@
       if (!panel.isConnected) document.body.append(panel);
     });
   }
-  show('Ready. Manually visit movie archives, the TV directory, or a listed TV series page; click Discover on each page.');
+  show(IS_SPOILER ? 'Ready for manual scans of The Movie Spoiler home, search, genre and movie pages. Plot availability remains unverified until reviewed.' : 'Ready. Manually visit movie archives, the TV directory, or a listed TV series page; click Discover on each page.');
 })();

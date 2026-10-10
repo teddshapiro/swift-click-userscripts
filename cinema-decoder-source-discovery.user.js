@@ -510,7 +510,10 @@
   }
   if(isGuidedFilm){
     const guideStart=button('Start / resume movie scan',()=>{
-      const state=guideState();
+      const state=guideState(),loc=filmArchiveLocation(location.href);
+      if(!state.visited.length && loc.letter){
+        show('For full coverage begin at the unfiltered All page to capture numeric-leading movie titles, then proceed A-Z.');return;
+      }
       GM_setValue(MOVIE_GUIDE_KEY,{...state,active:true,failed:null});
       scanGuidedMoviePage();
     });

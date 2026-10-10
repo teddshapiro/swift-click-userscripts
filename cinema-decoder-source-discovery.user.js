@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.2
-// @description  Manual link-only discovery for Scraps from the Loft transcripts and The Movie Spoiler plots.
+// @version      0.2.0-alpha.3
+// @description  Guided link-only Scraps movie archive discovery and manual TV / Movie Spoiler scanning.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
 // @match        https://www.scrapsfromtheloft.com/movie-transcripts/*
@@ -29,9 +29,10 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.2';
+  const SCRIPT_VERSION = '0.2.0-alpha.3';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
+  const MOVIE_GUIDE_KEY = 'cinema-source-discovery-scraps-movies-guided-v1';
   const VALID_HOSTS = new Set(['scrapsfromtheloft.com', 'www.scrapsfromtheloft.com']);
 
   function collapse(value) {
@@ -65,6 +66,9 @@
     try {
       const path = new URL(url).pathname;
       if (/^\/(?:movies|movie-transcripts)\/[^/]+\/?$/i.test(path)) return 'film';
+      // Exception: archive-listed movie articles can be stored under /comedy/.
+      // These links are only accepted when they come from the trusted movie-index card.
+      if (/^\/comedy\/[a-z0-9-]+\/$/i.test(path)) return 'film';
       if (/^\/tv-series\/[^/]+\/?$/i.test(path)) return 'episode';
       if (/^\/tv-series-transcripts\/[^/]+\/?$/i.test(path) && !/^\/tv-series-transcripts\/page\/\d+\/?$/i.test(path)) return 'series';
     } catch {}
@@ -103,7 +107,7 @@
     const canonical = canonicalUrl(link.href, pageUrl);
     if (!canonical) return null;
     const kind = resourceKind(canonical);
-    if (archiveType === 'film' && kind !== 'film') return null;
+    if (archiveType === 'film' && (kind !== 'film' || (new URL(canonical).pathname.startsWith('/comedy/') && !link.archiveListed))) return null;
     if (archiveType === 'tv-archive' && kind !== 'series' && kind !== 'episode') return null;
     if (archiveType === 'tv-series-page' && kind !== 'episode') return null;
     if (archiveType !== 'film' && archiveType !== 'tv-archive' && archiveType !== 'tv-series-page') return null;
@@ -117,7 +121,7 @@
       : (/\bS\d{1,2}\s*E\d{1,3}\b|\bSeason\s+\d+\s*[,—–:-]?\s*Episode\s+\d+\b|\b\d{1,2}x\d{1,3}\b/i.test(anchorText)
         ? anchorText : (contextText || anchorText));
     if (!title || /^(read more|continue reading|transcript)$/i.test(title)) return null;
-    if (kind !== 'series' && !/transcript/i.test(String(link.contextTitle || '') + ' ' + String(link.text || '') + ' ' + path)) return null;
+    if (kind !== 'series' && !(archiveType === 'film' && link.archiveListed) && !/transcript/i.test(String(link.contextTitle || '') + ' ' + String(link.text || '') + ' ' + path)) return null;
     if (kind === 'episode' && parentSeriesTitle && /^(?:S\d{1,2}\s*E\d{1,3}|Season\s+\d+\s*[,—–:-]?\s*Episode\s+\d+)\b/i.test(title)) {
       title = parentSeriesTitle + ' ' + title;
     }
@@ -321,9 +325,56 @@
     };
   }
 
+  // Scraps movie archive: the unfiltered "All" page displays only the first 60
+  // entries with NO pagination. Complete enumeration uses A-Z letter filters.
+  // # may behave as an empty filter, so scan "All" for numeric-leading titles.
+  // No hidden HTTP fetches: a user click visits each subsequent listing page.
+  const FILM_LETTERS='ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  function filmArchiveLocation(raw) {
+    try {
+      const u=new URL(raw);
+      if(!VALID_HOSTS.has(u.hostname.toLowerCase()) || u.protocol!=='https:' ||
+         u.pathname!=='/movie-transcripts/')return null;
+      const keys=[...u.searchParams.keys()];
+      if(keys.some(k=>!['mt_letter','mt_page'].includes(k)) ||
+        new Set(keys).size!==keys.length)return null;
+      const letter=u.searchParams.get('mt_letter');
+      const page=u.searchParams.has('mt_page')?Number(u.searchParams.get('mt_page')):1;
+      if(letter!==null && !/^[A-Z]$/.test(letter))return null;
+      if(!Number.isInteger(page)||page<1||page>100)return null;
+      if(letter===null && page!==1)return null;
+      return {letter,page,root:letter===null};
+    }catch{return null}
+  }
+  function filmArchivePageUrl(letter,page=1) {
+    if(!/^[A-Z]$/.test(letter)||!Number.isInteger(page)||page<1||page>100)return null;
+    return 'https://scrapsfromtheloft.com/movie-transcripts/?mt_letter='+letter+
+      (page>1?'&mt_page='+page:'');
+  }
+  function filmArchiveNextUrl(raw,nextHref) {
+    const state=filmArchiveLocation(raw);
+    if(!state)return null;
+    if(state.root)return filmArchivePageUrl('A');
+    if(nextHref) {
+      const next=filmArchiveLocation(nextHref);
+      if(next && next.letter===state.letter && next.page===state.page+1)
+        return filmArchivePageUrl(next.letter,next.page);
+      return null; // malformed pagination: stop rather than silently skip
+    }
+    const i=FILM_LETTERS.indexOf(state.letter);
+    return i>=0 && i<25?filmArchivePageUrl(FILM_LETTERS[i+1]):null;
+  }
+  // Only headings inside site-provided movie archive cards are trusted as
+  // movie transcript entries, even when the article's slug lacks "transcript".
+  function filmArchiveListedLinks(doc) {
+    return Array.from(doc.querySelectorAll('.catalog-list .catalog-item h3 a[href]')).map(a=>({
+      href:a.href,text:collapse(a.textContent),contextTitle:collapse(a.textContent),archiveListed:true
+    }));
+  }
+
   // Make the data-only functions testable without mounting UI or requiring Tampermonkey.
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
+    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
     return;
   }
 
@@ -405,8 +456,74 @@
     });
   }
 
+  const isGuidedFilm=!IS_SPOILER && type==='film' && filmArchiveLocation(location.href)!==null;
+  const filmGuideButtons=[];
+  function guideState(){
+    return GM_getValue(MOVIE_GUIDE_KEY,{active:false,visited:[],entries:[],failed:null});
+  }
+  function scanGuidedMoviePage(){
+    const state=guideState();
+    if(!state.active || !isGuidedFilm)return;
+    const loc=filmArchiveLocation(location.href);
+    const current=canonicalUrl(location.href,location.href);
+    if(state.visited.some(v=>v.url===current)){
+      show('Guided movie scan: page already recorded. Continue when ready.');
+      return;
+    }
+    const links=filmArchiveListedLinks(document);
+    const result=extractCandidates(links,'film',location.href);
+    // A movie index card not captured is a blocking exception.
+    const listed=links.length;
+    if(!listed||result.items.length!==listed||result.truncated){
+      const why='Expected '+listed+' movie cards, extracted '+result.items.length+
+        '. Paused: fix extraction or unexpected page before continuing.';
+      GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false,failed:{url:current,reason:why}});
+      show(why);return;
+    }
+    const expectedText=document.querySelector('.results-summary')?.textContent||'';
+    const expectedMatch=expectedText.replace(/,/g,'').match(/(\d+)\s+movie transcripts?/i);
+    const summary=expectedMatch?Number(expectedMatch[1]):null;
+    const merged=mergeStage(staged(),result.items,location.href);
+    GM_setValue(STORAGE_KEY,merged.stage);
+    const visited=[...state.visited,{url:current,letter:loc.letter||'ALL',page:loc.page,
+      listed,expected:summary,newLinks:merged.added}];
+    GM_setValue(MOVIE_GUIDE_KEY,{...state,visited,failed:null});
+    show('Guided archive captured '+listed+' movie links on '+
+      (loc.letter||'ALL')+' page '+loc.page+' ('+merged.added+' new). '+
+      'Use Continue to visit next listing. No article text was downloaded.');
+  }
+  function nextFilmPage(){
+    const nextLink=document.querySelector('nav.pagination a.next[href]');
+    return filmArchiveNextUrl(location.href,nextLink?.href||null);
+  }
+  if(isGuidedFilm){
+    const guideStart=button('Start / resume movie scan',()=>{
+      const state=guideState();
+      GM_setValue(MOVIE_GUIDE_KEY,{...state,active:true,failed:null});
+      scanGuidedMoviePage();
+    });
+    const guideNext=button('Scan next listing ↗',()=>{
+      const state=guideState();
+      const current=canonicalUrl(location.href,location.href);
+      if(!state.active||!state.visited.some(v=>v.url===current)){
+        show('Start/resume and successfully record this page before continuing.');return;
+      }
+      const next=nextFilmPage();
+      if(!next){show('End of A-Z guide, or unexpected pagination. Review counts before declaring complete.');return;}
+      window.location.assign(next);
+    });
+    const guidePause=button('Pause movie scan',()=>{
+      const state=guideState();
+      GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false});
+      show('Guided scan paused. Captured pages and staged URLs are preserved.');
+    });
+    guideStart.style.background='#48633a';
+    guidePause.style.background='#56616e';
+    filmGuideButtons.push(guideStart,guideNext,guidePause);
+  }
+
   button('Discover visible titles', () => {
-    const links = type === 'spoiler-article' ? [{
+    const links = type === 'film' && filmArchiveLocation(location.href) ? filmArchiveListedLinks(document) : type === 'spoiler-article' ? [{
       href:location.href,
       text:collapse(document.querySelector('main h1, h1.entry-title, h1')?.textContent),
       contextTitle:collapse(document.title)
@@ -493,5 +610,6 @@
       if (!panel.isConnected) document.body.append(panel);
     });
   }
-  show(IS_SPOILER ? 'Ready for manual scans of The Movie Spoiler home, search, genre and movie pages. Plot availability remains unverified until reviewed.' : 'Ready. Manually visit movie archives, the TV directory, or a listed TV series page; click Discover on each page.');
+  show(IS_SPOILER ? 'Ready for manual scans of The Movie Spoiler home, search, genre and movie pages. Plot availability remains unverified until reviewed.' : 'Ready. For movies use Start / resume movie scan, then Scan next listing, or use manual Discover for TV indexes.');
+  if(isGuidedFilm && guideState().active)scanGuidedMoviePage();
 })();

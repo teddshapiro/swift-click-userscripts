@@ -530,3 +530,31 @@ test('The Bear TV pilot counts all 37 episodes; absent season 4 and S05E00 are d
  const altered=structuredClone(input);altered.sections[3].links.pop();
  assert.equal(core.tvSeriesAudit(altered).valid,false);
 });
+
+
+test('reconciles full TV directory scan only with 328 indexes and 3332 valid episode links',()=>{
+ const root='https://scrapsfromtheloft.com/tv-series-transcripts/';
+ const entries=Array.from({length:328},(_,i)=>({title:'Series '+i,url:root+'series-'+i+'/',count:i<44?11:10}));
+ // Expected 328 * 10 + 44 = 3324, with eight extra episodes on last index.
+ entries[327].count+=8;
+ const queue=entries.map(e=>e.url),visited=entries.map(e=>({
+   url:e.url,expected:e.count,accepted:e.count,title:e.title
+ }));
+ const indexes=entries.map(e=>({workType:'series',canonicalUrl:e.url,foundOn:root}));
+ const episodes=entries.flatMap(e=>Array.from({length:e.count},(_,n)=>({
+   workType:'episode',canonicalUrl:'https://scrapsfromtheloft.com/tv-series/'+
+     e.title.toLowerCase().replace(' ','-')+'-s01e'+String(n).padStart(2,'0')+'/',
+   foundOn:e.url,seriesIndexUrl:e.url
+ })));
+ assert.equal(episodes.length,3332);
+ const state={queue,entries,visited,directoryTotal:3332};
+ const stage={items:[...indexes,...episodes]};
+ const good=core.tvFullCoverage(state,stage);
+ assert.equal(good.complete,true);
+ assert.equal(good.series,328);
+ assert.equal(good.episodes,3332);
+ const short=structuredClone(state);short.visited.pop();
+ assert.equal(core.tvFullCoverage(short,stage).complete,false);
+ const missing=structuredClone(stage);missing.items.pop();
+ assert.equal(core.tvFullCoverage(state,missing).complete,false);
+});

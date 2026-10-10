@@ -645,7 +645,7 @@ test('American Masters source lists an unnumbered documentary under /movies/ as 
  assert.equal(entry.reviewStatus,'needs-episode-review');
  assert.equal(result.coverage.unnumbered,1);
  assert.equal(result.reviewable.length,1);
- assert.match(result.reviewable[0].reason,/movie archive/);
+ assert.match(result.reviewable[0].reason,/cross-category/);
 });
 
 test('cross-category TV exception is allowed only for trusted series episode-list links',()=>{

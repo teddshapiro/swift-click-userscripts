@@ -770,6 +770,44 @@ test('alpha.15: 328 pages can finish with 3331 real links and one disclosed sour
  assert.equal(core.tvFullCoverage({entries,queue,visited:notFinished,directoryTotal:3332},snapshot).readyForReview,false);
 });
 
+test('alpha.15: provisional SEAL Team page can be backfilled with one newly listed URL later',()=>{
+ const root='https://scrapsfromtheloft.com/tv-series-transcripts/';
+ const index=root+'seal-team/';
+ const one='https://scrapsfromtheloft.com/tv-series/seal-team-s04e15-transcript/';
+ const two='https://scrapsfromtheloft.com/tv-series/seal-team-s04e16-transcript/';
+ const other=root+'another-series/';
+ const original={workType:'episode',canonicalUrl:one,foundOn:index,
+  seriesIndexUrl:index,reviewStatus:'candidate',firstSeenAt:'2026-10-10'};
+ const stage={version:2,items:[
+  {workType:'series',canonicalUrl:index,foundOn:root},
+  {workType:'series',canonicalUrl:other,foundOn:root},
+  original
+ ],pages:[root,index]};
+ const state={active:true,auto:false,mode:'full',
+  visited:[{url:index,title:'SEAL Team',expected:2,accepted:1,
+   sourceGaps:[{section:'season-4',reported:2,observed:1,missing:1}]}]};
+ const audit={indexUrl:index,valid:true,deferred:false,
+  items:[{...original},{workType:'episode',canonicalUrl:two,foundOn:index,
+   seriesIndexUrl:index,reviewStatus:'candidate'}],coverage:{observedLinks:2}};
+ const recovered=core.tvBackfillIncompleteIndex(stage,state,audit);
+ assert.equal(recovered.error,null);
+ assert.equal(recovered.recovered,1);
+ assert.equal(recovered.url,two);
+ assert.equal(recovered.stage.items.filter(x=>x.workType==='episode').length,2);
+ assert.equal(recovered.state.visited[0].accepted,2);
+ assert.deepEqual(recovered.state.visited[0].sourceGaps,[]);
+ assert.equal(recovered.stage.items.find(x=>x.canonicalUrl===one).firstSeenAt,'2026-10-10');
+ assert.equal(stage.items.length,3,'original stage must remain unchanged');
+ assert.equal(state.visited[0].accepted,1,'original state must remain unchanged');
+ assert.match(core.tvBackfillIncompleteIndex(stage,state,{...audit,deferred:true}).error,/still incomplete/i);
+ assert.match(core.tvBackfillIncompleteIndex(stage,state,{...audit,items:[audit.items[1],audit.items[0]]}).error||'',/^$/);
+ assert.match(core.tvBackfillIncompleteIndex(stage,recovered.state,audit).error,/no single unresolved/i);
+ const replaced=structuredClone(audit);replaced.items[0].canonicalUrl='https://scrapsfromtheloft.com/tv-series/replaced-transcript/';
+ assert.match(core.tvBackfillIncompleteIndex(stage,state,replaced).error,/changed|disappeared/i);
+ const fewer={...audit,items:[audit.items[0]]};
+ assert.match(core.tvBackfillIncompleteIndex(stage,state,fewer).error,/incomplete/i);
+});
+
 test('alpha.7 saved TV pilot expands on alpha.9 without mode or rescanning',()=>{
   const base='https://scrapsfromtheloft.com/tv-series-transcripts/';
   const seeds=[['3-body-problem-tv-series',8],['american-gods-tv-series',2],['the-bear-tv-series',37]];

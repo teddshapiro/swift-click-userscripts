@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.8
+// @version      0.2.0-alpha.9
 // @description  Optional paced A-Z Scraps movie archive scanning; metadata-only TV/Movie Spoiler discovery.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -29,7 +29,7 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.8';
+  const SCRIPT_VERSION = '0.2.0-alpha.9';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const MOVIE_GUIDE_KEY = 'cinema-source-discovery-scraps-movies-guided-v1';
@@ -567,6 +567,48 @@
     if(pages.length>370)return {stage:prior,added:0,error:'TV index page count exceeded safety cap'};
     return {stage:{version:2,items:Array.from(byUrl.values()),pages},added,error:null};
   }
+  // Alpha.7 pilot saves predate the 'mode' property introduced in alpha.8.
+  // Recover only after verifying the complete three-index/47-episode receipt set.
+  // Never reinterpret a partial pilot or an already-expanded full scan.
+  function tvPilotExpansionAudit(state,stage){
+    const entries=Array.isArray(state?.entries)?state.entries:[];
+    const queue=Array.isArray(state?.queue)?state.queue:[];
+    const visited=Array.isArray(state?.visited)?state.visited:[];
+    const items=Array.isArray(stage?.items)?stage.items:[];
+    const series=items.filter(x=>x.workType==='series');
+    const episodes=items.filter(x=>x.workType==='episode');
+    const issues=[];
+    if(state?.mode!==undefined && state.mode!=='pilot')issues.push('State mode is '+String(state.mode)+', not a pilot');
+    if(queue.length!==3||new Set(queue).size!==3)issues.push('Expected 3 distinct queued pilot series; found '+queue.length);
+    if(visited.length!==3||new Set(visited.map(x=>x.url)).size!==3)issues.push('Expected 3 distinct visited pilot series; found '+visited.length);
+    if(entries.length!==328||new Set(entries.map(x=>x.url)).size!==328)issues.push('Expected 328 distinct source directory entries; found '+entries.length);
+    if(state?.directoryTotal!==3332)issues.push('Source directory expected 3332 episode links; recorded '+state?.directoryTotal);
+    if(series.length!==328||new Set(series.map(x=>x.canonicalUrl)).size!==328)issues.push('Expected 328 distinct series index records; found '+series.length);
+    if(episodes.length!==47||new Set(episodes.map(x=>x.canonicalUrl)).size!==47)issues.push('Expected 47 distinct pilot episode URLs; found '+episodes.length);
+    for(const expected of [
+      ['3-body-problem-tv-series',8],
+      ['american-gods-tv-series',2],
+      ['the-bear-tv-series',37]
+    ]){
+      const found=entries.find(x=>x.url.endsWith('/'+expected[0]+'/'));
+      if(!found||found.count!==expected[1]||!queue.includes(found.url))
+        issues.push('Pilot source '+expected[0]+' missing or has an unexpected count');
+      else{
+        const v=visited.find(x=>x.url===found.url);
+        const linked=episodes.filter(x=>x.seriesIndexUrl===found.url);
+        if(!v||v.accepted!==expected[1]||v.expected!==expected[1]||
+          linked.length!==expected[1])
+          issues.push('Pilot '+expected[0]+' has incomplete visit or episode records');
+      }
+    }
+    if(visited.some(v=>!queue.includes(v.url)))issues.push('A visited index was not in the original pilot queue');
+    if(series.some(x=>!entries.some(e=>e.url===x.canonicalUrl)))issues.push('A staged series index is not in the directory');
+    if(episodes.some(x=>!queue.includes(x.seriesIndexUrl)))issues.push('An episode belongs to an index outside the three-series pilot');
+    return {valid:issues.length===0,legacyMode:state?.mode===undefined,
+      issues,series:series.length,episodes:episodes.length,visited:visited.length,
+      directoryEntries:entries.length,sourceTotal:state?.directoryTotal??null};
+  }
+
   function tvFullCoverage(state,stage){
     const entries=Array.isArray(state?.entries)?state.entries:[];
     const queue=Array.isArray(state?.queue)?state.queue:[];
@@ -606,7 +648,7 @@
 
   // Make the data-only functions testable without mounting UI or requiring Tampermonkey.
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, filmArchiveExtractionAudit, robotsMovieArchivePolicy, movieArchiveCoverage, tvDirectoryAudit, tvDirectorySnapshot, tvSeriesAudit, tvSeriesSnapshot, mergeTvStage, tvFullCoverage, tvImportBatches, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
+    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, filmArchiveExtractionAudit, robotsMovieArchivePolicy, movieArchiveCoverage, tvDirectoryAudit, tvDirectorySnapshot, tvSeriesAudit, tvSeriesSnapshot, mergeTvStage, tvPilotExpansionAudit, tvFullCoverage, tvImportBatches, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
     return;
   }
 
@@ -1037,21 +1079,18 @@
     button('Auto scan TV pilot / archive',()=>{void tvAutoStart();});
     button('Expand pilot to all 328 series',()=>{
       const state=tvState(),stage=tvStage();
-      const pilotOk=state.mode==='pilot' && state.queue?.length===3 &&
-        state.visited?.length===3 &&
-        state.visited.reduce((n,v)=>n+v.accepted,0)===47 &&
-        state.entries?.length===328 && state.directoryTotal===3332 &&
-        state.queue.every(url=>state.visited.some(v=>v.url===url)) &&
-        stage.items.filter(x=>x.workType==='series').length===328 &&
-        stage.items.filter(x=>x.workType==='episode').length===47;
-      if(!pilotOk){
-        show('Full scan expansion is blocked: the 3-series/47-episode pilot or its 328-series directory baseline is incomplete. Retain pilot data and inspect.');return;
+      const audit=tvPilotExpansionAudit(state,stage);
+      if(!audit.valid){
+        show('TV scan expansion paused for data safety: '+audit.issues.join('; ')+
+          '. No saved metadata was cleared.');return;
       }
       if(!window.confirm('Expand the validated TV pilot to all 328 series? The original 3 series, 47 episodes and complete movie scan will be preserved. No transcript bodies or catalog imports.'))return;
       const queue=state.entries.map(entry=>entry.url);
       GM_setValue(TV_GUIDE_KEY,{...state,mode:'full',queue,active:true,auto:false,
         exportCursor:0,failed:null});
-      show('TV archive queue expanded to 328 index pages. Three verified pilot pages and 47 episodes retained. Choose Auto scan TV pilot / archive to continue through the remaining 325 indexes.');
+      show('TV archive queue expanded to 328 index pages. Three verified pilot pages and 47 episodes retained.'+
+        (audit.legacyMode?' Successfully migrated the alpha.7 pilot state.':'')+
+        ' Choose Auto scan TV pilot / archive to continue through the remaining 325 indexes.');
     });
     button('Pause TV scan',()=>tvPause('TV scan paused; all inspected series and discovered URLs preserved.'));
 

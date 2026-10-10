@@ -611,6 +611,7 @@ test('alpha.14: Law & Order can save a source-list link already listed by anothe
  assert.equal(result.added,1,'source-list relationship should count as a new reference');
  assert.equal(result.sharedArticleUrls,1);
  assert.equal(result.sharedReferences,2);
+ assert.deepEqual(result.newSharedArticleUrls,[article]);
  assert.equal(result.stage.items.length,4);
  const related=result.stage.items.filter(x=>x.workType==='episode');
  assert.deepEqual(related.map(x=>x.seriesIndexUrl),[other,law]);
@@ -625,6 +626,9 @@ test('alpha.14: Law & Order can save a source-list link already listed by anothe
  const same=core.mergeTvStage(result.stage,incoming,law);
  assert.match(same.error,/duplicate|identity/i);
  assert.equal(same.stage.items.length,result.stage.items.length,'duplicate same index must not overwrite stored stage');
+ const independent=core.mergeTvStage(result.stage,[{workType:'episode',canonicalUrl:'https://scrapsfromtheloft.com/tv-series/new-unique-transcript/',seriesIndexUrl:law,foundOn:law,reviewStatus:'candidate'}],law);
+ assert.equal(independent.error,null);
+ assert.deepEqual(independent.newSharedArticleUrls,[],'previous shared URLs should not be reported anew');
  const unsafe=structuredClone(result.stage.items);
  unsafe.push({...unsafe[3]});
  assert.throws(()=>core.tvImportBatches(unsafe,600),/duplicate/i);

@@ -675,6 +675,93 @@ test('alpha.14: full TV reconciliation counts source listings, not exclusively u
  assert.equal(core.tvFullCoverage({entries,queue,visited,directoryTotal:3332},missing).complete,false);
 });
 
+test('alpha.15: SEAL Team 112 linked rows out of 113 is saved as an explicit, single deferred source gap',()=>{
+ const index='https://scrapsfromtheloft.com/tv-series-transcripts/seal-team/';
+ const mk=(season,n)=>({href:'https://scrapsfromtheloft.com/tv-series/seal-team-s'+season+'e'+n+'-transcript/',
+  text:'SEAL Team S'+season+'E'+n,indexEpisodeListed:true});
+ const seasonOther=Array.from({length:97},(_,i)=>mk('03',String(i+1).padStart(3,'0')));
+ const season4=Array.from({length:15},(_,i)=>mk('04',String(i+1).padStart(2,'0')));
+ const input={indexUrl:index,entry:{url:index,title:'SEAL Team',count:113},
+  pageTitle:'SEAL Team',reportedCount:113,
+  sections:[{id:'season-3',count:97,links:seasonOther,domRows:97,unlinkedRows:[]},
+    {id:'season-4',count:16,links:season4,domRows:16,unlinkedRows:['Unlinked episode row']}]};
+ const good=core.tvSeriesAudit(input);
+ assert.equal(good.valid,true,JSON.stringify(good.issues));
+ assert.equal(good.deferred,true);
+ assert.equal(good.items.length,112);
+ assert.equal(good.observed,112);
+ assert.equal(good.sourceGaps.length,1);
+ assert.deepEqual(good.sourceGaps[0],{
+  section:'season-4',reported:16,observed:15,missing:1,
+  domRows:16,unlinkedRows:['Unlinked episode row']
+ });
+ assert.equal(good.items.every(x=>x.canonicalUrl&&x.seriesIndexUrl===index),true);
+ const moreMissing=structuredClone(input);
+ moreMissing.sections[1].links.pop();
+ assert.equal(core.tvSeriesAudit(moreMissing).valid,false,
+  'two missing source links must still halt');
+ const wrongIndex=structuredClone(input);wrongIndex.pageTitle='Wrong Show';
+ assert.equal(core.tvSeriesAudit(wrongIndex).valid,false);
+ const wrongTotals=structuredClone(input);wrongTotals.reportedCount=114;
+ assert.equal(core.tvSeriesAudit(wrongTotals).valid,false);
+ const duplicate=structuredClone(input);
+ duplicate.sections[1].links[0].href=duplicate.sections[0].links[0].href;
+ assert.equal(core.tvSeriesAudit(duplicate).valid,false,
+  'repeated article on same series must not be treated as missing link');
+ const malformed=structuredClone(input);
+ malformed.sections[1].links[0].href='https://other.example/invalid/';
+ assert.equal(core.tvSeriesAudit(malformed).valid,false);
+ const extraLink=structuredClone(input);
+ extraLink.sections[1].links.push(mk('04','16'));
+ assert.equal(core.tvSeriesAudit(extraLink).valid,true);
+ assert.equal(core.tvSeriesAudit(extraLink).deferred,false);
+ assert.equal(core.tvSeriesAudit(extraLink).items.length,113);
+});
+
+test('alpha.15: 328 pages can finish with 3331 real links and one disclosed source-index discrepancy',()=>{
+ const root='https://scrapsfromtheloft.com/tv-series-transcripts/';
+ const entries=Array.from({length:328},(_,i)=>({
+   title:'Series '+i,url:root+'series-'+i+'/',count:i<52?11:10
+ }));
+ const queue=entries.map(e=>e.url);
+ const visited=entries.map(e=>({url:e.url,title:e.title,expected:e.count,accepted:e.count,
+   sourceGaps:[]}));
+ const indexes=entries.map(e=>({workType:'series',canonicalUrl:e.url,foundOn:root}));
+ const episodes=entries.flatMap((e,i)=>Array.from({length:e.count},(_,n)=>({
+  workType:'episode',canonicalUrl:'https://scrapsfromtheloft.com/tv-series/index-'+i+'-episode-'+n+'/',
+  seriesIndexUrl:e.url,foundOn:e.url,reviewStatus:'candidate'
+ })));
+ assert.equal(episodes.length,3332);
+ const complete=core.tvFullCoverage({entries,queue,visited,directoryTotal:3332},
+  {items:[...indexes,...episodes]});
+ assert.equal(complete.complete,true);
+ assert.equal(complete.readyForReview,true);
+ const missingEntry=entries[247];
+ visited[247].accepted--;
+ visited[247].sourceGaps=[{section:'season-4',reported:16,observed:15,
+   missing:1,domRows:15,unlinkedRows:[]}];
+ const omitted=episodes.filter((item,i)=>!(item.seriesIndexUrl===missingEntry.url &&
+   item.canonicalUrl.endsWith('-episode-0/')));
+ assert.equal(omitted.length,3331);
+ const snapshot={items:[...indexes,...omitted]};
+ const deferred=core.tvFullCoverage({entries,queue,visited,directoryTotal:3332},snapshot);
+ assert.equal(deferred.complete,false);
+ assert.equal(deferred.readyForReview,true,JSON.stringify(deferred));
+ assert.equal(deferred.episodes,3331);
+ assert.equal(deferred.missingSourceLinks,1);
+ assert.equal(deferred.sourceGaps.length,1);
+ assert.equal(deferred.sourceGaps[0].indexUrl,missingEntry.url);
+ assert.equal(deferred.sourceGaps[0].title,missingEntry.title);
+ const batches=core.tvImportBatches(snapshot.items,600);
+ assert.deepEqual(batches.map(b=>b.items.length),[600,600,600,600,600,600,59]);
+ const unflagged=structuredClone(visited);unflagged[247].sourceGaps=[];
+ assert.equal(core.tvFullCoverage({entries,queue,visited:unflagged,directoryTotal:3332},snapshot).readyForReview,false);
+ const misaccounted=structuredClone(visited);misaccounted[247].accepted=missingEntry.count;
+ assert.equal(core.tvFullCoverage({entries,queue,visited:misaccounted,directoryTotal:3332},snapshot).readyForReview,false);
+ const notFinished=visited.slice(0,-1);
+ assert.equal(core.tvFullCoverage({entries,queue,visited:notFinished,directoryTotal:3332},snapshot).readyForReview,false);
+});
+
 test('alpha.7 saved TV pilot expands on alpha.9 without mode or rescanning',()=>{
   const base='https://scrapsfromtheloft.com/tv-series-transcripts/';
   const seeds=[['3-body-problem-tv-series',8],['american-gods-tv-series',2],['the-bear-tv-series',37]];

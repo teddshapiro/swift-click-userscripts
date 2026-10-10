@@ -463,3 +463,30 @@ test('archive exception audit includes only source index metadata, not page body
  assert.equal(d.issues[0].title,'Unusual item');
  assert.match(d.issues[0].reason,/invalid destination URL/);
 });
+
+
+test('H page 1 business-path exception is a valid archive-listed source without bypassing unrelated links',()=>{
+ const base='https://scrapsfromtheloft.com/movie-transcripts/?mt_letter=H';
+ const business='https://scrapsfromtheloft.com/business/how-brands-use-design-marketing-to-control-your-mind-transcript/';
+ const links=[
+  {href:'/movies/hamnet-transcript/',text:'Hamnet (2025)',contextTitle:'Hamnet (2025)',archiveListed:true},
+  {href:business,text:'How Brands Use Design & Marketing to Control Your Mind (2023)',
+    contextTitle:'How Brands Use Design & Marketing to Control Your Mind (2023)',archiveListed:true}
+ ];
+ const audit=core.filmArchiveExtractionAudit(links,base);
+ assert.equal(audit.listed,2);
+ assert.equal(audit.accepted,2);
+ assert.equal(audit.rejected,0);
+ assert.equal(audit.duplicateUrls,0);
+ assert.equal(audit.issues.length,0);
+ const special=audit.items.find(x=>x.canonicalUrl===business);
+ assert.ok(special);
+ assert.equal(special.articleTitle,'How Brands Use Design & Marketing to Control Your Mind (2023)');
+ assert.equal(special.releaseYear,2023);
+ assert.equal(special.workType,'film');
+ assert.equal(special.foundOn,base);
+ assert.equal(core.candidateFromLink({href:business,text:'How Brands Use Design & Marketing to Control Your Mind (2023)'},'film',base),null,
+  'business article outside the movie listing cards must not become a film');
+ assert.equal(core.extractCandidates([{href:business,text:'How Brands Use Design & Marketing to Control Your Mind (2023)'}],'tv-archive',
+  'https://scrapsfromtheloft.com/tv-series-transcripts/').items.length,0);
+});

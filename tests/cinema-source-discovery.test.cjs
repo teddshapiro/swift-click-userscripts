@@ -327,8 +327,26 @@ test('Movie Spoiler strips homepage ranking and promotional prefixes from movie 
  const r=core.extractSpoilerCandidates([
   {href:'/movies/verity/',text:'#1 New VERITY'},
   {href:'/movies/avengers-endgame/',text:'#7 2026 Re-Release AVENGERS: ENDGAME'},
-  {href:'/movies/obsession/',text:'OBSESSION'}
+  {href:'/movies/obsession/',text:'OBSESSION'},
+  {href:'/movies/supergirl-2026/',text:'HBO MAX#1 Movie SUPERGIRL (2026)'},
+  {href:'/movies/avatar-ang-the-last-airbender/',text:'Paramount +#1 Movie AVATAR AANG: The Last Airbender'}
  ],'spoiler-list','https://themoviespoiler.com/');
- assert.deepEqual(r.items.map(x=>x.articleTitle),['VERITY','AVENGERS: ENDGAME','OBSESSION']);
+ assert.deepEqual(r.items.map(x=>x.articleTitle),['VERITY','AVENGERS: ENDGAME','OBSESSION','SUPERGIRL (2026)','AVATAR AANG: The Last Airbender']);
  assert.ok(r.items.every(x=>x.reviewStatus==='needs-plot-review'));
+});
+
+test('Movie Spoiler numeric-leading film titles are never mistaken for chart ranking badges',()=>{
+ const cases=[
+  ['/movies/28-years-later/','28 YEARS LATER'],
+  ['/movies/12-years-a-slave-2013/','12 YEARS A SLAVE (2013)'],
+  ['/movies/9-2009/','9 (2009)'],
+  ['/movies/80-for-brady/','80 FOR BRADY'],
+  ['/movies/21-bridges/','21 BRIDGES'],
+  ['/movies/47-meters-down-uncaged/','47 METERS DOWN: Uncaged'],
+  ['/movies/3-days-to-kill-2014/','3 DAYS TO KILL (2014)'],
+  ['/movies/3-10-to-yuma-2007/','3:10 TO YUMA (2007)']
+ ];
+ const results=core.extractSpoilerCandidates(cases.map(([href,text])=>({href,text})),'spoiler-list','https://themoviespoiler.com/');
+ assert.equal(results.items.length,cases.length);
+ assert.deepEqual(results.items.map(x=>x.articleTitle),cases.map(x=>x[1]));
 });

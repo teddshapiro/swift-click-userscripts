@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.3
-// @description  Guided link-only Scraps movie archive discovery and manual TV / Movie Spoiler scanning.
+// @version      0.2.0-alpha.4
+// @description  Optional paced A-Z Scraps movie archive scanning; metadata-only TV/Movie Spoiler discovery.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
 // @match        https://www.scrapsfromtheloft.com/movie-transcripts/*
@@ -29,7 +29,7 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.3';
+  const SCRIPT_VERSION = '0.2.0-alpha.4';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const MOVIE_GUIDE_KEY = 'cinema-source-discovery-scraps-movies-guided-v1';
@@ -372,9 +372,65 @@
     }));
   }
 
+  // A conservative robots.txt rule reader for this specific archive path.
+  // If rules are unavailable, malformed or ambiguous, DO NOT auto-navigate.
+  function robotsMovieArchivePolicy(body) {
+    if(typeof body!=='string'||body.length>100000||!/(?:^|\n)\s*User-agent\s*:/i.test(body))
+      return {allowed:false,reason:'Missing or unrecognized robots.txt rules.'};
+    const groups=[];
+    let agents=[],rules=[],seenDirective=false;
+    function flush(){if(agents.length)groups.push({agents,rules});agents=[];rules=[];seenDirective=false;}
+    for(const line of body.split(/\r?\n/)){
+      const clean=line.replace(/#.*$/,'').trim();
+      if(!clean)continue;
+      const m=clean.match(/^([\w-]+)\s*:\s*(.*)$/);
+      if(!m)continue;
+      const key=m[1].toLowerCase(),value=m[2].trim();
+      if(key==='user-agent'){
+        if(seenDirective)flush();
+        agents.push(value.toLowerCase());
+      }else if(agents.length){
+        seenDirective=true;
+        if(['allow','disallow','crawl-delay'].includes(key))rules.push({key,value});
+      }
+    }
+    flush();
+    const generic=groups.filter(g=>g.agents.includes('*'));
+    if(!generic.length)return {allowed:false,reason:'No general User-agent: * rule could be confirmed.'};
+    const path='/movie-transcripts/?mt_letter=A&mt_page=2';
+    let match=null,delaySeconds=0;
+    for(const group of generic)for(const r of group.rules){
+      if(r.key==='crawl-delay'){
+        if(!/^\d+(?:\.\d+)?$/.test(r.value))return {allowed:false,reason:'Unrecognized robots.txt Crawl-delay.'};
+        delaySeconds=Math.max(delaySeconds,Number(r.value));continue;
+      }
+      if(!r.value)continue;
+      if(!r.value.startsWith('/'))return {allowed:false,reason:'Unrecognized robots.txt path pattern.'};
+      const source=r.value.replace(/[-/\\^$+?.()|[\]{}]/g,'\\  // Make the data-only functions testable without mounting UI or requiring Tampermonkey.').replace(/\*/g,'.*');
+      const regex=new RegExp('^'+source);
+      if(regex.test(path)){
+        const weight=r.value.replace(/\*/g,'').length;
+        if(!match||weight>match.weight||(weight===match.weight&&r.key==='disallow'))
+          match={allowed:r.key==='allow',weight,pattern:r.value};
+      }
+    }
+    if(match&&!match.allowed)return {allowed:false,reason:'robots.txt disallows movie archive ('+match.pattern+').' };
+    if(!Number.isFinite(delaySeconds)||delaySeconds>120)return {allowed:false,reason:'robots.txt crawling delay exceeds pilot safety limit.'};
+    return {allowed:true,delayMs:Math.max(15000,Math.ceil(delaySeconds*1000)),
+      reason:'The archive is not disallowed in the general robots rules.'};
+  }
+  function movieArchiveCoverage(visited) {
+    const rows=Array.isArray(visited)?visited:[];
+    const observed=new Set(rows.flatMap(v=>v.urls||[]));
+    const baseline=rows.find(v=>v.letter==='ALL'&&Number.isInteger(v.expected))?.expected??null;
+    const scannedLetters=new Set(rows.filter(v=>/^[A-Z]$/.test(v.letter)).map(v=>v.letter));
+    return {unique:observed.size,expected:baseline,lettersSeen:scannedLetters.size,
+      complete:scannedLetters.size===26&&baseline!==null&&observed.size===baseline};
+  }
+
   // Make the data-only functions testable without mounting UI or requiring Tampermonkey.
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
+    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, robotsMovieArchivePolicy, movieArchiveCoverage, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
     return;
   }
 
@@ -458,8 +514,11 @@
 
   const isGuidedFilm=!IS_SPOILER && type==='film' && filmArchiveLocation(location.href)!==null;
   const filmGuideButtons=[];
+  const AUTO_MAX_PAGES=90;
+  let autoTimeout=null;
+  function cancelAutoTimer(){if(autoTimeout!==null){clearTimeout(autoTimeout);autoTimeout=null;}}
   function guideState(){
-    return GM_getValue(MOVIE_GUIDE_KEY,{active:false,visited:[],entries:[],failed:null});
+    return GM_getValue(MOVIE_GUIDE_KEY,{active:false,auto:false,visited:[],entries:[],failed:null});
   }
   function scanGuidedMoviePage(){
     const state=guideState();
@@ -477,7 +536,7 @@
     if(!listed||result.items.length!==listed||result.truncated){
       const why='Expected '+listed+' movie cards, extracted '+result.items.length+
         '. Paused: fix extraction or unexpected page before continuing.';
-      GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false,failed:{url:current,reason:why}});
+      GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false,auto:false,failed:{url:current,reason:why}});
       show(why);return;
     }
     const expectedText=document.querySelector('.results-summary')?.textContent||'';
@@ -492,7 +551,7 @@
         const reason='Letter '+loc.letter+' appears to end with '+distinct.size+
           ' distinct listed URLs, but the site reports '+summary+
           '. Pause and inspect before continuing to next letter.';
-        GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false,failed:{url:current,reason}});
+        GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false,auto:false,failed:{url:current,reason}});
         show(reason);return;
       }
     }
@@ -508,13 +567,96 @@
     const nextLink=document.querySelector('nav.pagination a.next[href]');
     return filmArchiveNextUrl(location.href,nextLink?.href||null);
   }
+  function stopAuto(reason,failed=false){
+    cancelAutoTimer();
+    const state=guideState();
+    GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false,auto:false,
+      failed:failed?{url:location.href,reason}:null});
+    show(reason);
+  }
+  function scheduleAutoListing(){
+    cancelAutoTimer();
+    const state=guideState();
+    if(!state.auto||!state.active||!isGuidedFilm)return;
+    const current=canonicalUrl(location.href,location.href);
+    if(!state.visited.some(v=>v.url===current)){
+      stopAuto('Automatic scan stopped: current page has not been successfully recorded.',true);return;
+    }
+    if(state.visited.length>=AUTO_MAX_PAGES){
+      stopAuto('Automatic scan stopped at 90-page safety limit. Review coverage.',true);return;
+    }
+    const next=nextFilmPage();
+    if(!next){
+      const loc=filmArchiveLocation(location.href);
+      if(loc?.letter==='Z'){
+        const coverage=movieArchiveCoverage(state.visited);
+        if(coverage.complete){
+          stopAuto('Automatic movie archive scan finished: '+coverage.unique+' unique index URLs across all 26 letters; matching the source summary of '+coverage.expected+'. No article content was downloaded.');
+        }else{
+          stopAuto('Automatic scan reached Z, but coverage does not reconcile: '+coverage.unique+
+            ' unique links versus '+coverage.expected+' advertised; '+coverage.lettersSeen+
+            ' of 26 letters visited. Review before importing.',true);
+        }
+      }else stopAuto('Automatic scan stopped: unexpected pagination; cannot determine a safe next listing.',true);
+      return;
+    }
+    if(state.visited.some(v=>v.url===next)){
+      stopAuto('Automatic scan stopped: next listing is already visited (possible navigation loop).',true);return;
+    }
+    const timing=Math.max(15000,Number(state.autoDelayMs)||15000);
+    if(timing>120000){stopAuto('Automatic scan stopped: unsafe delay setting.',true);return;}
+    const coverage=movieArchiveCoverage(state.visited);
+    show('Auto scan active: '+state.visited.length+' pages; '+coverage.unique+
+      ' distinct archive URLs so far. Next listing in '+Math.ceil(timing/1000)+
+      ' seconds. Click Pause movie scan to stop.');
+    autoTimeout=setTimeout(()=>{
+      autoTimeout=null;
+      const fresh=guideState();
+      if(!fresh.active||!fresh.auto)return;
+      if(!fresh.visited.some(v=>v.url===current)||fresh.visited.some(v=>v.url===next))return;
+      // Full visible browser navigation only, no background HTTP requests.
+      window.location.assign(next);
+    },timing);
+  }
+  async function startAutomaticMovieScan(){
+    if(!isGuidedFilm)return;
+    const state=guideState();
+    const current=canonicalUrl(location.href,location.href);
+    if(!state.visited.some(v=>v.url===current)){
+      show('First capture this listing with Start / resume movie scan, then enable automation.');return;
+    }
+    if(!state.visited.some(v=>v.letter==='ALL')){
+      show('The first unfiltered All page must be recorded before starting automated A-Z navigation.');return;
+    }
+    if(!window.confirm('Before enabling repeated browsing, please check the Scraps website terms and confirm this metadata-only archive scan is permitted. This scans listing pages only, with at least 15 seconds between navigations, and stops on errors. Have you checked and do you want to proceed?'))return;
+    show('Checking Scraps robots.txt from your browser before activating the automatic scan...');
+    let policy;
+    try{
+      const response=await fetch('/robots.txt',{credentials:'same-origin',cache:'no-store'});
+      if(!response.ok)throw new Error('robots.txt returned HTTP '+response.status);
+      policy=robotsMovieArchivePolicy(await response.text());
+    }catch(e){
+      stopAuto('Automation not enabled: cannot verify robots.txt from this browser ('+e.message+'). Continue with guided manual Next or provide the robots.txt text for review.',true);return;
+    }
+    if(!policy.allowed){
+      stopAuto('Automation not enabled: '+policy.reason,true);return;
+    }
+    const updated=guideState();
+    if(updated.visited.length>=AUTO_MAX_PAGES){
+      stopAuto('Automatic scan not enabled: page visit limit already reached.',true);return;
+    }
+    GM_setValue(MOVIE_GUIDE_KEY,{...updated,active:true,auto:true,
+      autoDelayMs:policy.delayMs,robotsCheckedAt:new Date().toISOString(),failed:null});
+    scheduleAutoListing();
+  }
+
   if(isGuidedFilm){
     const guideStart=button('Start / resume movie scan',()=>{
       const state=guideState(),loc=filmArchiveLocation(location.href);
       if(!state.visited.length && loc.letter){
         show('For full coverage begin at the unfiltered All page to capture numeric-leading movie titles, then proceed A-Z.');return;
       }
-      GM_setValue(MOVIE_GUIDE_KEY,{...state,active:true,failed:null});
+      GM_setValue(MOVIE_GUIDE_KEY,{...state,active:true,auto:false,failed:null});
       scanGuidedMoviePage();
     });
     const guideNext=button('Scan next listing ↗',()=>{
@@ -525,16 +667,21 @@
       }
       const next=nextFilmPage();
       if(!next){show('End of A-Z guide, or unexpected pagination. Review counts before declaring complete.');return;}
+      cancelAutoTimer();
+      GM_setValue(MOVIE_GUIDE_KEY,{...state,auto:false});
       window.location.assign(next);
     });
+    const autoButton=button('Auto scan remaining A–Z',()=>{void startAutomaticMovieScan();});
+    autoButton.style.background='#425626';
     const guidePause=button('Pause movie scan',()=>{
       const state=guideState();
-      GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false});
+      cancelAutoTimer();
+      GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false,auto:false});
       show('Guided scan paused. Captured pages and staged URLs are preserved.');
     });
     guideStart.style.background='#48633a';
     guidePause.style.background='#56616e';
-    filmGuideButtons.push(guideStart,guideNext,guidePause);
+    filmGuideButtons.push(guideStart,guideNext,autoButton,guidePause);
   }
 
   button('Discover visible titles', () => {
@@ -648,5 +795,8 @@
     });
   }
   show(IS_SPOILER ? 'Ready for manual scans of The Movie Spoiler home, search, genre and movie pages. Plot availability remains unverified until reviewed.' : 'Ready. For movies use Start / resume movie scan, then Scan next listing, or use manual Discover for TV indexes.');
-  if(isGuidedFilm && guideState().active)scanGuidedMoviePage();
+  if(isGuidedFilm && guideState().active){
+    scanGuidedMoviePage();
+    if(guideState().auto)scheduleAutoListing();
+  }
 })();

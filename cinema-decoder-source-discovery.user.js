@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.14
+// @version      0.2.0-alpha.15
 // @description  Optional paced A-Z Scraps movie archive scanning; metadata-only TV/Movie Spoiler discovery.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -29,7 +29,7 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.14';
+  const SCRIPT_VERSION = '0.2.0-alpha.15';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const TV_MIN_DELAY_MS = 5000; // TV-only, subject to any longer robots.txt Crawl-delay.
@@ -543,7 +543,11 @@
     const sections=Array.from(doc.querySelectorAll('.season-groups section.season')).map(section=>{
       const text=collapse(section.querySelector('.season__heading span')?.textContent);
       const m=text.match(/^(\d+)\s+episodes?$/i);
+      const rows=Array.from(section.querySelectorAll('ol.episode-list li'));
       return {id:section.id,count:m?Number(m[1]):null,
+        domRows:rows.length,
+        unlinkedRows:rows.filter(li=>!li.querySelector('a[href]'))
+          .map(li=>collapse(li.textContent)).slice(0,10),
         links:Array.from(section.querySelectorAll('ol.episode-list li a[href]')).map(a=>({
           href:a.href,text:collapse(a.textContent),contextTitle:'',
           indexEpisodeListed:true
@@ -552,7 +556,7 @@
     return tvSeriesAudit({indexUrl,entry,pageTitle:name,reportedCount:count?Number(count[1]):null,sections});
   }
   function tvSeriesAudit({indexUrl,entry,pageTitle,reportedCount,sections}){
-    const issues=[],links=[],seen=new Set();
+    const issues=[],links=[],seen=new Set(),sourceGaps=[],seasonMismatches=[];
     const expected=entry?.count;
     if(!entry||entry.url!==indexUrl || collapse(pageTitle)!==entry.title)
       issues.push({reason:'Series page identity does not match queued directory URL and title',pageTitle,indexUrl});
@@ -560,8 +564,12 @@
       issues.push({reason:'Series page total disagrees with directory',reportedCount,expected});
     for(const section of sections||[]){
       const count=section.links?.length??0;
-      if(!Number.isInteger(section.count)||section.count!==count)
-        issues.push({reason:'Season count mismatch',section:section.id,reported:section.count,observed:count});
+      if(!Number.isInteger(section.count)||section.count<count)
+        seasonMismatches.push({reason:'Season count mismatch',section:section.id,reported:section.count,observed:count});
+      else if(section.count>count)
+        sourceGaps.push({section:section.id,reported:section.count,observed:count,
+          missing:section.count-count,domRows:section.domRows??null,
+          unlinkedRows:section.unlinkedRows||[]});
       for(const link of section.links||[])links.push(link);
     }
     if(!sections?.length)issues.push({reason:'No source season groups present'});
@@ -584,12 +592,23 @@
             : 'Episode identity or numbering requires review'
       });
     }
-    if(links.length!==expected || candidates.length!==expected)
+    // Defer only one internally consistent, explicitly logged source-list
+    // shortfall. No fabricated URL, relaxed identity checks or duplicate links.
+    const canDeferSingleGap=issues.length===0&&seasonMismatches.length===0 &&
+      sourceGaps.length===1&&sourceGaps[0].missing===1 &&
+      Number.isInteger(expected)&&reportedCount===expected &&
+      links.length===expected-1&&candidates.length===links.length;
+    if(!canDeferSingleGap)
+      issues.push(...seasonMismatches,...sourceGaps.map(g=>({
+        reason:'Season count mismatch',section:g.section,reported:g.reported,observed:g.observed
+      })));
+    if((links.length!==expected||candidates.length!==expected)&&!canDeferSingleGap)
       issues.push({reason:'Extracted links do not match source directory count',
         displayed:links.length,extracted:candidates.length,expected});
     return {indexUrl,title:entry?.title,expected,reportedCount,items:candidates,
       observed:links.length,coverage:seriesCoverage(candidates,indexUrl),
-      reviewable,issues,valid:issues.length===0};
+      reviewable,sourceGaps:canDeferSingleGap?sourceGaps:[],
+      deferred:canDeferSingleGap,issues,valid:issues.length===0};
   }
 
   // TV stage identity is a source listing, not a globally unique article URL.

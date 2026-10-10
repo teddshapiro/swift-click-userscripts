@@ -490,3 +490,12 @@ test('H page 1 business-path exception is a valid archive-listed source without 
  assert.equal(core.extractCandidates([{href:business,text:'How Brands Use Design & Marketing to Control Your Mind (2023)'}],'tv-archive',
   'https://scrapsfromtheloft.com/tv-series-transcripts/').items.length,0);
 });
+
+test('TV directory recognizes 328 source index entries and 3332 total episodes',()=>{
+const prefix='https://scrapsfromtheloft.com/tv-series-transcripts/';
+const entries=Array.from({length:328},(_,i)=>({url:prefix+'series-'+i+'/',title:'Show '+i,count:i===327?3005:1}));
+const good=core.tvDirectoryAudit(entries,328,3332);
+assert.equal(good.valid,true);assert.equal(good.items.length,328);
+assert.equal(core.tvDirectoryAudit(entries,328,3333).valid,false);
+assert.equal(core.tvDirectoryAudit(entries.slice(1),328,3332).valid,false);
+});

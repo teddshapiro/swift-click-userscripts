@@ -201,7 +201,10 @@
       !anchor || placeholder.test(anchor) ? context : anchor;
     if(!article || placeholder.test(article))return null;
     const title=article
-      .replace(/^\s*#?\d{1,2}\s+(?:New\s+)?/i,'')
+      // Strip only unmistakable site/ranking labels, never an unprefixed
+      // number: 28 DAYS LATER, 12 YEARS A SLAVE and 9 (2009) are real titles.
+      .replace(/^\s*(?:HBO\s+MAX|Paramount\s*\+)\s*#\d{1,2}\s*Movie\s+/i,'')
+      .replace(/^\s*#\d{1,2}(?=\s|(?:19|20)\d{2}\b)\s*/i,'')
       .replace(/^\s*(?:NEW|NOW PLAYING|ENDING SOON|SPOILER COMING|CHECK BACK LATER)\s+(?=[A-Z])/i,'')
       .replace(/^\s*\d{4}\s+Re-Release\s+/i,'')
       .replace(/\s*[|–—-]\s*The Movie Spoiler\s*$/i,'').trim();

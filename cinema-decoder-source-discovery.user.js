@@ -120,7 +120,7 @@
       !!indexPage && !new URL(indexPage).search &&
       /^\/tv-series-transcripts\/[a-z0-9][a-z0-9_-]*\/$/i.test(new URL(indexPage).pathname) &&
       !new URL(canonical).search &&
-      /^\/(?:tv-series|movies|comedy|business)\/[a-z0-9][a-z0-9_-]*\/$/i.test(new URL(canonical).pathname);
+      /^\/(?:tv-series|movies|comedy)\/[a-z0-9][a-z0-9_-]*\/$/i.test(new URL(canonical).pathname);
     const crossCategoryEpisode = seriesListedEpisode && nativeKind !== 'episode';
     const kind = seriesListedEpisode ? 'episode' : nativeKind;
     if (archiveType === 'film' && (kind !== 'film' || (/^\/(?:comedy|business)\//.test(new URL(canonical).pathname) && !link.archiveListed))) return null;

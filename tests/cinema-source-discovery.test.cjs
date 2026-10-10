@@ -743,6 +743,52 @@ test('TV indexed exceptions remain strictly scoped to actual season episode-list
  }
 });
 
+test('Last Week Tonight accepts source-listed politics articles without asserting episode identities',()=>{
+ const series='https://scrapsfromtheloft.com/tv-series-transcripts/last-week-tonight-with-john-oliver/';
+ const entries=[
+  ['China & Uighurs: Last Week Tonight with John Oliver',
+   'https://scrapsfromtheloft.com/politics/china-uighurs-last-week-tonight-with-john-oliver-transcript/'],
+  ['Coronavirus VIII: Prisons & Jails: Last Week Tonight with John Oliver',
+   'https://scrapsfromtheloft.com/politics/coronavirus-viii-prisons-jails-last-week-tonight-with-john-oliver-transcript/'],
+  ['Donald Trump: Last Week Tonight with John Oliver',
+   'https://scrapsfromtheloft.com/politics/donald-trump-last-week-tonight-with-john-oliver-transcript/']
+ ];
+ const links=entries.map(([text,href])=>({href,text,indexEpisodeListed:true}));
+ const audit=core.tvSeriesAudit({indexUrl:series,
+  entry:{title:'Last Week Tonight with John Oliver',url:series,count:3},
+  pageTitle:'Last Week Tonight with John Oliver',reportedCount:3,
+  sections:[{id:'season-1',count:3,links}]});
+ assert.deepEqual(audit.issues,[]);
+ assert.equal(audit.valid,true);
+ assert.equal(audit.items.length,3);
+ assert.equal(audit.reviewable.length,3);
+ for(let i=0;i<3;i++){
+  const item=audit.items[i];
+  assert.equal(item.canonicalUrl,entries[i][1]);
+  assert.equal(item.articleTitle,entries[i][0]);
+  assert.equal(item.seriesTitle,'Last Week Tonight with John Oliver');
+  assert.equal(item.seriesIndexUrl,series);
+  assert.equal(item.workType,'episode');
+  assert.equal(item.reviewStatus,'needs-episode-review');
+  assert.equal(item.seasonNumber,null);
+  assert.equal(item.episodeNumber,null);
+  assert.match(audit.reviewable[i].reason,/cross-category/);
+  assert.equal(core.candidateFromLink({...links[i],indexEpisodeListed:false},
+   'tv-series-page',series,'Last Week Tonight with John Oliver'),null);
+  assert.equal(core.candidateFromLink(links[i],
+   'tv-archive','https://scrapsfromtheloft.com/tv-series-transcripts/','Last Week Tonight with John Oliver'),null);
+ }
+ const unsafe=core.candidateFromLink(
+  {href:entries[0][1]+'?preview=1',text:entries[0][0],indexEpisodeListed:true},
+  'tv-series-page',series,'Last Week Tonight with John Oliver');
+ assert.equal(unsafe,null,'query-bearing politics URLs must still fail');
+ const missing=structuredClone(links);missing.pop();
+ assert.equal(core.tvSeriesAudit({indexUrl:series,
+  entry:{title:'Last Week Tonight with John Oliver',url:series,count:3},
+  pageTitle:'Last Week Tonight with John Oliver',reportedCount:3,
+  sections:[{id:'season-1',count:3,links:missing}]}).valid,false);
+});
+
 test('TV index audit still stops on incomplete season link counts and duplicates',()=>{
  const series='https://scrapsfromtheloft.com/tv-series-transcripts/the-daily-show-tv-series/';
  const url='https://scrapsfromtheloft.com/comedy/jon-stewart-on-jimmy-kimmel-transcript/';

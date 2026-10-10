@@ -545,6 +545,21 @@
     const expectedText=document.querySelector('.results-summary')?.textContent||'';
     const expectedMatch=expectedText.replace(/,/g,'').match(/(\d+)\s+movie transcripts?/i);
     const summary=expectedMatch?Number(expectedMatch[1]):null;
+    if(!Number.isInteger(summary)||summary<0){
+      const reason='Movie index count is missing or invalid on '+(loc.letter||'ALL')+
+        ' page '+loc.page+'. Paused before saving this page.';
+      GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false,auto:false,failed:{url:current,reason}});
+      show(reason);return;
+    }
+    if(loc.letter){
+      const previous=state.visited.find(v=>v.letter===loc.letter);
+      if(previous && previous.expected!==summary){
+        const reason='Movie count changed across '+loc.letter+' pages ('+previous.expected+
+          ' versus '+summary+'). Paused for review.';
+        GM_setValue(MOVIE_GUIDE_KEY,{...state,active:false,auto:false,failed:{url:current,reason}});
+        show(reason);return;
+      }
+    }
     const visited=[...state.visited,{url:current,letter:loc.letter||'ALL',page:loc.page,
       listed,expected:summary,urls:result.items.map(x=>x.canonicalUrl)}];
     if(loc.letter && !document.querySelector('nav.pagination a.next[href]') &&
@@ -783,7 +798,9 @@
   });
 
   button('Clear staged', () => {
-    if (!window.confirm('Clear locally staged '+(IS_SPOILER?'The Movie Spoiler plot links':'Scraps movie and TV source links')+'?')) return;
+    if (!window.confirm('Clear locally staged '+(IS_SPOILER?'The Movie Spoiler plot links':'Scraps movie and TV source links')+(IS_SPOILER?'?':' and reset the saved guided movie scan progress?') )) return;
+    cancelAutoTimer();
+    if(!IS_SPOILER)GM_deleteValue(MOVIE_GUIDE_KEY);
     GM_deleteValue(STORAGE_KEY);
     show('Local staging cleared.');
   });

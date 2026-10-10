@@ -670,8 +670,14 @@ test('American Masters unnumbered cross-category item stays subject to count and
    sections:[{id:'season-3',count:1,links:[{href:article,text:'Edgar Allan Poe: Buried Alive (2017)',indexEpisodeListed:true}]}]};
  const missing=structuredClone(base);missing.sections[0].links=[];
  assert.equal(core.tvSeriesAudit(missing).valid,false);
- const arbitrary=structuredClone(base);arbitrary.sections[0].links[0].href='https://scrapsfromtheloft.com/business/random-transcript/';
- assert.equal(core.tvSeriesAudit(arbitrary).valid,false);
+ const sourcedBusiness=structuredClone(base);
+ sourcedBusiness.sections[0].links[0].href='https://scrapsfromtheloft.com/business/random-transcript/';
+ const supported=core.tvSeriesAudit(sourcedBusiness);
+ assert.equal(supported.valid,true,'a literal index-listed business article is a legitimate reviewable source link');
+ assert.equal(supported.items[0].reviewStatus,'needs-episode-review');
+ assert.equal(supported.reviewable.length,1);
+ const nonArticle=structuredClone(base);nonArticle.sections[0].links[0].href='https://scrapsfromtheloft.com/uncategorized/random-transcript/';
+ assert.equal(core.tvSeriesAudit(nonArticle).valid,false);
  const unlabeled=structuredClone(base);unlabeled.sections[0].links[0].indexEpisodeListed=false;
  assert.equal(core.tvSeriesAudit(unlabeled).valid,false);
 });

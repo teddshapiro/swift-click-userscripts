@@ -986,7 +986,16 @@
     try{
       const r=await fetch('/robots.txt',{credentials:'same-origin',cache:'no-store'});
       if(!r.ok)throw new Error('HTTP '+r.status);
-      policy=robotsMovieArchivePolicy(await r.text(),'/tv-series-transcripts/the-bear-tv-series/');
+      const robotsText=await r.text();
+      const targets=[...new Set((state.queue||[]).map(url=>new URL(url).pathname))];
+      const checks=targets.map(path=>({path,policy:robotsMovieArchivePolicy(robotsText,path)}));
+      const blocked=checks.find(c=>!c.policy.allowed);
+      if(blocked){
+        tvPause('TV archive automation blocked by robots.txt for '+blocked.path+
+          ': '+blocked.policy.reason,true);return;
+      }
+      const delay=Math.max(15000,...checks.map(c=>c.policy.delayMs||15000));
+      policy={allowed:true,delayMs:delay};
     }catch(e){tvPause('TV pilot automation blocked: cannot verify robots.txt ('+e.message+').',true);return;}
     if(!policy.allowed){tvPause('TV pilot automation blocked: '+policy.reason,true);return;}
     GM_setValue(TV_GUIDE_KEY,{...tvState(),active:true,auto:true,delayMs:policy.delayMs,failed:null});

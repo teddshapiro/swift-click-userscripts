@@ -350,3 +350,43 @@ test('Movie Spoiler numeric-leading film titles are never mistaken for chart ran
  assert.equal(results.items.length,cases.length);
  assert.deepEqual(results.items.map(x=>x.articleTitle),cases.map(x=>x[1]));
 });
+
+
+test('Scraps movie archive: 1,316 reported on All but only letter pages paginate',()=>{
+ const all='https://scrapsfromtheloft.com/movie-transcripts/';
+ const a1=all+'?mt_letter=A&mt_page=1';
+ const a2=all+'?mt_letter=A&mt_page=2';
+ assert.deepEqual(core.filmArchiveLocation(all),{letter:null,page:1,root:true});
+ assert.deepEqual(core.filmArchiveLocation(a1),{letter:'A',page:1,root:false});
+ assert.deepEqual(core.filmArchiveLocation(a2),{letter:'A',page:2,root:false});
+ assert.equal(core.filmArchiveNextUrl(all,null),all+'?mt_letter=A');
+ assert.equal(core.filmArchiveNextUrl(a1,a2),a2);
+ assert.equal(core.filmArchiveNextUrl(a2,null),all+'?mt_letter=B');
+ assert.equal(core.filmArchiveNextUrl(all+'?mt_letter=Z',null),null);
+ assert.equal(core.filmArchiveNextUrl(a1,all+'?mt_letter=Z&mt_page=19'),null);
+ assert.equal(core.filmArchiveLocation(all+'?mt_letter=A&mt_page=0'),null);
+ assert.equal(core.filmArchiveLocation(all+'?mt_letter=A&view=screenplays'),null);
+ assert.equal(core.filmArchiveLocation('https://evil.example/movie-transcripts/?mt_letter=A'),null);
+ assert.equal(core.filmArchiveLocation('https://scrapsfromtheloft.com/movie-transcripts/?mt_letter=%23'),null);
+});
+
+test('movie index cards are trusted only in archive context including /comedy/ and transcript-less slugs',()=>{
+ const doc={querySelectorAll:selector=>{
+   assert.equal(selector,'.catalog-list .catalog-item h3 a[href]');
+   return [
+    {href:'https://scrapsfromtheloft.com/movies/the-abandon-2022-transcript/',textContent:'The Abandon (2022)'},
+    {href:'https://scrapsfromtheloft.com/comedy/argylle-transcript/',textContent:'Argylle (2024)'},
+    {href:'https://scrapsfromtheloft.com/movies/amazon-empire-the-rise-and-reign-of-jeff-bezos-frontline/',textContent:'Amazon Empire: The Rise and Reign of Jeff Bezos (2020)'}
+   ];
+ }};
+ const links=core.filmArchiveListedLinks(doc);
+ assert.equal(links.length,3);
+ const result=core.extractCandidates(links,'film','https://scrapsfromtheloft.com/movie-transcripts/?mt_letter=A&mt_page=1');
+ assert.equal(result.items.length,3);
+ assert.equal(result.items.find(x=>x.articleTitle.startsWith('Argylle')).canonicalUrl,
+   'https://scrapsfromtheloft.com/comedy/argylle-transcript/');
+ assert.equal(result.items.find(x=>x.articleTitle.startsWith('Amazon Empire')).releaseYear,2020);
+ assert.equal(result.items[0].foundOn,'https://scrapsfromtheloft.com/movie-transcripts/?mt_letter=A&mt_page=1');
+ assert.equal(core.candidateFromLink({href:'/comedy/argylle-transcript/',text:'Argylle'},'film',moviePage),null,
+   'arbitrary /comedy/ site links must not become films outside trusted archive cards');
+});

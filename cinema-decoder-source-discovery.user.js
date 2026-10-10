@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.6
+// @version      0.2.0-alpha.7
 // @description  Optional paced A-Z Scraps movie archive scanning; metadata-only TV/Movie Spoiler discovery.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -29,10 +29,12 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.6';
+  const SCRIPT_VERSION = '0.2.0-alpha.7';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const MOVIE_GUIDE_KEY = 'cinema-source-discovery-scraps-movies-guided-v1';
+  const TV_GUIDE_KEY = 'cinema-source-discovery-scraps-tv-pilot-v1';
+  const TV_STAGE_KEY = 'cinema-source-discovery-scraps-tv-stage-v1';
   const VALID_HOSTS = new Set(['scrapsfromtheloft.com', 'www.scrapsfromtheloft.com']);
 
   function collapse(value) {
@@ -404,7 +406,7 @@
 
   // A conservative robots.txt rule reader for this specific archive path.
   // If rules are unavailable, malformed or ambiguous, DO NOT auto-navigate.
-  function robotsMovieArchivePolicy(body) {
+  function robotsMovieArchivePolicy(body,targetPath='/movie-transcripts/?mt_letter=A&mt_page=2') {
     if(typeof body!=='string'||body.length>100000||!/(?:^|\n)\s*User-agent\s*:/i.test(body))
       return {allowed:false,reason:'Missing or unrecognized robots.txt rules.'};
     const groups=[];
@@ -427,7 +429,7 @@
     flush();
     const generic=groups.filter(g=>g.agents.includes('*'));
     if(!generic.length)return {allowed:false,reason:'No general User-agent: * rule could be confirmed.'};
-    const path='/movie-transcripts/?mt_letter=A&mt_page=2';
+    const path=targetPath;
     let match=null,delaySeconds=0;
     for(const group of generic)for(const r of group.rules){
       if(r.key==='crawl-delay'){
@@ -461,9 +463,96 @@
       complete:scannedLetters.size===26&&baseline!==null&&observed.size===baseline};
   }
 
+  // TV pilot. The source's unfiltered directory lists all 328 series and
+  // their counts; each series page contains an ordinary per-season episode list.
+  // Keep the TV pilot separate from the completed movie archive local data.
+  const TV_PILOT_SLUGS=['3-body-problem-tv-series','american-gods-tv-series','the-bear-tv-series'];
+  function tvDirectorySnapshot(doc){
+    const summary=collapse(doc.querySelector('.kubrick-hero p')?.textContent);
+    const m=summary.replace(/,/g,'').match(/\bBrowse\s+(\d+)\s+series\s+and\s+(\d+)\s+complete\s+television episode transcripts\b/i);
+    const entries=Array.from(doc.querySelectorAll('.series-list .series-item')).map(card=>{
+      const a=card.querySelector('h3 a[href]');
+      const countText=collapse(card.querySelector('.series-item__count')?.textContent);
+      const num=countText.match(/^(\d+)\s+episodes?$/i);
+      return {title:collapse(a?.textContent),url:a?.href||'',count:num?Number(num[1]):null};
+    });
+    return tvDirectoryAudit(entries,m?Number(m[1]):null,m?Number(m[2]):null);
+  }
+  function tvDirectoryAudit(entries,expectedSeries,expectedEpisodes){
+    const issues=[],urls=new Set(),items=[],normalized=[];
+    for(const entry of entries||[]){
+      const url=canonicalUrl(entry.url,'https://scrapsfromtheloft.com/tv-series-transcripts/');
+      const parsed=url?new URL(url):null;
+      const valid=url&&parsed.search==='' &&
+        /^\/tv-series-transcripts\/[a-z0-9][a-z0-9_-]*\/$/i.test(parsed.pathname);
+      if(!entry.title||!Number.isInteger(entry.count)||entry.count<1||!valid||urls.has(url)){
+        issues.push({title:entry.title,url:entry.url,reason:urls.has(url)?'Duplicate series URL':'Invalid directory title, count or series URL'});
+        continue;
+      }
+      urls.add(url);normalized.push({title:entry.title,url,count:entry.count});
+      const item=candidateFromLink({href:url,text:entry.title},'tv-archive',
+        'https://scrapsfromtheloft.com/tv-series-transcripts/');
+      if(!item || item.workType!=='series')issues.push({title:entry.title,url,reason:'Series-index extraction failed'});
+      else items.push(item);
+    }
+    const sum=normalized.reduce((n,x)=>n+x.count,0);
+    if(expectedSeries===null || expectedEpisodes===null)
+      issues.push({reason:'Source directory totals missing or invalid'});
+    if(expectedSeries!==normalized.length)issues.push({reason:'Series count mismatch',expected:expectedSeries,observed:normalized.length});
+    if(expectedEpisodes!==sum)issues.push({reason:'Episode count mismatch',expected:expectedEpisodes,observed:sum});
+    return {entries:normalized,items,expectedSeries,expectedEpisodes,sum,issues,
+      valid:issues.length===0&&items.length===expectedSeries};
+  }
+  function tvSeriesSnapshot(doc,indexUrl,entry){
+    const name=collapse(doc.querySelector('.library__header h1.library__title')?.textContent);
+    const intro=collapse(doc.querySelector('.library__header .library__intro')?.textContent);
+    const count=intro.match(/^(\d+)\s+episodes?\s+currently available\b/i);
+    const sections=Array.from(doc.querySelectorAll('.season-groups section.season')).map(section=>{
+      const text=collapse(section.querySelector('.season__heading span')?.textContent);
+      const m=text.match(/^(\d+)\s+episodes?$/i);
+      return {id:section.id,count:m?Number(m[1]):null,
+        links:Array.from(section.querySelectorAll('ol.episode-list li a[href]')).map(a=>({
+          href:a.href,text:collapse(a.textContent),contextTitle:''
+        }))};
+    });
+    return tvSeriesAudit({indexUrl,entry,pageTitle:name,reportedCount:count?Number(count[1]):null,sections});
+  }
+  function tvSeriesAudit({indexUrl,entry,pageTitle,reportedCount,sections}){
+    const issues=[],links=[],seen=new Set();
+    const expected=entry?.count;
+    if(!entry||entry.url!==indexUrl || collapse(pageTitle)!==entry.title)
+      issues.push({reason:'Series page identity does not match queued directory URL and title',pageTitle,indexUrl});
+    if(!Number.isInteger(reportedCount)||reportedCount!==expected)
+      issues.push({reason:'Series page total disagrees with directory',reportedCount,expected});
+    for(const section of sections||[]){
+      const count=section.links?.length??0;
+      if(!Number.isInteger(section.count)||section.count!==count)
+        issues.push({reason:'Season count mismatch',section:section.id,reported:section.count,observed:count});
+      for(const link of section.links||[])links.push(link);
+    }
+    if(!sections?.length)issues.push({reason:'No source season groups present'});
+    const candidates=[];
+    for(const link of links){
+      const parsed=candidateFromLink({...link,contextTitle:''},'tv-series-page',indexUrl,entry?.title);
+      if(!parsed || parsed.workType!=='episode'){
+        issues.push({reason:'Episode index link not recognized',title:link.text,url:link.href});continue;
+      }
+      if(seen.has(parsed.canonicalUrl)){
+        issues.push({reason:'Duplicate episode URL on index page',title:link.text,url:parsed.canonicalUrl});continue;
+      }
+      seen.add(parsed.canonicalUrl);candidates.push(parsed);
+    }
+    if(links.length!==expected || candidates.length!==expected)
+      issues.push({reason:'Extracted links do not match source directory count',
+        displayed:links.length,extracted:candidates.length,expected});
+    return {indexUrl,title:entry?.title,expected,reportedCount,items:candidates,
+      observed:links.length,coverage:seriesCoverage(candidates,indexUrl),
+      issues,valid:issues.length===0};
+  }
+
   // Make the data-only functions testable without mounting UI or requiring Tampermonkey.
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, filmArchiveExtractionAudit, robotsMovieArchivePolicy, movieArchiveCoverage, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
+    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, filmArchiveExtractionAudit, robotsMovieArchivePolicy, movieArchiveCoverage, tvDirectoryAudit, tvDirectorySnapshot, tvSeriesAudit, tvSeriesSnapshot, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
     return;
   }
 

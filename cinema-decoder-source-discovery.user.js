@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.7
+// @version      0.2.0-alpha.8
 // @description  Optional paced A-Z Scraps movie archive scanning; metadata-only TV/Movie Spoiler discovery.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -29,7 +29,7 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.7';
+  const SCRIPT_VERSION = '0.2.0-alpha.8';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const MOVIE_GUIDE_KEY = 'cinema-source-discovery-scraps-movies-guided-v1';
@@ -550,9 +550,63 @@
       issues,valid:issues.length===0};
   }
 
+  // A separate source-only TV stage deliberately exceeds the legacy 1,500-item
+  // import cap: 328 indexes + up to 3,332 episodes, but never sent as one import.
+  function mergeTvStage(previous,incoming,pageUrl){
+    const prior=migrateStage(previous);
+    const byUrl=new Map((prior.items||[]).map(item=>[item.canonicalUrl,item]));
+    let added=0;
+    for(const item of incoming||[]){
+      if(byUrl.has(item.canonicalUrl))continue;
+      if(byUrl.size>=4200)return {stage:prior,added:0,error:'TV source collection exceeded 4,200-link safety cap'};
+      byUrl.set(item.canonicalUrl,{...item,firstSeenAt:new Date().toISOString()});added++;
+    }
+    const pages=[...(prior.pages||[])];
+    const page=canonicalUrl(pageUrl,pageUrl);
+    if(page&&!pages.includes(page))pages.push(page);
+    if(pages.length>370)return {stage:prior,added:0,error:'TV index page count exceeded safety cap'};
+    return {stage:{version:2,items:Array.from(byUrl.values()),pages},added,error:null};
+  }
+  function tvFullCoverage(state,stage){
+    const entries=Array.isArray(state?.entries)?state.entries:[];
+    const queue=Array.isArray(state?.queue)?state.queue:[];
+    const visited=Array.isArray(state?.visited)?state.visited:[];
+    const items=Array.isArray(stage?.items)?stage.items:[];
+    const expected=Number(state?.directoryTotal);
+    const sourceEntries=entries.length===328&&queue.length===328 &&
+      new Set(queue).size===328&&queue.every(u=>entries.some(x=>x.url===u));
+    const visitsValid=new Set(visited.map(v=>v.url)).size===visited.length &&
+      visited.length===328&&visited.every(v=>queue.includes(v.url)&&
+        v.expected===v.accepted&&entries.some(e=>e.url===v.url&&e.count===v.accepted));
+    const episodeItems=items.filter(x=>x.workType==='episode');
+    const seriesItems=items.filter(x=>x.workType==='series');
+    const sumVisits=visited.reduce((n,v)=>n+v.accepted,0);
+    const uniqueEpisodes=new Set(episodeItems.map(x=>x.canonicalUrl)).size;
+    const linkedEpisodes=episodeItems.every(item=>visited.some(v=>v.url===item.seriesIndexUrl));
+    return {complete:sourceEntries&&visitsValid&&expected===3332&&sumVisits===expected&&
+        uniqueEpisodes===3332&&episodeItems.length===3332&&seriesItems.length===328&&linkedEpisodes,
+      series:seriesItems.length,episodes:episodeItems.length,expected,
+      visited:visited.length,sumVisits,uniqueEpisodes,linkedEpisodes};
+  }
+  function tvImportBatches(items,size=600){
+    if(!Number.isInteger(size)||size<1||size>750)throw Error('Invalid TV export batch size');
+    const source=Array.isArray(items)?items:[];
+    const urls=new Set();
+    for(const item of source){
+      if(!item.canonicalUrl||urls.has(item.canonicalUrl))throw Error('Missing or duplicate TV source URL');
+      urls.add(item.canonicalUrl);
+      if(!item.foundOn)throw Error('Missing TV source-page provenance');
+    }
+    return Array.from({length:Math.ceil(source.length/size)},(_,index)=>{
+      const rows=source.slice(index*size,(index+1)*size);
+      return {index:index+1,total:Math.ceil(source.length/size),items:rows,
+        pages:Array.from(new Set(rows.map(x=>x.foundOn)))};
+    });
+  }
+
   // Make the data-only functions testable without mounting UI or requiring Tampermonkey.
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, filmArchiveExtractionAudit, robotsMovieArchivePolicy, movieArchiveCoverage, tvDirectoryAudit, tvDirectorySnapshot, tvSeriesAudit, tvSeriesSnapshot, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
+    module.exports = { archiveKind, canonicalUrl, resourceKind, cleanTitle, episodeParts, candidateFromLink, extractCandidates, migrateStage, mergeStage, seriesCoverage, filmArchiveLocation, filmArchivePageUrl, filmArchiveNextUrl, filmArchiveListedLinks, filmArchiveExtractionAudit, robotsMovieArchivePolicy, movieArchiveCoverage, tvDirectoryAudit, tvDirectorySnapshot, tvSeriesAudit, tvSeriesSnapshot, mergeTvStage, tvFullCoverage, tvImportBatches, spoilerPageKind, spoilerCanonicalUrl, spoilerCandidateFromLink, extractSpoilerCandidates };
     return;
   }
 

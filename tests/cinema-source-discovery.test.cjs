@@ -558,3 +558,31 @@ test('reconciles full TV directory scan only with 328 indexes and 3332 valid epi
  const missing=structuredClone(stage);missing.items.pop();
  assert.equal(core.tvFullCoverage(state,missing).complete,false);
 });
+
+
+test('TV collection safely exceeds legacy 1500 source cap and splits into seven import-ready batches',()=>{
+ const root='https://scrapsfromtheloft.com/tv-series-transcripts/';
+ const indexes=Array.from({length:328},(_,i)=>({
+   workType:'series',canonicalUrl:root+'series-'+i+'/',foundOn:root
+ }));
+ const items=Array.from({length:3332},(_,i)=>({
+   workType:'episode',canonicalUrl:'https://scrapsfromtheloft.com/tv-series/show-'+i+'-transcript/',
+   seriesIndexUrl:root+'series-'+(i%328)+'/',foundOn:root+'series-'+(i%328)+'/'
+ }));
+ let stage=core.mergeTvStage(null,indexes,root);
+ assert.equal(stage.error,null);
+ for(let i=0;i<items.length;i+=300){
+   stage=core.mergeTvStage(stage.stage,items.slice(i,i+300),root+'series-'+i+'/');
+   assert.equal(stage.error,null);
+ }
+ assert.equal(stage.stage.items.length,3660);
+ const batches=core.tvImportBatches(stage.stage.items,600);
+ assert.equal(batches.length,7);
+ assert.deepEqual(batches.map(b=>b.items.length),[600,600,600,600,600,600,60]);
+ assert.equal(batches.reduce((n,b)=>n+b.items.length,0),3660);
+ assert.ok(batches.every(b=>b.items.every(item=>b.pages.includes(item.foundOn))));
+ const invalid=structuredClone(stage.stage.items);
+ invalid[1].canonicalUrl=invalid[0].canonicalUrl;
+ assert.throws(()=>core.tvImportBatches(invalid,600),/duplicate/i);
+ assert.throws(()=>core.tvImportBatches(stage.stage.items,751),/size/);
+});

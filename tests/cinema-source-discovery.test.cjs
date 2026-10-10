@@ -499,3 +499,16 @@ assert.equal(good.valid,true);assert.equal(good.items.length,328);
 assert.equal(core.tvDirectoryAudit(entries,328,3333).valid,false);
 assert.equal(core.tvDirectoryAudit(entries.slice(1),328,3332).valid,false);
 });
+
+test('TV series index pilot handles 8 and 2 listed episodes without inventing gaps',()=>{
+ const base='https://scrapsfromtheloft.com/tv-series-transcripts/';
+ for(const [name,slug,season,nums] of [['3 Body Problem','3-body-problem-tv-series',1,[1,2,3,4,5,6,7,8]],['American Gods','american-gods-tv-series',3,[9,10]]]){
+  const url=base+slug+'/';
+  const links=nums.map(n=>({href:'https://scrapsfromtheloft.com/tv-series/'+slug+'-s'+String(season).padStart(2,'0')+'e'+String(n).padStart(2,'0')+'-transcript/',text:'S'+String(season).padStart(2,'0')+'E'+String(n).padStart(2,'0')+' – Episode '+n}));
+  const audit=core.tvSeriesAudit({indexUrl:url,entry:{url,title:name,count:nums.length},pageTitle:name,reportedCount:nums.length,sections:[{id:'season-'+season,count:nums.length,links}]});
+  assert.equal(audit.valid,true); assert.equal(audit.items.length,nums.length);
+  assert.ok(audit.items.every(x=>x.seriesTitle===name&&x.seriesIndexUrl===url));
+  assert.equal(audit.coverage.missingSeasons.length,0);
+  assert.equal(core.tvSeriesAudit({indexUrl:url,entry:{url,title:name,count:nums.length},pageTitle:name,reportedCount:nums.length,sections:[{id:'season-'+season,count:nums.length,links:links.slice(1)}]}).valid,false);
+ }
+});

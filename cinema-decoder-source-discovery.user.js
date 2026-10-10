@@ -827,6 +827,157 @@
     filmGuideButtons.push(guideStart,guideNext,autoButton,guidePause);
   }
 
+  const isTvPilot=!IS_SPOILER&&(type==='tv-archive'||type==='tv-series-page');
+  const tvStage=()=>migrateStage(GM_getValue(TV_STAGE_KEY,{version:2,items:[],pages:[]}));
+  const tvState=()=>GM_getValue(TV_GUIDE_KEY,{active:false,auto:false,queue:[],entries:[],visited:[],failed:null});
+  let tvTimer=null;
+  function tvPause(reason,failed=false){
+    if(tvTimer!==null){clearTimeout(tvTimer);tvTimer=null;}
+    const state=tvState();
+    GM_setValue(TV_GUIDE_KEY,{...state,active:false,auto:false,
+      failed:failed?{url:location.href,reason}:null});
+    show(reason);
+  }
+  function tvCounts(){const s=tvStage();return {
+    series:s.items.filter(x=>x.workType==='series').length,
+    episodes:s.items.filter(x=>x.workType==='episode').length
+  };}
+  function tvNext(){
+    const state=tvState();
+    return (state.queue||[]).find(url=>!state.visited?.some(v=>v.url===url))||null;
+  }
+  function tvScanCurrent(){
+    if(!isTvPilot||type!=='tv-series-page')return false;
+    const state=tvState(),url=canonicalUrl(location.href,location.href);
+    if(!state.active||!state.queue?.includes(url))return false;
+    if(state.visited.some(v=>v.url===url)){show('TV pilot: already captured this series.');return true;}
+    const entry=state.entries.find(x=>x.url===url);
+    const audit=tvSeriesSnapshot(document,url,entry);
+    if(!audit.valid){
+      tvPause('TV pilot paused before saving '+(entry?.title||url)+': '+
+        JSON.stringify(audit.issues.slice(0,3)),true);return false;
+    }
+    const stagedTv=tvStage();
+    const merged=mergeStage(stagedTv,audit.items,url);
+    if(merged.added!==audit.items.length){
+      // A repeated episode URL within another series deserves human review.
+      tvPause('TV pilot paused: '+entry.title+' listed '+audit.items.length+
+        ' episodes but only '+merged.added+' were new in the TV pilot.',true);return false;
+    }
+    GM_setValue(TV_STAGE_KEY,merged.stage);
+    const visited=[...state.visited,{url,title:entry.title,expected:entry.count,
+      accepted:audit.items.length,coverage:audit.coverage}];
+    GM_setValue(TV_GUIDE_KEY,{...state,visited,failed:null});
+    const counts=tvCounts();
+    const coverage=audit.coverage;
+    const diagnostics=[];
+    if(coverage.missingSeasons.length)diagnostics.push('unrepresented season numbers '+coverage.missingSeasons.join(','));
+    if(coverage.episodeZeroSeasons.length)diagnostics.push('episode 00 in season '+coverage.episodeZeroSeasons.join(','));
+    if(coverage.missingWithinSeasons.length)diagnostics.push('gaps within listed seasons');
+    show('TV pilot captured '+entry.title+': '+audit.items.length+'/'+entry.count+
+      ' source-listed episode URLs. Pilot '+visited.length+'/'+state.queue.length+
+      ' series; TV stage '+counts.series+' series and '+counts.episodes+
+      ' episodes.'+(diagnostics.length?' Numbering observations only: '+diagnostics.join('; '):'')+
+      '. No transcript text downloaded.');
+    return true;
+  }
+  function tvSchedule(){
+    if(tvTimer!==null){clearTimeout(tvTimer);tvTimer=null;}
+    const state=tvState();
+    if(!state.active||!state.auto||!isTvPilot)return;
+    const here=canonicalUrl(location.href,location.href);
+    if(type==='tv-series-page'&&!state.visited.some(v=>v.url===here)){
+      tvPause('TV auto pilot stopped: current index has not been validated.',true);return;
+    }
+    const next=tvNext();
+    if(!next){
+      if(state.visited.length===3 && state.visited.reduce((n,v)=>n+v.accepted,0)===47){
+        tvPause('TV pilot complete: 3 validated series indexes, 47 linked episode URLs, and the 328-series directory snapshot. No cloud import. Download TV pilot JSON for audit.');
+      }else tvPause('TV pilot ended without exact 3-series / 47-episode reconciliation.',true);
+      return;
+    }
+    const delay=Math.max(15000,Number(state.delayMs)||15000);
+    if(delay>120000){tvPause('TV pilot stopped: invalid pacing.',true);return;}
+    show('TV pilot auto-navigation: '+state.visited.length+'/3 series done. Next: '+
+      (state.entries.find(x=>x.url===next)?.title||next)+
+      ' after '+Math.ceil(delay/1000)+' seconds. Pause TV pilot to stop.');
+    tvTimer=setTimeout(()=>{
+      tvTimer=null;
+      const fresh=tvState();
+      if(!fresh.active||!fresh.auto||tvNext()!==next)return;
+      window.location.assign(next);
+    },delay);
+  }
+  async function tvAutoStart(){
+    const state=tvState();
+    if(!state.entries?.length || !state.active){show('Prepare or resume the TV pilot first.');return;}
+    if(type==='tv-series-page'&&!state.visited.some(v=>v.url===canonicalUrl(location.href,location.href))){
+      show('Capture the current series index successfully before starting auto-navigation.');return;
+    }
+    if(!window.confirm('Enable paced automatic navigation through three TV series indexes only? Confirm you have checked Scraps terms. No transcript articles or bodies are fetched.'))return;
+    show('TV pilot: verifying robots.txt from your browser...');
+    let policy;
+    try{
+      const r=await fetch('/robots.txt',{credentials:'same-origin',cache:'no-store'});
+      if(!r.ok)throw new Error('HTTP '+r.status);
+      policy=robotsMovieArchivePolicy(await r.text(),'/tv-series-transcripts/the-bear-tv-series/');
+    }catch(e){tvPause('TV pilot automation blocked: cannot verify robots.txt ('+e.message+').',true);return;}
+    if(!policy.allowed){tvPause('TV pilot automation blocked: '+policy.reason,true);return;}
+    GM_setValue(TV_GUIDE_KEY,{...tvState(),active:true,auto:true,delayMs:policy.delayMs,failed:null});
+    tvSchedule();
+  }
+  if(isTvPilot){
+    if(type==='tv-archive')button('Prepare 3-series TV pilot',()=>{
+      const audit=tvDirectorySnapshot(document);
+      if(!audit.valid){show('TV directory validation failed. No data saved: '+JSON.stringify(audit.issues.slice(0,3)));return;}
+      const picked=TV_PILOT_SLUGS.map(slug=>audit.entries.find(x=>x.url.endsWith('/'+slug+'/')));
+      if(picked.some(x=>!x)||picked.reduce((n,x)=>n+x.count,0)!==47){
+        show('TV pilot source series counts/URLs changed. Do not start: '+JSON.stringify(picked));return;
+      }
+      if(tvState().queue?.length && !window.confirm('Restart ONLY the independent TV pilot data? Existing movie capture and catalog are not touched.'))return;
+      const stage=mergeStage(null,audit.items,location.href).stage;
+      GM_setValue(TV_STAGE_KEY,stage);
+      GM_setValue(TV_GUIDE_KEY,{active:true,auto:false,queue:picked.map(x=>x.url),
+        entries:audit.entries,visited:[],directoryTotal:audit.expectedEpisodes,failed:null});
+      show('TV pilot prepared: all 328 source series-index URLs recorded, with 3,332 advertised episodes. Three pilot targets: 3 Body Problem (8), American Gods (2), The Bear (37). Choose Scan next TV series or Auto scan TV pilot.');
+    });
+    button('Resume TV pilot',()=>{
+      const state=tvState();
+      if(!state.queue?.length){show('Prepare the TV pilot on the main TV directory first.');return;}
+      GM_setValue(TV_GUIDE_KEY,{...state,active:true,auto:false,failed:null});
+      if(type==='tv-series-page')tvScanCurrent();
+      else show('TV pilot resumed. Choose Scan next TV series or Auto scan TV pilot.');
+    });
+    button('Scan next TV series ↗',()=>{
+      const state=tvState();
+      if(!state.active){show('Prepare or resume TV pilot first.');return;}
+      const here=canonicalUrl(location.href,location.href);
+      if(type==='tv-series-page'&&!state.visited.some(v=>v.url===here)){
+        show('Validate this index before advancing.');return;
+      }
+      const next=tvNext();
+      if(!next){show('No pilot series remain. Download the TV pilot JSON.');return;}
+      window.location.assign(next);
+    });
+    button('Auto scan TV pilot',()=>{void tvAutoStart();});
+    button('Pause TV pilot',()=>tvPause('TV pilot paused; all inspected series and discovered URLs preserved.'));
+    button('Download TV pilot JSON',()=>{
+      const state=tvState(),stage=tvStage();
+      if(!state.queue?.length||!stage.items.length){show('Nothing to export. Prepare TV pilot first.');return;}
+      const json=JSON.stringify({format:'cinema-decoder-source-discovery-preview-v1',
+        version:2,sourceId:SOURCE_ID,exportedAt:new Date().toISOString(),
+        publicationApproved:false,pages:stage.pages,items:stage.items},null,2);
+      if(stage.items.length>1500||new TextEncoder().encode(json).length>2*1024*1024){
+        show('TV pilot JSON exceeds staging import limits. Do not import; request split export.');return;
+      }
+      const blob=new Blob([json],{type:'application/json'}),url=URL.createObjectURL(blob);
+      const a=document.createElement('a');a.href=url;a.download='cinema-scraps-tv-3-series-pilot.json';
+      document.body.append(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),2000);
+      show('TV pilot metadata exported ('+stage.items.length+' links). Not approved or imported.');
+    });
+  }
+
   button('Discover visible titles', () => {
     const links = type === 'film' && filmArchiveLocation(location.href) ? filmArchiveListedLinks(document) : type === 'spoiler-article' ? [{
       href:location.href,
@@ -959,6 +1110,11 @@
     });
   }
   show(IS_SPOILER ? 'Ready for manual scans of The Movie Spoiler home, search, genre and movie pages. Plot availability remains unverified until reviewed.' : 'Ready. For movies use Start / resume movie scan, then Scan next listing, or use manual Discover for TV indexes.');
+  if(isTvPilot && type==='tv-series-page' && tvState().active){
+    const valid=tvScanCurrent();
+    if(valid && tvState().auto)tvSchedule();
+  }
+  if(isTvPilot && type==='tv-archive' && tvState().active && tvState().auto)tvSchedule();
   if(isGuidedFilm && guideState().active){
     scanGuidedMoviePage();
     if(guideState().auto)scheduleAutoListing();

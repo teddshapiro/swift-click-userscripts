@@ -390,3 +390,36 @@ test('movie index cards are trusted only in archive context including /comedy/ a
  assert.equal(core.candidateFromLink({href:'/comedy/argylle-transcript/',text:'Argylle'},'film',moviePage),null,
    'arbitrary /comedy/ site links must not become films outside trusted archive cards');
 });
+
+
+test('automatic movie archive robots gate respects generic archive blocks, allowances and rate limits',()=>{
+ const p=core.robotsMovieArchivePolicy;
+ const allowed=p('User-agent: *\nDisallow: /wp-admin/\nAllow: /wp-admin/admin-ajax.php');
+ assert.equal(allowed.allowed,true);
+ assert.equal(allowed.delayMs,15000);
+ assert.equal(p('User-agent: *\nDisallow: /').allowed,false);
+ assert.equal(p('User-agent: *\nDisallow: /movie-transcripts/').allowed,false);
+ assert.equal(p('User-agent: *\nDisallow: /*?mt_letter').allowed,false);
+ assert.equal(p('User-agent: *\nDisallow: /\nAllow: /movie-transcripts/').allowed,true);
+ assert.equal(p('User-agent: *\nCrawl-delay: 25\nDisallow: /wp-admin/').delayMs,25000);
+ assert.equal(p('User-agent: *\nCrawl-delay: 121').allowed,false);
+ assert.equal(p('User-agent: BadCrawler\nDisallow: /\nUser-agent: *\nDisallow: /wp-admin/').allowed,true);
+ assert.equal(p('User-agent: EvilBot\nAllow: /').allowed,false);
+ assert.equal(p('<html>Bot challenge</html>').allowed,false);
+ assert.equal(p('User-agent: *\nDisallow: /movie-transcripts/?mt_letter=A$').allowed,true);
+});
+
+test('movie archive complete requires 26 observed letters AND exact unfiltered source count',()=>{
+ const all={letter:'ALL',expected:1316,urls:['https://example.test/28-years-later/']};
+ const letters='ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('').map((letter,i)=>({
+   letter,expected:1,urls:['https://example.test/film-'+letter+'/']
+ }));
+ let coverage=core.movieArchiveCoverage([all,...letters]);
+ assert.equal(coverage.unique,27);
+ assert.equal(coverage.expected,1316);
+ assert.equal(coverage.lettersSeen,26);
+ assert.equal(coverage.complete,false);
+ coverage=core.movieArchiveCoverage([{...all,expected:27},...letters]);
+ assert.equal(coverage.complete,true);
+ assert.equal(core.movieArchiveCoverage([all,...letters.slice(0,25)]).complete,false);
+});

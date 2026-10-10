@@ -586,3 +586,36 @@ test('TV collection safely exceeds legacy 1500 source cap and splits into seven 
  assert.throws(()=>core.tvImportBatches(invalid,600),/duplicate/i);
  assert.throws(()=>core.tvImportBatches(stage.stage.items,751),/size/);
 });
+
+test('alpha.7 saved TV pilot expands on alpha.9 without mode or rescanning',()=>{
+  const base='https://scrapsfromtheloft.com/tv-series-transcripts/';
+  const seeds=[['3-body-problem-tv-series',8],['american-gods-tv-series',2],['the-bear-tv-series',37]];
+  const entries=Array.from({length:328},(_,i)=>({
+    url:base+'other-series-'+i+'/',title:'Other Series '+i,count:i<3?11:10
+  }));
+  for(let i=0;i<seeds.length;i++){
+    entries[i]={url:base+seeds[i][0]+'/',title:['3 Body Problem','American Gods','The Bear'][i],count:seeds[i][1]};
+  }
+  const queue=entries.slice(0,3).map(x=>x.url);
+  const visited=entries.slice(0,3).map(x=>({url:x.url,expected:x.count,accepted:x.count}));
+  const indexes=entries.map(x=>({workType:'series',canonicalUrl:x.url}));
+  const episodes=entries.slice(0,3).flatMap((x,i)=>Array.from({length:x.count},(_,n)=>({
+    workType:'episode',seriesIndexUrl:x.url,
+    canonicalUrl:'https://scrapsfromtheloft.com/tv-series/'+i+'-ep-'+n+'/'
+  })));
+  const oldState={active:false,auto:false,queue,entries,visited,directoryTotal:3332};
+  const stage={items:[...indexes,...episodes]};
+  assert.equal(episodes.length,47);
+  const recovered=core.tvPilotExpansionAudit(oldState,stage);
+  assert.equal(recovered.valid,true,JSON.stringify(recovered.issues));
+  assert.equal(recovered.legacyMode,true);
+  assert.equal(core.tvPilotExpansionAudit({...oldState,mode:'pilot'},stage).valid,true);
+  assert.equal(core.tvPilotExpansionAudit({...oldState,mode:'full'},stage).valid,false);
+  const partial=structuredClone(stage);partial.items.pop();
+  const broken=core.tvPilotExpansionAudit(oldState,partial);
+  assert.equal(broken.valid,false);
+  assert.ok(broken.issues.some(x=>x.includes('47')));
+  const unvisited={...oldState,visited:visited.slice(0,2)};
+  assert.equal(core.tvPilotExpansionAudit(unvisited,stage).valid,false);
+  assert.equal(core.tvPilotExpansionAudit({...oldState,directoryTotal:3333},stage).valid,false);
+});

@@ -297,7 +297,7 @@ test('The Movie Spoiler listing extracts only movie-page metadata, excluding det
   assert.equal(out.items[0].releaseYear,null);
   assert.equal(out.items[1].articleTitle,'VERITY (2026)');
   assert.equal(out.items[1].releaseYear,2026);
-  assert.equal(out.items[1].reviewStatus,'candidate');
+  assert.equal(out.items[1].reviewStatus,'needs-plot-review');
   assert.equal(out.items[3].reviewStatus,'needs-plot-review');
   assert.equal(out.items[0].foundOn,base);
   assert.equal(out.items[0].seriesIndexUrl,null);
@@ -321,4 +321,14 @@ test('The Movie Spoiler stage merging preserves distinct URLs, pages and separat
  assert.equal(second.added,0);
  assert.deepEqual(second.stage.pages,[base,'https://themoviespoiler.com/?s=obsession']);
  assert.ok(second.stage.items[0].firstSeenAt);
+});
+
+test('Movie Spoiler strips homepage ranking and promotional prefixes from movie titles',()=>{
+ const r=core.extractSpoilerCandidates([
+  {href:'/movies/verity/',text:'#1 New VERITY'},
+  {href:'/movies/avengers-endgame/',text:'#7 2026 Re-Release AVENGERS: ENDGAME'},
+  {href:'/movies/obsession/',text:'OBSESSION'}
+ ],'spoiler-list','https://themoviespoiler.com/');
+ assert.deepEqual(r.items.map(x=>x.articleTitle),['VERITY','AVENGERS: ENDGAME','OBSESSION']);
+ assert.ok(r.items.every(x=>x.reviewStatus==='needs-plot-review'));
 });

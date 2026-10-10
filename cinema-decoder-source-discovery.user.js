@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.11
+// @version      0.2.0-alpha.12
 // @description  Optional paced A-Z Scraps movie archive scanning; metadata-only TV/Movie Spoiler discovery.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -29,7 +29,7 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.11';
+  const SCRIPT_VERSION = '0.2.0-alpha.12';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const MOVIE_GUIDE_KEY = 'cinema-source-discovery-scraps-movies-guided-v1';
@@ -111,7 +111,7 @@
     if (!canonical) return null;
     const nativeKind = resourceKind(canonical);
     // Archive provenance, not its URL taxonomy, identifies episode-list links.
-    // E.g. The Daily Show has /comedy/ articles and /tv-series/ articles
+    // E.g. The Daily Show has /comedy/ links and Last Week Tonight has /politics/ links
     // without "transcript" in the URL. Restrict exceptions to literal anchors
     // in a source series index's season episode list; NEVER general page links.
     const indexPage = canonicalUrl(pageUrl,pageUrl);
@@ -120,7 +120,7 @@
       !!indexPage && !new URL(indexPage).search &&
       /^\/tv-series-transcripts\/[a-z0-9][a-z0-9_-]*\/$/i.test(new URL(indexPage).pathname) &&
       !new URL(canonical).search &&
-      /^\/(?:tv-series|movies|comedy)\/[a-z0-9][a-z0-9_-]*\/$/i.test(new URL(canonical).pathname);
+      /^\/(?:tv-series|movies|comedy|politics)\/[a-z0-9][a-z0-9_-]*\/$/i.test(new URL(canonical).pathname);
     const crossCategoryEpisode = seriesListedEpisode && nativeKind !== 'episode';
     const kind = seriesListedEpisode ? 'episode' : nativeKind;
     if (archiveType === 'film' && (kind !== 'film' || (/^\/(?:comedy|business)\//.test(new URL(canonical).pathname) && !link.archiveListed))) return null;
@@ -1005,7 +1005,7 @@
     if(coverage.episodeZeroSeasons.length)diagnostics.push('episode 00 in season '+coverage.episodeZeroSeasons.join(','));
     if(coverage.missingWithinSeasons.length)diagnostics.push('gaps within listed seasons');
     if(audit.reviewable.length)diagnostics.push(audit.reviewable.length+
-      ' source-listed episode article(s) need identity review (e.g. cross-category movie URLs)');
+      ' source-listed episode article(s) need identity review (e.g. cross-category article URLs)');
     show('TV '+(state.mode==='full'?'archive':'pilot')+' captured '+entry.title+': '+audit.items.length+'/'+entry.count+
       ' source-listed episode URLs. Progress '+visited.length+'/'+state.queue.length+
       ' series; TV stage '+counts.series+' series and '+counts.episodes+

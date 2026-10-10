@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.12
+// @version      0.2.0-alpha.13
 // @description  Optional paced A-Z Scraps movie archive scanning; metadata-only TV/Movie Spoiler discovery.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -29,7 +29,7 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.12';
+  const SCRIPT_VERSION = '0.2.0-alpha.13';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const MOVIE_GUIDE_KEY = 'cinema-source-discovery-scraps-movies-guided-v1';
@@ -104,23 +104,38 @@
     return { seriesTitle: null, seasonNumber: null, episodeNumber: null, episodeTitle: null };
   }
 
+  // The source's editorial article paths are open-ended: /comedy/, /politics/,
+  // /technology/, /food/, /business/, etc. Trust only a real episode-list anchor
+  // on a validated series index, and reject non-article site/navigation paths.
+  const TV_NON_ARTICLE_ROOTS = new Set([
+    'tv-series-transcripts','movie-transcripts','category','tag','author',
+    'page','search','feed','comments','wp-admin','wp-content','wp-includes',
+    'wp-json','uncategorized','sitemap','sitemaps'
+  ]);
+  function tvIndexedArticlePathAllowed(canonical) {
+    const url = new URL(canonical);
+    if (url.search || url.username || url.password || url.port) return false;
+    const match = url.pathname.match(/^\/([a-z][a-z0-9-]*)\/([a-z0-9][a-z0-9_-]*)\/$/i);
+    return !!match && !TV_NON_ARTICLE_ROOTS.has(match[1].toLowerCase()) &&
+      !['page','feed','index'].includes(match[2].toLowerCase());
+  }
+
   // The top-level TV directory contains both episode articles and series landing
   // pages. A series landing page is an index, NOT a transcript or an episode.
   function candidateFromLink(link, archiveType, pageUrl, parentSeriesTitle = null) {
     const canonical = canonicalUrl(link.href, pageUrl);
     if (!canonical) return null;
     const nativeKind = resourceKind(canonical);
-    // Archive provenance, not its URL taxonomy, identifies episode-list links.
-    // E.g. The Daily Show has /comedy/ links and Last Week Tonight has /politics/ links
-    // without "transcript" in the URL. Restrict exceptions to literal anchors
-    // in a source series index's season episode list; NEVER general page links.
+    // A source-listed season episode link is valid regardless of editorial
+    // category. Its relationship is provisional until episode identity review.
     const indexPage = canonicalUrl(pageUrl,pageUrl);
     const seriesListedEpisode = archiveType === 'tv-series-page' &&
       link.indexEpisodeListed === true && !!parentSeriesTitle &&
       !!indexPage && !new URL(indexPage).search &&
+      !new URL(indexPage).username && !new URL(indexPage).password &&
+      !new URL(indexPage).port &&
       /^\/tv-series-transcripts\/[a-z0-9][a-z0-9_-]*\/$/i.test(new URL(indexPage).pathname) &&
-      !new URL(canonical).search &&
-      /^\/(?:tv-series|movies|comedy|politics)\/[a-z0-9][a-z0-9_-]*\/$/i.test(new URL(canonical).pathname);
+      tvIndexedArticlePathAllowed(canonical);
     const crossCategoryEpisode = seriesListedEpisode && nativeKind !== 'episode';
     const kind = seriesListedEpisode ? 'episode' : nativeKind;
     if (archiveType === 'film' && (kind !== 'film' || (/^\/(?:comedy|business)\//.test(new URL(canonical).pathname) && !link.archiveListed))) return null;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Cinema Decoder — Source Discovery (Research Build)
 // @namespace    https://cinemadecoder.com/
-// @version      0.2.0-alpha.10
+// @version      0.2.0-alpha.11
 // @description  Optional paced A-Z Scraps movie archive scanning; metadata-only TV/Movie Spoiler discovery.
 // @author       Cinema Decoder
 // @match        https://scrapsfromtheloft.com/movie-transcripts/*
@@ -29,7 +29,7 @@
   // avoids mixing source identities or overwriting earlier 441-record exports.
   const STORAGE_KEY = IS_SPOILER ? 'cinema-source-discovery-movie-spoiler-v1' : 'cinema-source-discovery-staged-v1';
   const SOURCE_ID = IS_SPOILER ? 'the-movie-spoiler' : 'scraps-from-the-loft';
-  const SCRIPT_VERSION = '0.2.0-alpha.10';
+  const SCRIPT_VERSION = '0.2.0-alpha.11';
   const LIMIT_PER_PAGE = 2000;
   const LIMIT_TOTAL = 15000;
   const MOVIE_GUIDE_KEY = 'cinema-source-discovery-scraps-movies-guided-v1';
@@ -110,15 +110,19 @@
     const canonical = canonicalUrl(link.href, pageUrl);
     if (!canonical) return null;
     const nativeKind = resourceKind(canonical);
-    // Scraps sometimes files a series-listed episode under /movies/, e.g.
-    // American Masters -> Edgar Allan Poe: Buried Alive (2017).
-    // Trust this exception ONLY for title links extracted from an actual
-    // .season-groups section.season ol.episode-list (not arbitrary page links).
-    const seriesListedMovieEpisode = archiveType === 'tv-series-page' &&
+    // Archive provenance, not its URL taxonomy, identifies episode-list links.
+    // E.g. The Daily Show has /comedy/ articles and /tv-series/ articles
+    // without "transcript" in the URL. Restrict exceptions to literal anchors
+    // in a source series index's season episode list; NEVER general page links.
+    const indexPage = canonicalUrl(pageUrl,pageUrl);
+    const seriesListedEpisode = archiveType === 'tv-series-page' &&
       link.indexEpisodeListed === true && !!parentSeriesTitle &&
-      /^\/tv-series-transcripts\/[a-z0-9][a-z0-9_-]*\/$/i.test(new URL(pageUrl).pathname) &&
-      nativeKind === 'film' && /^\/movies\/[a-z0-9][a-z0-9_-]*\/$/i.test(new URL(canonical).pathname);
-    const kind = seriesListedMovieEpisode ? 'episode' : nativeKind;
+      !!indexPage && !new URL(indexPage).search &&
+      /^\\/tv-series-transcripts\\/[a-z0-9][a-z0-9_-]*\\/$/i.test(new URL(indexPage).pathname) &&
+      !new URL(canonical).search &&
+      /^\\/(?:tv-series|movies|comedy|business)\\/[a-z0-9][a-z0-9_-]*\\/$/i.test(new URL(canonical).pathname);
+    const crossCategoryEpisode = seriesListedEpisode && nativeKind !== 'episode';
+    const kind = seriesListedEpisode ? 'episode' : nativeKind;
     if (archiveType === 'film' && (kind !== 'film' || (/^\/(?:comedy|business)\//.test(new URL(canonical).pathname) && !link.archiveListed))) return null;
     if (archiveType === 'tv-archive' && kind !== 'series' && kind !== 'episode') return null;
     if (archiveType === 'tv-series-page' && kind !== 'episode') return null;
@@ -133,13 +137,15 @@
       : (/\bS\d{1,2}\s*E\d{1,3}\b|\bSeason\s+\d+\s*[,—–:-]?\s*Episode\s+\d+\b|\b\d{1,2}x\d{1,3}\b/i.test(anchorText)
         ? anchorText : (contextText || anchorText));
     if (!title || /^(read more|continue reading|transcript)$/i.test(title)) return null;
-    if (kind !== 'series' && !(archiveType === 'film' && link.archiveListed) && !/transcript/i.test(String(link.contextTitle || '') + ' ' + String(link.text || '') + ' ' + path)) return null;
+    const transcriptSignal = /transcript/i.test(String(link.contextTitle || '') + ' ' + String(link.text || '') + ' ' + path);
+    if (kind !== 'series' && !(archiveType === 'film' && link.archiveListed) &&
+        !seriesListedEpisode && !transcriptSignal) return null;
     if (kind === 'episode' && parentSeriesTitle && /^(?:S\d{1,2}\s*E\d{1,3}|Season\s+\d+\s*[,—–:-]?\s*Episode\s+\d+)\b/i.test(title)) {
       title = parentSeriesTitle + ' ' + title;
     }
     const filmYear = kind === 'film' ? title.match(/\(((?:19|20)\d{2})\)/) : null;
     const episode = kind === 'episode' ? episodeParts(title) : null;
-    const knownSeries = episode ? (seriesListedMovieEpisode ? parentSeriesTitle : (episode.seriesTitle || parentSeriesTitle || null)) : null;
+    const knownSeries = episode ? (seriesListedEpisode ? parentSeriesTitle : (episode.seriesTitle || parentSeriesTitle || null)) : null;
     return {
       sourceId: SOURCE_ID,
       resourceType: kind === 'series' ? 'transcript-index' : 'dialogue-transcript',
@@ -152,10 +158,11 @@
         : kind === 'episode' && archiveType === 'tv-series-page' ? canonicalUrl(pageUrl, pageUrl) : null,
       seasonNumber: episode ? episode.seasonNumber : null,
       episodeNumber: episode ? episode.episodeNumber : null,
-      episodeTitle: episode ? (seriesListedMovieEpisode && !episode.episodeTitle ? title : episode.episodeTitle) : null,
+      episodeTitle: episode ? (seriesListedEpisode && !episode.episodeTitle ? title : episode.episodeTitle) : null,
       reviewStatus: kind === 'film' ? (filmYear ? 'candidate' : 'needs-year-review')
         : kind === 'series' ? 'candidate'
-        : (seriesListedMovieEpisode ? 'needs-episode-review' :
+        : ((crossCategoryEpisode || seriesListedEpisode && !transcriptSignal)
+          ? 'needs-episode-review' :
           knownSeries && episode.seasonNumber !== null ? 'candidate' : 'needs-episode-review'),
       foundOn: canonicalUrl(pageUrl, pageUrl),
       adapterVersion: SCRIPT_VERSION
@@ -554,9 +561,11 @@
       seen.add(parsed.canonicalUrl);candidates.push(parsed);
       if(parsed.reviewStatus!=='candidate')reviewable.push({
         title:parsed.articleTitle,url:parsed.canonicalUrl,
-        reason:/^\/movies\//.test(new URL(parsed.canonicalUrl).pathname)
-          ? 'Series-index-listed article stored in the movie archive; episode identity and numbering unverified'
-          : 'Episode identity or numbering requires review'
+        reason:!/^\/tv-series\//.test(new URL(parsed.canonicalUrl).pathname)
+          ? 'Series-index-listed cross-category article; episode identity and numbering unverified'
+          : !/transcript/i.test(new URL(parsed.canonicalUrl).pathname)
+            ? 'Series-index-listed article without transcript URL marker; article type and episode identity unverified'
+            : 'Episode identity or numbering requires review'
       });
     }
     if(links.length!==expected || candidates.length!==expected)

@@ -274,7 +274,7 @@
   function findSidebar() {
     const candidates = document.querySelectorAll('[data-testid*="sidebar"], [data-sidebar], nav, aside');
     for (const candidate of candidates) {
-      if (candidate === launcherHost || candidate.contains(launcherHost)) continue;
+      if (candidate === launcherHost || candidate === overlayHost) continue;
       if (candidate.querySelector('a[href*="/c/"],a[href*="/g/g-p-"]')) return candidate;
     }
     return null;
@@ -346,8 +346,10 @@
     const content = el('div', 'main');
     if (currentCategory !== null) {
       const toolbar = el('div', 'toolbar');
-      toolbar.appendChild(button('← Categories', 'action', () => {
-        currentCategory = null;
+      const here = CATEGORY_TREE.find((c) => c.id === currentCategory);
+      const parentId = here ? here.parent : null;
+      toolbar.appendChild(button('← ' + (parentId ? labelFor(parentId) : 'Categories'), 'action', () => {
+        currentCategory = parentId;
         query = '';
         render();
       }));
@@ -411,7 +413,7 @@
     panel.appendChild(footer);
   }
 
-  function show() {
+  function show(automatic = false) {
     collectLoadedLinks();
     open = true;
     currentCategory = null;
@@ -422,7 +424,8 @@
       // Some restrictive CSP configurations block inline <style>. Do not leave broken UI.
       if (window.getComputedStyle(backdrop).position !== 'fixed') {
         hide();
-        window.alert('SwiftClick Organizer styling was blocked by this page. The overlay was removed to avoid a broken interface.');
+        if (!automatic) window.alert('SwiftClick Organizer styling was blocked by this page. The overlay was removed to avoid a broken interface.');
+        else console.warn('[SwiftClick Organizer] Auto-open skipped: site styles blocked.');
         return;
       }
       const search = panel.querySelector('input.search');
@@ -476,7 +479,7 @@
   // Only initial ChatGPT home entry auto-opens; direct links must remain unobstructed.
   if (isHomeRoute(location.pathname)) {
     window.setTimeout(() => {
-      if (isHomeRoute(location.pathname) && !open) show();
+      if (isHomeRoute(location.pathname) && !open) show(true);
     }, 750);
   }
 })();

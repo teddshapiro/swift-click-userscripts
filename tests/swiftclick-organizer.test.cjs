@@ -105,8 +105,27 @@ test('launcher is completely outside native ChatGPT navigation', () => {
   assert.match(script, /pointer-events:auto/);
 });
 
+test('project-menu companion avoids mutations inside native menus and sidebar', () => {
+  assert.match(script, /document\.body\.appendChild\(menuActionHost\)/);
+  assert.match(script, /findNativeProjectMenu/);
+  assert.match(script, /textContent\.replace\(\/\\s\+\/g, ' '\)\.trim\(\)\.toLowerCase\(\) === 'project home'/);
+  assert.match(script, /nativeLink\.getAttribute\('href'\)/);
+  assert.match(script, /home\.click\(\)/);
+  assert.match(script, /resolveNativeProjectIntake/);
+  assert.match(script, /startNativeProjectIntake/);
+  assert.doesNotMatch(script, /menu\.appendChild\(menuActionHost\)|menu\.insertBefore\(menuActionHost|sidebar\.insertBefore/);
+});
+
+test('project intake validates a project URL and keeps native data unchanged', () => {
+  assert.match(script, /function openProjectIntake\(project\)/);
+  assert.match(script, /Confirm the detected project and choose where its shortcut should appear/);
+  assert.match(script, /sanitizeManualProject\(\{ title: name\.value, href: url\.value \}/);
+  assert.match(script, /GM_setValue\(MANUAL_PROJECTS_KEY/);
+  assert.match(script, /pendingNativeProject = \{ from: location\.href, at: Date\.now\(\) \}/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.3/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.4/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

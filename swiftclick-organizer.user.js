@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.4
+// @version      0.1.0-alpha.5
 // @description  Local category-first front door for loaded ChatGPT projects and chats. Experimental: incomplete inventory.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -20,6 +20,7 @@
   const APP_ID = 'swiftclick-organizer-poc';
   const STORAGE_KEY = APP_ID + '.assignments.v1';
   const MANUAL_PROJECTS_KEY = APP_ID + '.manualProjects.v1';
+  const PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
   const CATEGORY_TREE = [
     { id: 'family', label: 'Family', icon: '👪', parent: null },
     { id: 'henry', label: 'Henry', icon: '📁', parent: 'family' },
@@ -149,6 +150,20 @@
     } catch (error) {
       console.warn('[SwiftClick Organizer] Could not save project shortcuts:', error);
     }
+  }
+
+  // One type of project, regardless of whether its link was discovered or added by hand.
+  // Keep the existing storage key for backwards compatibility with alpha.2–4.
+  function saveProjectShortcut(project) {
+    const parsed = sanitizeManualProject(project, location.origin);
+    if (!parsed) return false;
+    const prior = manualProjects.find((p) => p.key === parsed.key);
+    if (!prior && manualProjects.length >= 200) return false;
+    if (prior && !project.manual) parsed.title = prior.title; // preserve manually supplied names
+    manualProjects = manualProjects.filter((p) => p.key !== parsed.key).concat(parsed);
+    seen.set(parsed.key, parsed);
+    saveManualProjects();
+    return true;
   }
 
   function saveAssignments() {
@@ -348,6 +363,41 @@
     menuActionHost.hidden = false;
   }
 
+  function stashPendingIntake() {
+    if (!pendingNativeProject) return;
+    try {
+      // Short-lived tab-only navigation intent; not a persistent conversation index.
+      window.sessionStorage.setItem(PENDING_INTAKE_KEY, JSON.stringify(pendingNativeProject));
+    } catch (error) {
+      console.warn('[SwiftClick Organizer] Cannot retain intake across a full page load:', error);
+    }
+  }
+
+  function clearPendingIntake() {
+    try { window.sessionStorage.removeItem(PENDING_INTAKE_KEY); } catch (_) { /* optional */ }
+  }
+
+  function resumePendingIntake() {
+    let pending;
+    try {
+      const raw = window.sessionStorage.getItem(PENDING_INTAKE_KEY);
+      if (raw) pending = JSON.parse(raw);
+    } catch (_) { clearPendingIntake(); return false; }
+    if (!pending || typeof pending.from !== 'string' || !Number.isFinite(pending.at)) {
+      clearPendingIntake();
+      return false;
+    }
+    if (Date.now() - pending.at > 7000) {
+      clearPendingIntake();
+      return false;
+    }
+    if (location.href === pending.from) return false;
+    const project = parseItemLink(location.href, projectNameOnPage(), location.origin);
+    if (!project || project.type !== 'project') return false;
+    openProjectIntake(project);
+    return true;
+  }
+
   function projectNameOnPage() {
     const main = document.querySelector('main');
     const title = main && main.querySelector('h1, [data-testid="project-title"]');
@@ -360,7 +410,11 @@
   function openProjectIntake(project) {
     if (!project || project.type !== 'project') return;
     pendingNativeProject = null;
+    clearPendingIntake();
     menuActionHost.hidden = true;
+    // An intake intentionally causes native project navigation. A normal
+    // route watcher must not immediately dismiss the just-opened intake.
+    lastRoute = location.pathname;
     show();
     intakeProject = project;
     addingProject = true;
@@ -371,6 +425,7 @@
     if (!pendingNativeProject) return;
     if (Date.now() - pendingNativeProject.at > 7000) {
       pendingNativeProject = null;
+      clearPendingIntake();
       console.warn('[SwiftClick Organizer] Project home did not yield a verifiable project URL.');
       window.alert('SwiftClick could not identify that project automatically. You can still open Project home and use + Add project with its URL.');
       return;
@@ -402,6 +457,7 @@
     }
 
     pendingNativeProject = { from: location.href, at: Date.now() };
+    stashPendingIntake();
     menuActionHost.hidden = true;
     home.click();
     window.setTimeout(resolveNativeProjectIntake, 100);
@@ -474,7 +530,7 @@
 
   function makeItemRow(item) {
     const row = el('div', 'item');
-    row.appendChild(el('span', 'pill', item.type === 'project' ? (item.manual ? 'Saved project' : 'Project') : 'Chat'));
+    row.appendChild(el('span', 'pill', item.type === 'project' ? 'Project' : 'Chat'));
     const link = el('a', 'item-title', item.title);
     link.href = item.href;
     link.addEventListener('click', (event) => {
@@ -492,6 +548,13 @@
     }
     selector.value = categoryFor(item);
     selector.addEventListener('change', () => {
+      // Organizing an observed project also saves its link for future visits.
+      // Previously this wrote only a category ID, so the project vanished
+      // from SwiftClick after a reload if ChatGPT did not load its sidebar link.
+      if (item.type === 'project' && !saveProjectShortcut(item)) {
+        window.alert('SwiftClick could not save that project shortcut. The category was not changed.');
+        return;
+      }
       if (selector.value === 'uncategorized') delete assignments[item.key];
       else assignments[item.key] = selector.value;
       saveAssignments();
@@ -568,12 +631,10 @@
         message.textContent = 'Please paste a ChatGPT PROJECT URL (not a conversation link). Open the project first and copy the address from your browser.';
         return;
       }
-      if (manualProjects.length >= 200 && !manualProjects.some((p) => p.key === parsed.key)) {
-        message.textContent = 'The 200-project shortcut limit was reached in this prototype.';
+      if (!saveProjectShortcut(parsed)) {
+        message.textContent = 'Could not save the project shortcut (or the 200-project limit was reached).';
         return;
       }
-      manualProjects = manualProjects.filter((p) => p.key !== parsed.key).concat(parsed);
-      seen.set(parsed.key, parsed);
       if (selector.value === 'uncategorized') delete assignments[parsed.key];
       else assignments[parsed.key] = selector.value;
       saveManualProjects();
@@ -665,7 +726,7 @@
     panel.appendChild(content);
 
     const footer = el('div', 'foot');
-    footer.appendChild(el('span', 'hint', seen.size + ' indexed links (' + manualProjects.length + ' saved project shortcuts). Auto-discovery is incomplete.'));
+    footer.appendChild(el('span', 'hint', seen.size + ' indexed projects/chats · ' + manualProjects.length + ' project links retained for future visits. Auto-discovery is incomplete.'));
     const reset = button('Clear local category labels', 'action', () => {
       if (window.confirm('Clear all locally saved SwiftClick Organizer category assignments? This will not change ChatGPT.')) {
         assignments = {};
@@ -731,7 +792,12 @@
   window.setInterval(() => {
     if (lastRoute !== location.pathname) {
       lastRoute = location.pathname;
-      if (open) hide();
+      if (pendingNativeProject) {
+        // First consume the project-home route; it opens a new intake dialog.
+        resolveNativeProjectIntake();
+      } else if (open) {
+        hide(); // Ordinary non-intake navigation still closes the organizer.
+      }
       scheduleRefresh();
     }
     resolveNativeProjectIntake();
@@ -744,6 +810,7 @@
 
   collectLoadedLinks();
   positionProjectMenuAction();
+  resumePendingIntake(); // Full page navigation should not lose an intake.
 
   // Only initial ChatGPT home entry auto-opens; direct links must remain unobstructed.
   if (isHomeRoute(location.pathname)) {

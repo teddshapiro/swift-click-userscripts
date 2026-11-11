@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.1
+// @version      0.1.0-alpha.2
 // @description  Local category-first front door for loaded ChatGPT projects and chats. Experimental: incomplete inventory.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -19,6 +19,7 @@
 
   const APP_ID = 'swiftclick-organizer-poc';
   const STORAGE_KEY = APP_ID + '.assignments.v1';
+  const MANUAL_PROJECTS_KEY = APP_ID + '.manualProjects.v1';
   const CATEGORY_TREE = [
     { id: 'family', label: 'Family', icon: '👪', parent: null },
     { id: 'henry', label: 'Henry', icon: '📁', parent: 'family' },
@@ -68,6 +69,14 @@
     }
   }
 
+  function sanitizeManualProject(raw, origin) {
+    if (!raw || typeof raw !== 'object') return null;
+    const name = String(raw.title || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+    if (!name) return null;
+    const parsed = parseItemLink(raw.href, name, origin);
+    return parsed && parsed.type === 'project' ? { ...parsed, manual: true } : null;
+  }
+
   function isDescendant(categoryId, possibleAncestor) {
     let node = CATEGORY_TREE.find((x) => x.id === categoryId);
     while (node) {
@@ -80,7 +89,7 @@
   // Node regression tests opt in to helpers, bypassing browser initialization.
   if (typeof globalThis !== 'undefined' && globalThis.__SC_ORGANIZER_TEST_HOOKS__) {
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
-      isHomeRoute, parseItemLink, isDescendant, validCategory
+      isHomeRoute, parseItemLink, sanitizeManualProject, isDescendant, validCategory
     });
     return;
   }
@@ -91,6 +100,7 @@
   const seen = new Map(); // Session-only inventory: no cross-account stored chat titles/links.
   let currentCategory = null;
   let query = '';
+  let addingProject = false;
   let open = false;
   let lastRoute = location.pathname;
   let refreshTimer = 0;
@@ -112,6 +122,32 @@
     }
   }
   let assignments = readAssignments();
+
+  function readManualProjects() {
+    try {
+      const raw = GM_getValue(MANUAL_PROJECTS_KEY, []);
+      if (!Array.isArray(raw)) return [];
+      const saved = new Map();
+      for (const data of raw.slice(0, 200)) {
+        const item = sanitizeManualProject(data, location.origin);
+        if (item) saved.set(item.key, item);
+      }
+      return [...saved.values()];
+    } catch (error) {
+      console.warn('[SwiftClick Organizer] Could not load saved project shortcuts:', error);
+      return [];
+    }
+  }
+  let manualProjects = readManualProjects();
+  for (const project of manualProjects) seen.set(project.key, project);
+
+  function saveManualProjects() {
+    try {
+      GM_setValue(MANUAL_PROJECTS_KEY, manualProjects.map(({ href, title }) => ({ href, title })));
+    } catch (error) {
+      console.warn('[SwiftClick Organizer] Could not save project shortcuts:', error);
+    }
+  }
 
   function saveAssignments() {
     try {
@@ -187,6 +223,11 @@
     '.item{display:flex;align-items:center;gap:12px;background:#182739;border:1px solid #364a60;border-radius:10px;padding:11px;}',
     '.item-title{min-width:0;flex:1;color:#ecf4ff;font-size:14px;text-decoration:none;overflow-wrap:anywhere;}',
     '.item-title:hover{text-decoration:underline;}',
+    '.add-form{border:1px solid #59728e;background:#1b2b40;padding:14px;border-radius:11px;display:grid;gap:10px;margin:10px 0 16px;}',
+    '.field-label{display:grid;gap:5px;color:#ccd8ea;font-size:12px;font-weight:600;}',
+    '.entry-field{width:100%;padding:10px 12px;background:#111f30;color:#fff;border:1px solid #58708d;border-radius:8px;font:inherit;font-size:14px;}',
+    '.form-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}',
+    '.error{font-size:12px;color:#ffb6b6;}',
     '.pill{color:#b0c0d4;font-size:11px;text-transform:uppercase;letter-spacing:.5px;}',
     'select{max-width:210px;min-width:130px;background:#223449;border:1px solid #52657c;border-radius:8px;padding:7px;color:#f3f8ff;font-size:12px;}',
     '.foot{padding:12px 20px;border-top:1px solid #304052;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}',
@@ -243,6 +284,7 @@
     const item = parseItemLink(anchor.getAttribute('href'), title, location.origin);
     if (!item) return false;
     const existing = seen.get(item.key);
+    if (manualProjects.some((saved) => saved.key === item.key)) return false;
     if (existing && existing.title.length > item.title.length && item.title.startsWith('Unnamed')) return false;
     if (existing && existing.title === item.title && existing.href === item.href) return false;
     seen.set(item.key, item);
@@ -306,7 +348,7 @@
 
   function makeItemRow(item) {
     const row = el('div', 'item');
-    row.appendChild(el('span', 'pill', item.type === 'project' ? 'Project' : 'Chat'));
+    row.appendChild(el('span', 'pill', item.type === 'project' ? (item.manual ? 'Saved project' : 'Project') : 'Chat'));
     const link = el('a', 'item-title', item.title);
     link.href = item.href;
     link.addEventListener('click', (event) => {
@@ -330,7 +372,87 @@
       render();
     });
     row.appendChild(selector);
+    if (item.manual) {
+      const remove = button('Remove shortcut', 'action', () => {
+        if (!window.confirm('Remove this saved project shortcut from SwiftClick Organizer? The ChatGPT project will not change.')) return;
+        manualProjects = manualProjects.filter((p) => p.key !== item.key);
+        seen.delete(item.key);
+        delete assignments[item.key];
+        saveManualProjects();
+        saveAssignments();
+        render();
+      });
+      remove.setAttribute('aria-label', 'Remove saved project shortcut ' + item.title);
+      row.appendChild(remove);
+    }
     return row;
+  }
+
+  function makeAddProjectForm() {
+    const form = el('form', 'add-form');
+    form.appendChild(el('div', 'brand', 'Add an existing ChatGPT project'));
+    form.appendChild(el('p', 'hint', 'Open the project in ChatGPT, copy its address from the browser, and paste it here. This creates only a SwiftClick shortcut.'));
+    const nameLabel = el('label', 'field-label', 'Project name');
+    const name = el('input', 'entry-field');
+    name.type = 'text';
+    name.placeholder = 'e.g. Coding — Tampermonkey Scripts';
+    name.maxLength = 140;
+    name.required = true;
+    nameLabel.appendChild(name);
+    form.appendChild(nameLabel);
+    const urlLabel = el('label', 'field-label', 'ChatGPT project URL');
+    const url = el('input', 'entry-field');
+    url.type = 'url';
+    url.placeholder = 'https://chatgpt.com/g/g-p-…/project';
+    url.required = true;
+    urlLabel.appendChild(url);
+    form.appendChild(urlLabel);
+    const categoryLabel = el('label', 'field-label', 'Show project in');
+    const selector = el('select');
+    for (const category of CATEGORY_TREE) {
+      const option = el('option', '', category.parent ? '   ' + category.label : category.label);
+      option.value = category.id;
+      selector.appendChild(option);
+    }
+    selector.value = validCategory(currentCategory) ? currentCategory : 'uncategorized';
+    categoryLabel.appendChild(selector);
+    form.appendChild(categoryLabel);
+    const message = el('div', 'error');
+    message.setAttribute('role', 'alert');
+    form.appendChild(message);
+    const actions = el('div', 'form-actions');
+    const save = el('button', 'action', 'Save project shortcut');
+    save.type = 'submit';
+    actions.appendChild(save);
+    actions.appendChild(button('Cancel', 'action', () => {
+      addingProject = false;
+      render();
+    }));
+    form.appendChild(actions);
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const parsed = sanitizeManualProject({ title: name.value, href: url.value }, location.origin);
+      if (!parsed) {
+        message.textContent = 'Please paste a ChatGPT PROJECT URL (not a conversation link). Open the project first and copy the address from your browser.';
+        return;
+      }
+      if (manualProjects.length >= 200 && !manualProjects.some((p) => p.key === parsed.key)) {
+        message.textContent = 'The 200-project shortcut limit was reached in this prototype.';
+        return;
+      }
+      manualProjects = manualProjects.filter((p) => p.key !== parsed.key).concat(parsed);
+      seen.set(parsed.key, parsed);
+      if (selector.value === 'uncategorized') delete assignments[parsed.key];
+      else assignments[parsed.key] = selector.value;
+      saveManualProjects();
+      saveAssignments();
+      addingProject = false;
+      query = '';
+      currentCategory = selector.value;
+      render();
+    });
+    return form;
   }
 
   function render() {
@@ -358,6 +480,15 @@
     } else {
       content.appendChild(el('h2', 'title', 'Where would you like to go?'));
     }
+
+    const addBar = el('div', 'toolbar');
+    addBar.appendChild(button(addingProject ? '− Cancel adding project' : '+ Add project', 'action', () => {
+      addingProject = !addingProject;
+      render();
+    }));
+    addBar.appendChild(el('span', 'hint', 'Create a shortcut to an existing ChatGPT project'));
+    content.appendChild(addBar);
+    if (addingProject) content.appendChild(makeAddProjectForm());
 
     const search = el('input', 'search');
     search.type = 'search';
@@ -417,6 +548,7 @@
     collectLoadedLinks();
     open = true;
     currentCategory = null;
+    addingProject = false;
     query = '';
     render();
     overlayHost.hidden = false;

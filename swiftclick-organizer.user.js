@@ -280,6 +280,13 @@
   ].join('\n'));
   const menuActionButton = button('＋ Add to SwiftClick Organizer', '', () => startNativeProjectIntake());
   menuActionButton.setAttribute('aria-label', 'Add this ChatGPT project to SwiftClick Organizer');
+  menuActionButton.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    // Prevent the native outside-pointer handler from closing its menu first.
+    event.preventDefault();
+    event.stopPropagation();
+    startNativeProjectIntake();
+  });
   menuActionRoot.appendChild(menuActionButton);
   document.body.appendChild(menuActionHost);
   let activeNativeProjectHome = null;
@@ -353,6 +360,8 @@
     if (!pendingNativeProject) return;
     if (Date.now() - pendingNativeProject.at > 7000) {
       pendingNativeProject = null;
+      console.warn('[SwiftClick Organizer] Project home did not yield a verifiable project URL.');
+      window.alert('SwiftClick could not identify that project automatically. You can still open Project home and use + Add project with its URL.');
       return;
     }
     if (location.href === pendingNativeProject.from) return;
@@ -363,6 +372,7 @@
   }
 
   function startNativeProjectIntake() {
+    if (open || pendingNativeProject) return;
     const home = activeNativeProjectHome;
     const stillOpen = findNativeProjectMenu();
     if (!home || !home.isConnected || !stillOpen || stillOpen.home !== home) {
@@ -373,10 +383,10 @@
     // verified href directly. Otherwise invoke the site's own Project home
     // action, then wait to observe a NEW project route; never guess an ID.
     const nativeLink = home.matches('a[href]') ? home : home.querySelector('a[href]');
-    const parsed = nativeLink && parseItemLink(nativeLink.getAttribute('href'),
-      nativeLink.getAttribute('aria-label') || '', location.origin);
+    const parsed = nativeLink && parseItemLink(nativeLink.getAttribute('href'), '', location.origin);
     if (parsed && parsed.type === 'project') {
-      openProjectIntake({ ...parsed, title: projectNameOnPage() === 'Unnamed project' ? parsed.title : parsed.title });
+      const known = seen.get(parsed.key);
+      openProjectIntake({ ...parsed, title: known && known.title !== 'Unnamed project' ? known.title : '' });
       return;
     }
 

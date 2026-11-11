@@ -20,6 +20,7 @@
   const APP_ID = 'swiftclick-organizer-poc';
   const STORAGE_KEY = APP_ID + '.assignments.v1';
   const MANUAL_PROJECTS_KEY = APP_ID + '.manualProjects.v1';
+  const SAVED_CHATS_KEY = APP_ID + '.savedChats.v1';
   const PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
   // Flat virtual categories only; do not introduce nested categories in this MVP.
   const CATEGORIES = [
@@ -41,6 +42,16 @@
   });
 
   // Pure utilities are tested without a browser. The script never reads chat message bodies.
+  // A user-organized chat needs its title and URL saved, not just a category
+  // ID, otherwise it disappears when ChatGPT lazily unloads its sidebar link.
+  function sanitizeSavedChat(raw, origin) {
+    if (!raw || typeof raw !== 'object') return null;
+    const title = String(raw.title || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+    if (!title) return null;
+    const item = parseItemLink(raw.href, title, origin);
+    return item && item.type === 'chat' ? { ...item, manual: true } : null;
+  }
+
   function isHomeRoute(pathname) {
     return pathname === '/' || pathname === '';
   }
@@ -121,7 +132,7 @@
   if (typeof globalThis !== 'undefined' && globalThis.__SC_ORGANIZER_TEST_HOOKS__) {
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
-      normalizeCategoryId, itemInCategory, migrateAssignments,
+      normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
       categories: CATEGORIES.map((c) => c.id)
     });
     return;
@@ -175,6 +186,44 @@
   }
   let manualProjects = readManualProjects();
   for (const project of manualProjects) seen.set(project.key, project);
+
+  function readSavedChats() {
+    try {
+      const raw = GM_getValue(SAVED_CHATS_KEY, []);
+      if (!Array.isArray(raw)) return [];
+      const saved = new Map();
+      for (const data of raw.slice(0, 500)) {
+        const chat = sanitizeSavedChat(data, location.origin);
+        if (chat) saved.set(chat.key, chat);
+      }
+      return [...saved.values()];
+    } catch (error) {
+      console.warn('[SwiftClick Organizer] Could not load saved chat shortcuts:', error);
+      return [];
+    }
+  }
+  let savedChats = readSavedChats();
+  for (const chat of savedChats) seen.set(chat.key, chat);
+
+  function saveSavedChats() {
+    try {
+      GM_setValue(SAVED_CHATS_KEY, savedChats.map(({ href, title }) => ({ href, title })));
+    } catch (error) {
+      console.warn('[SwiftClick Organizer] Could not save chat shortcuts:', error);
+    }
+  }
+
+  function saveChatShortcut(chat) {
+    const parsed = sanitizeSavedChat(chat, location.origin);
+    if (!parsed) return false;
+    const prior = savedChats.find((c) => c.key === parsed.key);
+    if (!prior && savedChats.length >= 500) return false;
+    if (prior) parsed.title = prior.title;
+    savedChats = savedChats.filter((c) => c.key !== parsed.key).concat(parsed);
+    seen.set(parsed.key, parsed);
+    saveSavedChats();
+    return true;
+  }
 
   function saveManualProjects() {
     try {
@@ -514,7 +563,13 @@
     const item = parseItemLink(anchor.getAttribute('href'), title, location.origin);
     if (!item) return false;
     const existing = seen.get(item.key);
-    if (manualProjects.some((saved) => saved.key === item.key)) return false;
+    if (manualProjects.some((saved) => saved.key === item.key) ||
+        savedChats.some((saved) => saved.key === item.key)) return false;
+    // Upgrade older category-only chat assignments as their links are
+    // rediscovered, without indexing unassigned chat content.
+    if (item.type === 'chat' && assignments[item.key]) {
+      return saveChatShortcut(item);
+    }
     if (existing && existing.title.length > item.title.length && item.title.startsWith('Unnamed')) return false;
     if (existing && existing.title === item.title && existing.href === item.href) return false;
     seen.set(item.key, item);
@@ -534,6 +589,10 @@
     const pageTitle = (document.title || '').replace(/\s*[-|]\s*ChatGPT\s*$/i, '');
     const activeItem = parseItemLink(location.href, pageTitle, location.origin);
     if (activeItem) {
+      if (activeItem.type === 'chat' && assignments[activeItem.key] &&
+          !savedChats.some((saved) => saved.key === activeItem.key)) {
+        if (saveChatShortcut(activeItem)) changed = true;
+      }
       const prior = seen.get(activeItem.key);
       if (!prior || prior.title !== activeItem.title) {
         seen.set(activeItem.key, activeItem);
@@ -579,8 +638,9 @@
       // Organizing an observed project also saves its link for future visits.
       // Previously this wrote only a category ID, so the project vanished
       // from SwiftClick after a reload if ChatGPT did not load its sidebar link.
-      if (item.type === 'project' && !saveProjectShortcut(item)) {
-        window.alert('SwiftClick could not save that project shortcut. The category was not changed.');
+      if ((item.type === 'project' && !saveProjectShortcut(item)) ||
+          (item.type === 'chat' && !saveChatShortcut(item))) {
+        window.alert('SwiftClick could not save that shortcut. The category was not changed.');
         return;
       }
       if (selector.value === 'uncategorized') delete assignments[item.key];
@@ -591,15 +651,20 @@
     row.appendChild(selector);
     if (item.manual) {
       const remove = button('Remove shortcut', 'action', () => {
-        if (!window.confirm('Remove this saved project shortcut from SwiftClick Organizer? The ChatGPT project will not change.')) return;
-        manualProjects = manualProjects.filter((p) => p.key !== item.key);
+        if (!window.confirm('Remove this locally saved shortcut from SwiftClick Organizer? The original ChatGPT ' + item.type + ' will not change.')) return;
+        if (item.type === 'project') {
+          manualProjects = manualProjects.filter((p) => p.key !== item.key);
+          saveManualProjects();
+        } else {
+          savedChats = savedChats.filter((c) => c.key !== item.key);
+          saveSavedChats();
+        }
         seen.delete(item.key);
         delete assignments[item.key];
-        saveManualProjects();
         saveAssignments();
         render();
       });
-      remove.setAttribute('aria-label', 'Remove saved project shortcut ' + item.title);
+      remove.setAttribute('aria-label', 'Remove saved ' + item.type + ' shortcut ' + item.title);
       row.appendChild(remove);
     }
     return row;
@@ -756,7 +821,7 @@
     panel.appendChild(content);
 
     const footer = el('div', 'foot');
-    footer.appendChild(el('span', 'hint', seen.size + ' indexed projects/chats · ' + manualProjects.length + ' project links retained for future visits. Auto-discovery is incomplete.'));
+    footer.appendChild(el('span', 'hint', seen.size + ' indexed items · ' + manualProjects.length + ' projects and ' + savedChats.length + ' chats retained locally. Auto-discovery is incomplete.'));
     const reset = button('Clear local category labels', 'action', () => {
       if (window.confirm('Clear all locally saved SwiftClick Organizer category assignments? This will not change ChatGPT.')) {
         assignments = {};

@@ -95,8 +95,18 @@ test('manual project feature only stores shortcuts in Tampermonkey metadata', ()
   assert.match(script, /Save project shortcut/);
 });
 
+test('launcher is completely outside native ChatGPT navigation', () => {
+  // The previous launcher was inserted as the first child of an existing
+  // nav/sidebar. That DOM mutation can disrupt ChatGPT project hover buttons.
+  assert.match(script, /document\.body\.appendChild\(launcherHost\)/);
+  assert.doesNotMatch(script, /sidebar\.insertBefore|positionLauncher|findSidebar/);
+  assert.doesNotMatch(script, /launcherHost\.dataset\.placement/);
+  assert.match(script, /pointer-events:none/);
+  assert.match(script, /pointer-events:auto/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.2/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.3/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

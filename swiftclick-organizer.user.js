@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.3
+// @version      0.1.0-alpha.4
 // @description  Local category-first front door for loaded ChatGPT projects and chats. Experimental: incomplete inventory.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -101,6 +101,8 @@
   let currentCategory = null;
   let query = '';
   let addingProject = false;
+  let intakeProject = null;
+  let pendingNativeProject = null;
   let open = false;
   let lastRoute = location.pathname;
   let refreshTimer = 0;
@@ -261,6 +263,131 @@
     if (event.target === backdrop) hide();
   });
 
+  // The native project menu is React-owned: observe it but never insert children.
+  // A small companion action is rendered in our OWN Shadow DOM beside the menu.
+  const menuActionHost = el('div');
+  menuActionHost.id = APP_ID + '-project-action';
+  menuActionHost.hidden = true;
+  const menuActionRoot = menuActionHost.attachShadow({ mode: 'open' });
+  stylesheet(menuActionRoot, [
+    ':host{position:fixed;z-index:2147483550;display:block;pointer-events:none;}',
+    ':host([hidden]){display:none!important;}',
+    'button{pointer-events:auto;cursor:pointer;background:#16283b;color:#f5f9ff;border:1px solid #7893ae;',
+    'box-shadow:0 5px 22px #0005;border-radius:10px;padding:10px 12px;font:600 12px/1.4 system-ui;',
+    'white-space:nowrap;max-width:calc(100vw - 16px);}',
+    'button:hover{background:#284561;}',
+    'button:focus-visible{outline:3px solid #69b6ff;outline-offset:2px;}'
+  ].join('\n'));
+  const menuActionButton = button('＋ Add to SwiftClick Organizer', '', () => startNativeProjectIntake());
+  menuActionButton.setAttribute('aria-label', 'Add this ChatGPT project to SwiftClick Organizer');
+  menuActionRoot.appendChild(menuActionButton);
+  document.body.appendChild(menuActionHost);
+  let activeNativeProjectHome = null;
+
+  function findNativeProjectMenu() {
+    // Only project menus with the explicit native "Project home" action qualify.
+    // Never infer the project from the CURRENT page: a different project may
+    // be selected in the sidebar when this menu is opened.
+    for (const menu of document.querySelectorAll('[role="menu"]')) {
+      if (!menu.isConnected || !menu.getClientRects().length) continue;
+      const entries = menu.querySelectorAll('[role="menuitem"], a[href], button');
+      for (const entry of entries) {
+        if (entry.textContent.replace(/\s+/g, ' ').trim().toLowerCase() === 'project home') {
+          return { menu, home: entry };
+        }
+      }
+    }
+    return null;
+  }
+
+  function positionProjectMenuAction() {
+    if (open || pendingNativeProject) {
+      menuActionHost.hidden = true;
+      activeNativeProjectHome = null;
+      return;
+    }
+    const found = findNativeProjectMenu();
+    if (!found) {
+      menuActionHost.hidden = true;
+      activeNativeProjectHome = null;
+      return;
+    }
+    activeNativeProjectHome = found.home;
+    const rect = found.menu.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      menuActionHost.hidden = true;
+      return;
+    }
+    // Adjacent to the menu, never overlapping its native actions.
+    const actionWidth = 236;
+    const actionHeight = 43;
+    const x = Math.max(8, Math.min(window.innerWidth - actionWidth - 8, rect.left));
+    const y = rect.bottom + actionHeight + 12 <= window.innerHeight
+      ? rect.bottom + 5
+      : Math.max(8, rect.top - actionHeight - 5);
+    menuActionHost.style.left = x + 'px';
+    menuActionHost.style.top = y + 'px';
+    menuActionHost.hidden = false;
+  }
+
+  function projectNameOnPage() {
+    const main = document.querySelector('main');
+    const title = main && main.querySelector('h1, [data-testid="project-title"]');
+    const value = title ? String(title.textContent || '').replace(/\s+/g, ' ').trim() : '';
+    if (value && value.length < 141) return value;
+    const fallback = (document.title || '').replace(/\s*[-|]\s*ChatGPT\s*$/i, '').trim();
+    return fallback && fallback.toLowerCase() !== 'chatgpt' ? fallback.slice(0, 140) : 'Unnamed project';
+  }
+
+  function openProjectIntake(project) {
+    if (!project || project.type !== 'project') return;
+    pendingNativeProject = null;
+    menuActionHost.hidden = true;
+    show();
+    intakeProject = project;
+    addingProject = true;
+    render();
+  }
+
+  function resolveNativeProjectIntake() {
+    if (!pendingNativeProject) return;
+    if (Date.now() - pendingNativeProject.at > 7000) {
+      pendingNativeProject = null;
+      return;
+    }
+    if (location.href === pendingNativeProject.from) return;
+    const project = parseItemLink(location.href, projectNameOnPage(), location.origin);
+    if (project && project.type === 'project') {
+      openProjectIntake(project);
+    }
+  }
+
+  function startNativeProjectIntake() {
+    const home = activeNativeProjectHome;
+    const stillOpen = findNativeProjectMenu();
+    if (!home || !home.isConnected || !stillOpen || stillOpen.home !== home) {
+      menuActionHost.hidden = true;
+      return;
+    }
+    // Where the native menu contains an actual project link, use its
+    // verified href directly. Otherwise invoke the site's own Project home
+    // action, then wait to observe a NEW project route; never guess an ID.
+    const nativeLink = home.matches('a[href]') ? home : home.querySelector('a[href]');
+    const parsed = nativeLink && parseItemLink(nativeLink.getAttribute('href'),
+      nativeLink.getAttribute('aria-label') || '', location.origin);
+    if (parsed && parsed.type === 'project') {
+      openProjectIntake({ ...parsed, title: projectNameOnPage() === 'Unnamed project' ? parsed.title : parsed.title });
+      return;
+    }
+
+    pendingNativeProject = { from: location.href, at: Date.now() };
+    menuActionHost.hidden = true;
+    home.click();
+    window.setTimeout(resolveNativeProjectIntake, 100);
+    window.setTimeout(resolveNativeProjectIntake, 500);
+    window.setTimeout(resolveNativeProjectIntake, 1400);
+  }
+
   function labelFor(id) {
     return (CATEGORY_TREE.find((c) => c.id === id) || CATEGORY_TREE[CATEGORY_TREE.length - 1]).label;
   }
@@ -368,14 +495,15 @@
 
   function makeAddProjectForm() {
     const form = el('form', 'add-form');
-    form.appendChild(el('div', 'brand', 'Add an existing ChatGPT project'));
-    form.appendChild(el('p', 'hint', 'Open the project in ChatGPT, copy its address from the browser, and paste it here. This creates only a SwiftClick shortcut.'));
+    form.appendChild(el('div', 'brand', intakeProject ? 'Organize this ChatGPT project' : 'Add an existing ChatGPT project'));
+    form.appendChild(el('p', 'hint', intakeProject ? 'Confirm the detected project and choose where its shortcut should appear.' : 'Open the project in ChatGPT, copy its address from the browser, and paste it here. This creates only a SwiftClick shortcut.'));
     const nameLabel = el('label', 'field-label', 'Project name');
     const name = el('input', 'entry-field');
     name.type = 'text';
     name.placeholder = 'e.g. Coding — Tampermonkey Scripts';
     name.maxLength = 140;
     name.required = true;
+    if (intakeProject) name.value = intakeProject.title;
     nameLabel.appendChild(name);
     form.appendChild(nameLabel);
     const urlLabel = el('label', 'field-label', 'ChatGPT project URL');
@@ -383,6 +511,7 @@
     url.type = 'url';
     url.placeholder = 'https://chatgpt.com/g/g-p-…/project';
     url.required = true;
+    if (intakeProject) url.value = intakeProject.href;
     urlLabel.appendChild(url);
     form.appendChild(urlLabel);
     const categoryLabel = el('label', 'field-label', 'Show project in');
@@ -392,7 +521,9 @@
       option.value = category.id;
       selector.appendChild(option);
     }
-    selector.value = validCategory(currentCategory) ? currentCategory : 'uncategorized';
+    selector.value = intakeProject && validCategory(assignments[intakeProject.key])
+      ? assignments[intakeProject.key]
+      : validCategory(currentCategory) ? currentCategory : 'uncategorized';
     categoryLabel.appendChild(selector);
     form.appendChild(categoryLabel);
     const message = el('div', 'error');
@@ -404,6 +535,7 @@
     actions.appendChild(save);
     actions.appendChild(button('Cancel', 'action', () => {
       addingProject = false;
+      intakeProject = null;
       render();
     }));
     form.appendChild(actions);
@@ -426,6 +558,7 @@
       saveManualProjects();
       saveAssignments();
       addingProject = false;
+      intakeProject = null;
       query = '';
       currentCategory = selector.value;
       render();
@@ -462,6 +595,7 @@
     const addBar = el('div', 'toolbar');
     addBar.appendChild(button(addingProject ? '− Cancel adding project' : '+ Add project', 'action', () => {
       addingProject = !addingProject;
+      intakeProject = null;
       render();
     }));
     addBar.appendChild(el('span', 'hint', 'Create a shortcut to an existing ChatGPT project'));
@@ -527,6 +661,7 @@
     open = true;
     currentCategory = null;
     addingProject = false;
+    intakeProject = null;
     query = '';
     render();
     overlayHost.hidden = false;
@@ -561,11 +696,13 @@
     refreshTimer = window.setTimeout(() => {
       refreshTimer = 0;
       collectLoadedLinks();
-    }, 400);
+      positionProjectMenuAction();
+      resolveNativeProjectIntake();
+    }, 150);
   }
 
   const observer = new MutationObserver((records) => {
-    if (records.every((r) => launcherHost.contains(r.target) || overlayHost.contains(r.target))) return;
+    if (records.every((r) => launcherHost.contains(r.target) || overlayHost.contains(r.target) || menuActionHost.contains(r.target))) return;
     scheduleRefresh();
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
@@ -576,6 +713,8 @@
       if (open) hide();
       scheduleRefresh();
     }
+    resolveNativeProjectIntake();
+    positionProjectMenuAction();
   }, 1000);
 
   if (typeof GM_registerMenuCommand === 'function') {
@@ -583,6 +722,7 @@
   }
 
   collectLoadedLinks();
+  positionProjectMenuAction();
 
   // Only initial ChatGPT home entry auto-opens; direct links must remain unobstructed.
   if (isHomeRoute(location.pathname)) {

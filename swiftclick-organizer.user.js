@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.2
+// @version      0.1.0-alpha.3
 // @description  Local category-first front door for loaded ChatGPT projects and chats. Experimental: incomplete inventory.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -189,10 +189,8 @@
 
   const LAUNCHER_CSS = [
     ':host{display:block;font-family:system-ui,-apple-system,sans-serif;}',
-    ':host([data-placement="floating"]){position:fixed;left:14px;bottom:18px;z-index:2147483600;}',
-    ':host([data-placement="sidebar"]){position:relative;margin:5px 6px;z-index:2;}',
-    'button{display:flex;align-items:center;gap:8px;cursor:pointer;padding:9px 12px;border:1px solid #778397;border-radius:12px;background:#17212f;color:#fff;font:600 12px/1.4 system-ui;box-shadow:0 4px 16px #0003;}',
-    ':host([data-placement="sidebar"]) button{width:100%;box-shadow:none;}',
+    ':host{position:fixed;right:10px;top:50%;transform:translateY(-50%);z-index:2147483600;pointer-events:none;}',
+    'button{pointer-events:auto;display:flex;align-items:center;gap:8px;cursor:pointer;padding:9px 12px;border:1px solid #778397;border-radius:12px;background:#17212f;color:#fff;font:600 12px/1.4 system-ui;box-shadow:0 4px 16px #0003;}',
     'button:focus-visible{outline:3px solid #7dbbff;outline-offset:2px;}',
     'button:hover{background:#26374b;}'
   ].join('\n');
@@ -238,13 +236,13 @@
 
   const launcherHost = el('div');
   launcherHost.id = APP_ID + '-launcher';
-  launcherHost.dataset.placement = 'floating';
   const launcherRoot = launcherHost.attachShadow({ mode: 'open' });
   stylesheet(launcherRoot, LAUNCHER_CSS);
   const launcherButton = button('▦  SwiftClick Organizer', '', () => show());
   launcherButton.setAttribute('aria-label', 'Open SwiftClick Organizer');
   launcherRoot.appendChild(launcherButton);
-  document.documentElement.appendChild(launcherHost);
+  // Never inject into ChatGPT-owned navigation: its DOM layout/hover actions are fragile.
+  document.body.appendChild(launcherHost);
 
   const overlayHost = el('div');
   overlayHost.id = APP_ID + '-overlay';
@@ -311,26 +309,6 @@
       }
     }
     if (changed && open) render();
-  }
-
-  function findSidebar() {
-    const candidates = document.querySelectorAll('[data-testid*="sidebar"], [data-sidebar], nav, aside');
-    for (const candidate of candidates) {
-      if (candidate === launcherHost || candidate === overlayHost) continue;
-      if (candidate.querySelector('a[href*="/c/"],a[href*="/g/g-p-"]')) return candidate;
-    }
-    return null;
-  }
-
-  function positionLauncher() {
-    const sidebar = findSidebar();
-    if (sidebar && !sidebar.contains(launcherHost)) {
-      sidebar.insertBefore(launcherHost, sidebar.firstChild);
-      launcherHost.dataset.placement = 'sidebar';
-    } else if (!sidebar && launcherHost.parentNode !== document.documentElement) {
-      document.documentElement.appendChild(launcherHost);
-      launcherHost.dataset.placement = 'floating';
-    }
   }
 
   function makeCategoryCard(category) {
@@ -582,7 +560,6 @@
     if (refreshTimer) window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(() => {
       refreshTimer = 0;
-      positionLauncher();
       collectLoadedLinks();
     }, 400);
   }
@@ -605,7 +582,6 @@
     GM_registerMenuCommand('Open SwiftClick Organizer', show);
   }
 
-  positionLauncher();
   collectLoadedLinks();
 
   // Only initial ChatGPT home entry auto-opens; direct links must remain unobstructed.

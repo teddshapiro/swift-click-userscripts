@@ -342,7 +342,7 @@
     });
     card.appendChild(el('span', '', category.icon));
     card.appendChild(el('span', 'card-title', category.label));
-    card.appendChild(el('span', 'card-meta', count + ' observed item' + (count === 1 ? '' : 's')));
+    card.appendChild(el('span', 'card-meta', count + ' item' + (count === 1 ? '' : 's')));
     return card;
   }
 
@@ -492,8 +492,8 @@
 
     const search = el('input', 'search');
     search.type = 'search';
-    search.placeholder = 'Search observed projects and chats...';
-    search.setAttribute('aria-label', 'Search observed projects and chats');
+    search.placeholder = 'Search indexed projects and chats...';
+    search.setAttribute('aria-label', 'Search indexed projects and chats');
     search.value = query;
     search.addEventListener('input', () => {
       query = search.value;
@@ -523,7 +523,7 @@
       // The default front door is categories, not a wall of chat links.
       content.appendChild(el('p', 'hint', 'Choose a category or search above. Uncategorized is the inbox for links not yet assigned.'));
     } else {
-      content.appendChild(el('p', 'hint', filtered.length + ' matching loaded project/chat links'));
+      content.appendChild(el('p', 'hint', filtered.length + ' matching indexed project/chat links'));
       const list = el('div', 'items');
       filtered.slice(0, 250).forEach((item) => list.appendChild(makeItemRow(item)));
       if (!filtered.length) list.appendChild(el('div', 'empty', 'No matching items observed yet. Expand your ChatGPT sidebar or visit the item, then reopen this view.'));
@@ -532,7 +532,7 @@
     panel.appendChild(content);
 
     const footer = el('div', 'foot');
-    footer.appendChild(el('span', 'hint', seen.size + ' links observed in this browser session. This is NOT a complete ChatGPT inventory.'));
+    footer.appendChild(el('span', 'hint', seen.size + ' indexed links (' + manualProjects.length + ' saved project shortcuts). Auto-discovery is incomplete.'));
     const reset = button('Clear local category labels', 'action', () => {
       if (window.confirm('Clear all locally saved SwiftClick Organizer category assignments? This will not change ChatGPT.')) {
         assignments = {};

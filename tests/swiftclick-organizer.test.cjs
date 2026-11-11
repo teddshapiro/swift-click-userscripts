@@ -124,8 +124,38 @@ test('project intake validates a project URL and keeps native data unchanged', (
   assert.match(script, /pendingNativeProject = \{ from: location\.href, at: Date\.now\(\) \}/);
 });
 
+test('discovered project titles are normalized without affecting chat titles', () => {
+  const project = hooks.parseItemLink(
+    '/g/g-p-123-project/project', 'ChatGPT - Cinema Decoder - Project', origin
+  );
+  assert.equal(project.title, 'Cinema Decoder');
+  const chat = hooks.parseItemLink('/c/123', 'ChatGPT - Cinema Decoder - Project', origin);
+  assert.equal(chat.title, 'ChatGPT - Cinema Decoder - Project');
+});
+
+test('intake navigation is treated differently from ordinary route navigation', () => {
+  assert.match(script, /function openProjectIntake\(project\)/);
+  assert.match(script, /lastRoute = location\.pathname;\s*show\(\);/);
+  assert.match(script, /if \(pendingNativeProject\) \{\s*\/\/ First consume the project-home route/);
+  assert.match(script, /else if \(open\) \{\s*hide\(\);/);
+  assert.match(script, /sessionStorage\.setItem\(PENDING_INTAKE_KEY/);
+  assert.match(script, /sessionStorage\.removeItem\(PENDING_INTAKE_KEY/);
+  assert.match(script, /resumePendingIntake\(\);/);
+});
+
+test('categorizing a discovered project preserves its shortcut across reloads', () => {
+  assert.match(script, /item\.type === 'project' && !saveProjectShortcut\(item\)/);
+  assert.match(script, /function saveProjectShortcut\(project\)/);
+  assert.match(script, /manualProjects = manualProjects\.filter/);
+  assert.match(script, /seen\.set\(parsed\.key, parsed\)/);
+  assert.match(script, /GM_setValue\(MANUAL_PROJECTS_KEY/);
+  assert.doesNotMatch(script, /'Saved project' : 'Project'/);
+  assert.match(script, /categoryPath\(c\.id\)/);
+  assert.match(script, /categoryPath\(category\.id\)/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.4/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.5/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

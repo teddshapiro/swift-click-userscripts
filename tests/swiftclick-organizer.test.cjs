@@ -64,14 +64,55 @@ test('normalize labels and omit URL query parameters from stored navigation link
   assert.equal(item.href, 'https://chatgpt.com/c/abc-42');
 });
 
-test('categories support nested Family and Cinema Decoder views', () => {
+test('categories are flat and contain only projects or chats', () => {
+  assert.deepEqual(Array.from(hooks.categories), [
+    'family', 'health', 'business', 'ai', 'hobbies', 'uncategorized'
+  ]);
   assert.equal(hooks.validCategory('family'), true);
-  assert.equal(hooks.validCategory('cinema'), true);
+  assert.equal(hooks.validCategory('hobbies'), true);
+  assert.equal(hooks.validCategory('cinema'), false);
+  assert.equal(hooks.validCategory('henry'), false);
+  assert.equal(hooks.validCategory('bradley'), false);
   assert.equal(hooks.validCategory('unknown'), false);
-  assert.equal(hooks.isDescendant('henry', 'family'), true);
-  assert.equal(hooks.isDescendant('bradley', 'family'), true);
-  assert.equal(hooks.isDescendant('cinema', 'hobbies'), true);
-  assert.equal(hooks.isDescendant('cinema', 'family'), false);
+  assert.equal(hooks.itemInCategory('hobbies', 'hobbies'), true);
+  assert.equal(hooks.itemInCategory('family', 'hobbies'), false);
+  assert.equal(hooks.itemInCategory('hobbies', null), true);
+});
+
+test('legacy assignments migrate to top-level categories without losing links', () => {
+  const old = {
+    'chat:transcript': 'cinema',
+    'project:cinema': 'hobbies',
+    'chat:henry': 'henry',
+    'chat:bradley': 'bradley',
+    'project:another': 'family-other',
+    'chat:health': 'health',
+    'project:ai-video': 'hobbies'
+  };
+  const { assignments, migrated } = hooks.migrateAssignments(old);
+  assert.equal(migrated, true);
+  assert.equal(Object.keys(assignments).length, Object.keys(old).length);
+  assert.equal(assignments['chat:transcript'], 'hobbies');
+  assert.equal(assignments['project:cinema'], 'hobbies');
+  assert.equal(assignments['chat:henry'], 'family');
+  assert.equal(assignments['chat:bradley'], 'family');
+  assert.equal(assignments['project:another'], 'family');
+  assert.equal(assignments['chat:health'], 'health');
+  assert.equal(assignments['project:ai-video'], 'hobbies');
+  assert.equal(hooks.migrateAssignments(assignments).migrated, false);
+  assert.equal(hooks.normalizeCategoryId('cinema'), 'hobbies');
+  assert.equal(hooks.normalizeCategoryId('henry'), 'family');
+  assert.equal(hooks.normalizeCategoryId('nonexistent'), 'uncategorized');
+  assert.equal(hooks.itemInCategory('cinema', 'hobbies'), true);
+});
+
+test('new category assignment remains a flat selector without nested navigation', () => {
+  assert.doesNotMatch(script, /function isDescendant\(/);
+  assert.doesNotMatch(script, /directChildren|categoryPath\(/);
+  assert.match(script, /if \(!hasSearch && currentCategory === null\)/);
+  assert.match(script, /CATEGORIES\.forEach\(\(category\) => cards\.appendChild\(makeCategoryCard\(category\)\)\)/);
+  assert.match(script, /GM_setValue\(STORAGE_KEY, \{ version: 2, assignments: clean \}\)/);
+  assert.match(script, /GM_setValue\(STORAGE_KEY, \{ version: 2, assignments \}\)/);
 });
 
 test('manual project shortcut validation accepts only ChatGPT projects', () => {
@@ -150,12 +191,12 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
   assert.match(script, /seen\.set\(parsed\.key, parsed\)/);
   assert.match(script, /GM_setValue\(MANUAL_PROJECTS_KEY/);
   assert.doesNotMatch(script, /'Saved project' : 'Project'/);
-  assert.match(script, /categoryPath\(c\.id\)/);
-  assert.match(script, /categoryPath\(category\.id\)/);
+  assert.match(script, /for \(const c of CATEGORIES\)/);
+  assert.match(script, /for \(const category of CATEGORIES\)/);
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.5/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.6/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

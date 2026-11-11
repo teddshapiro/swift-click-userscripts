@@ -594,7 +594,9 @@
         if (saveChatShortcut(activeItem)) changed = true;
       }
       const prior = seen.get(activeItem.key);
-      if (!prior || prior.title !== activeItem.title) {
+      const savedLocally = manualProjects.some((p) => p.key === activeItem.key) ||
+        savedChats.some((c) => c.key === activeItem.key);
+      if (!savedLocally && (!prior || prior.title !== activeItem.title)) {
         seen.set(activeItem.key, activeItem);
         changed = true;
       }

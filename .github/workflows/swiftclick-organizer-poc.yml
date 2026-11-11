@@ -1,0 +1,31 @@
+name: SwiftClick Organizer PoC checks
+
+on:
+  pull_request:
+    paths:
+      - swiftclick-organizer.user.js
+      - tests/swiftclick-organizer.test.cjs
+      - .github/workflows/swiftclick-organizer-poc.yml
+  push:
+    branches:
+      - feat/swiftclick-organizer-poc-20261111
+    paths:
+      - swiftclick-organizer.user.js
+      - tests/swiftclick-organizer.test.cjs
+      - .github/workflows/swiftclick-organizer-poc.yml
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax check
+        run: node --check swiftclick-organizer.user.js
+      - name: Organizer regression tests
+        run: node --test tests/swiftclick-organizer.test.cjs

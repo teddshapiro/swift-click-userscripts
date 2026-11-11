@@ -59,6 +59,22 @@
     return selectedId === null || normalizeCategoryId(assignedId) === selectedId;
   }
 
+  function migrateAssignments(rawAssignments) {
+    const clean = {};
+    let migrated = false;
+    if (!rawAssignments || typeof rawAssignments !== 'object' || Array.isArray(rawAssignments)) {
+      return { assignments: clean, migrated: false };
+    }
+    for (const [key, oldId] of Object.entries(rawAssignments)) {
+      if (!/^(chat|project):[a-zA-Z0-9-]{1,160}$/.test(key)) continue;
+      const id = normalizeCategoryId(oldId);
+      if (id !== oldId) migrated = true;
+      // Uncategorized is the default and requires no explicit stored label.
+      if (id !== 'uncategorized') clean[key] = id;
+    }
+    return { assignments: clean, migrated };
+  }
+
   function parseItemLink(href, rawTitle, origin) {
     try {
       const url = new URL(href, origin);
@@ -105,7 +121,8 @@
   if (typeof globalThis !== 'undefined' && globalThis.__SC_ORGANIZER_TEST_HOOKS__) {
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
-      normalizeCategoryId, itemInCategory, categories: CATEGORIES.map((c) => c.id)
+      normalizeCategoryId, itemInCategory, migrateAssignments,
+      categories: CATEGORIES.map((c) => c.id)
     });
     return;
   }
@@ -127,17 +144,10 @@
     try {
       const value = GM_getValue(STORAGE_KEY, {});
       if (!value || typeof value !== 'object' || typeof value.assignments !== 'object') return {};
-      const clean = {};
-      let migrated = false;
-      for (const [key, categoryId] of Object.entries(value.assignments || {})) {
-        if (!/^(chat|project):[a-zA-Z0-9-]{1,160}$/.test(key)) continue;
-        const normalized = normalizeCategoryId(categoryId);
-        if (normalized !== categoryId) migrated = true;
-        if (normalized !== 'uncategorized') clean[key] = normalized;
-      }
+      const { assignments: clean, migrated } = migrateAssignments(value.assignments);
       if (migrated) {
-        // Preserve existing local links and category decisions; only flatten
-        // their category IDs. The same key is used to avoid duplicate data.
+        // Preserve project/chat links and category decisions; only flatten
+        // category IDs. This is idempotent and uses the existing storage key.
         GM_setValue(STORAGE_KEY, { version: 2, assignments: clean });
       }
       return clean;

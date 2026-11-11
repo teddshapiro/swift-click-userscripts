@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.5
+// @version      0.1.0-alpha.6
 // @description  Local category-first front door for loaded ChatGPT projects and chats. Experimental: incomplete inventory.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -21,18 +21,24 @@
   const STORAGE_KEY = APP_ID + '.assignments.v1';
   const MANUAL_PROJECTS_KEY = APP_ID + '.manualProjects.v1';
   const PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
-  const CATEGORY_TREE = [
-    { id: 'family', label: 'Family', icon: '👪', parent: null },
-    { id: 'henry', label: 'Henry', icon: '📁', parent: 'family' },
-    { id: 'bradley', label: 'Bradley', icon: '📁', parent: 'family' },
-    { id: 'family-other', label: 'Other family matters', icon: '📁', parent: 'family' },
-    { id: 'health', label: 'My Health', icon: '♡', parent: null },
-    { id: 'business', label: 'SwiftClick Business', icon: '◈', parent: null },
-    { id: 'ai', label: 'Generative AI', icon: '✧', parent: null },
-    { id: 'hobbies', label: 'Hobbies & Interests', icon: '✿', parent: null },
-    { id: 'cinema', label: 'Cinema Decoder', icon: '🎬', parent: 'hobbies' },
-    { id: 'uncategorized', label: 'Uncategorized', icon: '▤', parent: null }
+  // Flat virtual categories only; do not introduce nested categories in this MVP.
+  const CATEGORIES = [
+    { id: 'family', label: 'Family', icon: '👪' },
+    { id: 'health', label: 'My Health', icon: '♡' },
+    { id: 'business', label: 'SwiftClick Business', icon: '◈' },
+    { id: 'ai', label: 'Generative AI', icon: '✧' },
+    { id: 'hobbies', label: 'Hobbies & Interests', icon: '✿' },
+    { id: 'uncategorized', label: 'Uncategorized', icon: '▤' }
   ];
+
+  // One-time compatibility mapping for assignments saved by alpha.1–5.
+  // Convert virtual subcategories into their parent WITHOUT losing linked chats.
+  const LEGACY_CATEGORIES = Object.freeze({
+    henry: 'family',
+    bradley: 'family',
+    'family-other': 'family',
+    cinema: 'hobbies'
+  });
 
   // Pure utilities are tested without a browser. The script never reads chat message bodies.
   function isHomeRoute(pathname) {
@@ -40,7 +46,17 @@
   }
 
   function validCategory(id) {
-    return CATEGORY_TREE.some((c) => c.id === id);
+    return CATEGORIES.some((c) => c.id === id);
+  }
+
+  function normalizeCategoryId(id) {
+    const mapped = Object.prototype.hasOwnProperty.call(LEGACY_CATEGORIES, id)
+      ? LEGACY_CATEGORIES[id] : id;
+    return validCategory(mapped) ? mapped : 'uncategorized';
+  }
+
+  function itemInCategory(assignedId, selectedId) {
+    return selectedId === null || normalizeCategoryId(assignedId) === selectedId;
   }
 
   function parseItemLink(href, rawTitle, origin) {
@@ -83,19 +99,13 @@
     return parsed && parsed.type === 'project' ? { ...parsed, manual: true } : null;
   }
 
-  function isDescendant(categoryId, possibleAncestor) {
-    let node = CATEGORY_TREE.find((x) => x.id === categoryId);
-    while (node) {
-      if (node.id === possibleAncestor) return true;
-      node = CATEGORY_TREE.find((x) => x.id === node.parent);
-    }
-    return false;
-  }
+
 
   // Node regression tests opt in to helpers, bypassing browser initialization.
   if (typeof globalThis !== 'undefined' && globalThis.__SC_ORGANIZER_TEST_HOOKS__) {
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
-      isHomeRoute, parseItemLink, sanitizeManualProject, isDescendant, validCategory
+      isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
+      normalizeCategoryId, itemInCategory, categories: CATEGORIES.map((c) => c.id)
     });
     return;
   }
@@ -118,10 +128,17 @@
       const value = GM_getValue(STORAGE_KEY, {});
       if (!value || typeof value !== 'object' || typeof value.assignments !== 'object') return {};
       const clean = {};
+      let migrated = false;
       for (const [key, categoryId] of Object.entries(value.assignments || {})) {
-        if (/^(chat|project):[a-zA-Z0-9-]{1,160}$/.test(key) && validCategory(categoryId)) {
-          clean[key] = categoryId;
-        }
+        if (!/^(chat|project):[a-zA-Z0-9-]{1,160}$/.test(key)) continue;
+        const normalized = normalizeCategoryId(categoryId);
+        if (normalized !== categoryId) migrated = true;
+        if (normalized !== 'uncategorized') clean[key] = normalized;
+      }
+      if (migrated) {
+        // Preserve existing local links and category decisions; only flatten
+        // their category IDs. The same key is used to avoid duplicate data.
+        GM_setValue(STORAGE_KEY, { version: 2, assignments: clean });
       }
       return clean;
     } catch (error) {
@@ -173,7 +190,7 @@
 
   function saveAssignments() {
     try {
-      GM_setValue(STORAGE_KEY, { version: 1, assignments });
+      GM_setValue(STORAGE_KEY, { version: 2, assignments });
     } catch (error) {
       console.warn('[SwiftClick Organizer] Could not save local labels:', error);
     }
@@ -471,29 +488,15 @@
   }
 
   function labelFor(id) {
-    return (CATEGORY_TREE.find((c) => c.id === id) || CATEGORY_TREE[CATEGORY_TREE.length - 1]).label;
-  }
-
-  function categoryPath(id) {
-    const parts = [];
-    let node = CATEGORY_TREE.find((c) => c.id === id);
-    while (node) {
-      parts.unshift(node.label);
-      node = CATEGORY_TREE.find((c) => c.id === node.parent);
-    }
-    return parts.join(' › ');
+    return (CATEGORIES.find((c) => c.id === id) || CATEGORIES[CATEGORIES.length - 1]).label;
   }
 
   function categoryFor(item) {
-    const c = assignments[item.key];
-    return validCategory(c) ? c : 'uncategorized';
+    return normalizeCategoryId(assignments[item.key]);
   }
 
   function visibleItems(categoryId) {
-    return [...seen.values()].filter((item) => {
-      const assigned = categoryFor(item);
-      return categoryId === null || isDescendant(assigned, categoryId);
-    });
+    return [...seen.values()].filter((item) => itemInCategory(categoryFor(item), categoryId));
   }
 
   function indexAnchor(anchor) {
@@ -556,8 +559,8 @@
     row.appendChild(link);
     const selector = el('select');
     selector.setAttribute('aria-label', 'Place ' + item.title + ' in category');
-    for (const c of CATEGORY_TREE) {
-      const opt = el('option', '', categoryPath(c.id));
+    for (const c of CATEGORIES) {
+      const opt = el('option', '', c.label);
       opt.value = c.id;
       selector.appendChild(opt);
     }
@@ -615,8 +618,8 @@
     form.appendChild(urlLabel);
     const categoryLabel = el('label', 'field-label', 'Show project in');
     const selector = el('select');
-    for (const category of CATEGORY_TREE) {
-      const option = el('option', '', categoryPath(category.id));
+    for (const category of CATEGORIES) {
+      const option = el('option', '', category.label);
       option.value = category.id;
       selector.appendChild(option);
     }
@@ -676,10 +679,8 @@
     const content = el('div', 'main');
     if (currentCategory !== null) {
       const toolbar = el('div', 'toolbar');
-      const here = CATEGORY_TREE.find((c) => c.id === currentCategory);
-      const parentId = here ? here.parent : null;
-      toolbar.appendChild(button('← ' + (parentId ? labelFor(parentId) : 'Categories'), 'action', () => {
-        currentCategory = parentId;
+      toolbar.appendChild(button('← Categories', 'action', () => {
+        currentCategory = null;
         query = '';
         render();
       }));
@@ -717,10 +718,10 @@
     content.appendChild(search);
 
     const hasSearch = query.trim().length > 0;
-    const directChildren = CATEGORY_TREE.filter((c) => c.parent === currentCategory);
-    if (!hasSearch && directChildren.length) {
+    // Category cards appear ONLY on the front door, never within a category.
+    if (!hasSearch && currentCategory === null) {
       const cards = el('div', 'cards');
-      directChildren.forEach((category) => cards.appendChild(makeCategoryCard(category)));
+      CATEGORIES.forEach((category) => cards.appendChild(makeCategoryCard(category)));
       content.appendChild(cards);
     }
 
@@ -732,10 +733,14 @@
       // The default front door is categories, not a wall of chat links.
       content.appendChild(el('p', 'hint', 'Choose a category or search above. Uncategorized is the inbox for links not yet assigned.'));
     } else {
-      content.appendChild(el('p', 'hint', filtered.length + ' matching indexed project/chat links'));
+      content.appendChild(el('p', 'hint', hasSearch
+        ? filtered.length + ' search result' + (filtered.length === 1 ? '' : 's')
+        : filtered.length + ' project' + (filtered.length === 1 ? ' or chat' : 's or chats') + ' in ' + labelFor(currentCategory)));
       const list = el('div', 'items');
       filtered.slice(0, 250).forEach((item) => list.appendChild(makeItemRow(item)));
-      if (!filtered.length) list.appendChild(el('div', 'empty', 'No matching items observed yet. Expand your ChatGPT sidebar or visit the item, then reopen this view.'));
+      if (!filtered.length) list.appendChild(el('div', 'empty',
+        hasSearch ? 'No matches among currently indexed projects and chats.'
+          : 'No projects or chats assigned here yet. Add an existing project, or assign a visible chat from Uncategorized.'));
       content.appendChild(list);
     }
     panel.appendChild(content);

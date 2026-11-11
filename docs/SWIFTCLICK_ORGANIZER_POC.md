@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.5)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.6)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -14,14 +14,14 @@ This is *not* yet an account-wide conversation database or final visual design.
 ## What currently works in the PoC
 
 - Standalone Tampermonkey script limited to ChatGPT domains.
-- Category-first opening screen; Family → Henry / Bradley / Other family matters; My Health; SwiftClick Business; Generative AI; Hobbies & Interests → Cinema Decoder; Uncategorized.
-- Clickable virtual categories, nested category navigation and global title search.
+- Flat category-first opening screen: Family; My Health; SwiftClick Business; Generative AI; Hobbies & Interests; Uncategorized. Each category contains **only ChatGPT projects and conversations**, with no subcategories.
+- Clickable flat virtual categories and global title search. The Cinema Decoder **project** is a normal item inside Hobbies & Interests—not another SwiftClick category.
 - Read-only observation of projects/chats **currently linked in the native page navigation** and of the current page URL; no message-body extraction.
 - Per-item category picker. Category assignments persist via Tampermonkey values, keyed to the link identifier.
 - **Add project** manual shortcut form: enter a project name, paste its existing ChatGPT project URL, choose a virtual category. Saved manual project shortcuts reappear after refresh even when ChatGPT has not loaded them into its sidebar.
 - Saved project shortcuts can be removed from SwiftClick without affecting ChatGPT.
 - Assigning a *discovered* project to any virtual category now saves its project link across reloads, just like using the intake form. The UI calls both types **Project**; only a saved link offers a local **Remove shortcut** action.
-- Category pickers show complete paths such as **Hobbies & Interests › Cinema Decoder** to distinguish a top-level category from its subcategory.
+- Category pickers offer only the six top-level categories; the nested options no longer exist.
 - Native ChatGPT links remain intact; regular click closes the organizer, modified/middle clicks preserve their browser behavior.
 - Close button, Escape, click-outside dismissal, Tampermonkey menu command, and a fixed floating launcher outside ChatGPT-owned navigation.
 - Shadow DOM, constructed stylesheets with fallback, explicit DOM element creation; broken-CSS detection closes the overlay.
@@ -29,7 +29,7 @@ This is *not* yet an account-wide conversation database or final visual design.
 ## Deliberate limitations
 
 1. **Not a complete account inventory.** The script sees loaded links only. A collapsed or virtualized ChatGPT sidebar can yield an incomplete or empty list; ChatGPT can change its DOM at any time. The on-screen count says "observed", never "total".
-2. Automatically discovered chats/projects are session-only and **not** persisted across reloads. Category assignments persist. **Explicitly saved project shortcuts** (name and URL) are persisted across reloads in Tampermonkey storage. Account/workspace isolation is not implemented: avoid using multiple ChatGPT accounts in the same browser profile until scoping is added. Do not manually save restricted or shared project links you do not want stored locally.
+2. Discovery is session-only for *unassigned* chats/projects. Once a user assigns a **project or chat** to a category, SwiftClick retains its validated title and URL locally for future visits. It also backfills previously categorized chat shortcuts when ChatGPT loads them again. For older chat IDs whose link/title never reappears, no name or URL can be reliably restored solely from their old category assignment; revisit the chat to index it. Account/workspace isolation is not implemented: avoid multiple ChatGPT accounts in the same browser profile until scoping is added. Titles and URLs of explicitly organized items remain in local Tampermonkey storage; no message bodies are stored.
 3. The PoC does not infer that a chat belongs to a project, so project assignment **does not automatically assign its conversations** yet. The hierarchy is virtual.
 4. Category names and ordering are seeded, **not yet editable**. This is a technical PoC, not the finished MVP.
 5. Project/chat title extraction relies on page navigation links and can miss items or show imperfect titles; no hidden ChatGPT endpoints or scraping of messages.
@@ -39,11 +39,11 @@ This is *not* yet an account-wide conversation database or final visual design.
 ## Manual Firefox + Tampermonkey test procedure
 
 1. Visit [the branch's raw script](https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/feat/swiftclick-organizer-poc-20261111/swiftclick-organizer.user.js). Install it in Tampermonkey, or create a new userscript and paste the full source. **Do not replace an existing production userscript.**
-2. Confirm Tampermonkey displays **SwiftClick Organizer (Technical PoC)** version `0.1.0-alpha.2`. The development script deliberately has **no** production `@updateURL` or `@downloadURL`; reinstall from this branch for new PoC revisions.
+2. Confirm Tampermonkey displays **SwiftClick Organizer (Technical PoC)** version `0.1.0-alpha.6`. The development script deliberately has **no** production `@updateURL` or `@downloadURL`; reinstall from this branch for new PoC revisions.
 3. Open `https://chatgpt.com/` in a **fresh tab**. Verify the front door appears automatically, is styled, and shows the expected category cards.
-4. Click Family → Henry → back to Family → back to Categories. Click Hobbies & Interests → Cinema Decoder. Verify navigation and visible counts.
+4. Click Family. It should show projects/chats directly and a **← Categories** button; there should be no Henry/Bradley folder tiles. Return to Categories; enter Hobbies & Interests. **Cinema Decoder** should appear as a project row—not as a subcategory card.
 5. Expand native ChatGPT Projects/Recents sidebar sections, use the launcher or Tampermonkey menu command to reopen, and look in **Uncategorized**. Confirm loaded links appear. If a link is absent, record whether it was visible in the sidebar at that moment.
-6. Place one observed project or chat in Family → Henry using its select menu. Close and reopen; verify it appears under Family → Henry. Refresh the page, re-expand its native sidebar entry and verify the assignment is preserved.
+6. Place one observed project or chat in Family using its select menu. Close and reopen; verify it appears under Family. Refresh and leave its native sidebar entry collapsed; the saved shortcut should still be visible. Repeat with a chat to verify local chat-link persistence.
 7. From the organizer home, click **+ Add project**. Open an existing ChatGPT project in another tab, copy its full browser URL, enter its name, paste the URL, and select **SwiftClick Business** (or another category). Save; close/reopen/refresh to confirm the project shortcut stays visible in the selected category even when its native sidebar entry is hidden. A conversation URL must be rejected as an invalid project URL.
 8. With Organizer dismissed, hover over multiple native ChatGPT project rows and confirm the three-dot action menu and New Chat icon appear and are clickable. Verify their behavior with the userscript enabled. The launcher must remain outside the sidebar (right edge of viewport).
 9. Click a discovered chat/project. Verify ordinary ChatGPT navigation occurs and the organizer disappears. Refresh a deep chat URL: it must **not** auto-open. Click the launcher to open manually.
@@ -68,7 +68,7 @@ node --check swiftclick-organizer.user.js
 node --test tests/swiftclick-organizer.test.cjs
 ```
 
-CI workflow for the development branch/PR is `.github/workflows/swiftclick-organizer-poc.yml`. Tests cover route guards, link parsing, category descendants, and static privacy/HTML-injection regression checks. They **cannot** replace logged-in Firefox/Tampermonkey acceptance.
+CI workflow for the development branch/PR is `.github/workflows/swiftclick-organizer-poc.yml`. Tests cover route guards, link parsing, flat-category migration, saved chat/project URL validation, and static privacy/HTML-injection regression checks. They **cannot** replace logged-in Firefox/Tampermonkey acceptance.
 
 ## Post-PoC MVP decisions
 
@@ -104,7 +104,7 @@ A user observed that the native sidebar project hover actions (three-dot menu an
 
 **Safety boundary:** It must not use the currently open project as an identifier for an unrelated sidebar project's menu. If no native Project home menu item is available, the companion action will not appear; retain the manual **+ Add project** fallback. If the native Home navigation fails to yield a new valid project route, SwiftClick shows a short error and does not store a guessed project.
 
-**Firefox/Tampermonkey manual acceptance checklist:**
+**Historical Firefox/Tampermonkey manual acceptance checklist for alpha.4:**
 
 - [ ] Hover a project row and open its three-dot menu. Its native controls and options still work.
 - [ ] Companion **＋ Add to SwiftClick Organizer** appears beside the native menu (the native menu items remain unchanged).
@@ -144,3 +144,38 @@ A user observed that the native sidebar project hover actions (three-dot menu an
 8. If the intake still flashes, record whether ChatGPT's URL changed and whether it fully reloaded. A Firefox console warning is useful; no private conversation text is needed.
 
 **Status:** automated test coverage and syntax checks are available in GitHub Actions, but live Firefox/Tampermonkey behavior is pending user verification. Keep draft PR #6 unmerged until acceptance.
+
+
+## Alpha.6 — flat categories and saved chat shortcuts (2026-11-11)
+
+### Why this changed
+
+In Firefox, Hobbies & Interests displayed a large **Cinema Decoder** category tile above the actual **Cinema Decoder** project. The project was assigned to the parent, while a chat such as **Transcript Content Warning** had been assigned to the child. Clicking the child tile therefore did not open the actual project and could yield an empty view if the chat was not loaded into the sidebar.
+
+The user explicitly requested a **flat, category-first** system with only projects and chats under each category; nesting is postponed.
+
+### New data model
+
+- Exactly six top-level SwiftClick categories: **Family**, **My Health**, **SwiftClick Business**, **Generative AI**, **Hobbies & Interests**, **Uncategorized**.
+- No nested category tiles or paths. Within one category, rows are only native **Project** or **Chat** shortcuts.
+- **One-time, idempotent, non-resetting migration** of saved category assignments on startup:
+  - `henry`, `bradley`, `family-other` → `family`
+  - `cinema` → `hobbies`
+  - All other valid top-level category IDs remain unchanged.
+- The existing key `swiftclick-organizer-poc.assignments.v1` is reused and its value version increments to 2; project links under `manualProjects.v1` are unchanged.
+- Explicitly categorized **chat links and titles** now persist under the new local key `swiftclick-organizer-poc.savedChats.v1`, using validated ChatGPT URLs and chat IDs. No message bodies are read/stored; no network requests.
+- Prior category-only chat assignments are preserved and upgraded to saved chat shortcuts **when their links are observed again**. An old chat that is not currently visible in native ChatGPT navigation may need to be visited again for its title/URL to be recovered.
+
+### Alpha.6 acceptance / regression checks
+
+1. Install alpha.6 over alpha.5 in Tampermonkey; **do not clear labels or storage**.
+2. Reopen the organizer. Home shows six top-level category cards; no Henry, Bradley, or Cinema Decoder child tile.
+3. Open **Hobbies & Interests**. Expect **AI Video** (project), **Cinema Decoder** (project), and **Transcript Content Warning** (chat) directly, *provided the previously assigned chat was indexed during this session or persisted as a shortcut*. All should use the same category selector.
+4. Verify a previously nested Cinema Decoder chat now displays the category **Hobbies & Interests**. Verify previously nested Henry/Bradley items under Family.
+5. Assign a newly observed chat to **My Health**; refresh ChatGPT while its native sidebar entry is not loaded. Its name and direct chat shortcut should still appear under My Health. Save the same chat again and confirm there is only one entry.
+6. Confirm the Cinema Decoder **project** row navigates to ChatGPT Project Home; the extra Cinema Decoder *category box* must not exist.
+7. Confirm the native three-dot menu, project intake, launcher, native New Chat buttons, and direct-link auto-open exceptions continue to work.
+8. The status count may still be incomplete for *unassigned* ChatGPT chats; this remains a known PoC limitation.
+9. Confirm the local Tampermonkey data was preserved from alpha.5, and the project/chat assignment migration does not re-run unnecessarily upon subsequent reloads.
+
+**Current status:** code and automated tests are available in the same development branch and draft PR #6. Firefox acceptance is still required before merging/releasing. The older alpha.3–5 sections above are historical design notes, not current UI requirements.

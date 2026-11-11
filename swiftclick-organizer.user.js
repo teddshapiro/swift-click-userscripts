@@ -64,7 +64,12 @@
         return null;
       }
       const title = String(rawTitle || '').replace(/\s+/g, ' ').trim().slice(0, 140);
-      return { type, key, title: title || (type === 'chat' ? 'Untitled chat' : 'Unnamed project'), href: link };
+      // ChatGPT sometimes exposes a document title rather than a short
+      // project name (e.g. "ChatGPT - Cinema Decoder - Project").
+      const displayTitle = type === 'project'
+        ? title.replace(/^ChatGPT\s*[-–|]\s*/i, '').replace(/\s*[-–|]\s*Project$/i, '').trim()
+        : title;
+      return { type, key, title: displayTitle || (type === 'chat' ? 'Untitled chat' : 'Unnamed project'), href: link };
     } catch (_) {
       return null;
     }
@@ -244,7 +249,7 @@
     '.form-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}',
     '.error{font-size:12px;color:#ffb6b6;}',
     '.pill{color:#b0c0d4;font-size:11px;text-transform:uppercase;letter-spacing:.5px;}',
-    'select{max-width:210px;min-width:130px;background:#223449;border:1px solid #52657c;border-radius:8px;padding:7px;color:#f3f8ff;font-size:12px;}',
+    'select{max-width:280px;min-width:160px;background:#223449;border:1px solid #52657c;border-radius:8px;padding:7px;color:#f3f8ff;font-size:12px;}',
     '.foot{padding:12px 20px;border-top:1px solid #304052;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}',
     '.hint{color:#b1c2d8;font-size:12px;line-height:1.55;}',
     '.empty{padding:24px 14px;border:1px dashed #526579;border-radius:12px;color:#b6c5d9;text-align:center;font-size:13px;}',
@@ -469,6 +474,16 @@
     return (CATEGORY_TREE.find((c) => c.id === id) || CATEGORY_TREE[CATEGORY_TREE.length - 1]).label;
   }
 
+  function categoryPath(id) {
+    const parts = [];
+    let node = CATEGORY_TREE.find((c) => c.id === id);
+    while (node) {
+      parts.unshift(node.label);
+      node = CATEGORY_TREE.find((c) => c.id === node.parent);
+    }
+    return parts.join(' › ');
+  }
+
   function categoryFor(item) {
     const c = assignments[item.key];
     return validCategory(c) ? c : 'uncategorized';
@@ -542,7 +557,7 @@
     const selector = el('select');
     selector.setAttribute('aria-label', 'Place ' + item.title + ' in category');
     for (const c of CATEGORY_TREE) {
-      const opt = el('option', '', c.parent ? '   ' + c.label : c.label);
+      const opt = el('option', '', categoryPath(c.id));
       opt.value = c.id;
       selector.appendChild(opt);
     }
@@ -601,7 +616,7 @@
     const categoryLabel = el('label', 'field-label', 'Show project in');
     const selector = el('select');
     for (const category of CATEGORY_TREE) {
-      const option = el('option', '', category.parent ? '   ' + category.label : category.label);
+      const option = el('option', '', categoryPath(category.id));
       option.value = category.id;
       selector.appendChild(option);
     }

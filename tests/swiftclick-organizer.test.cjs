@@ -115,6 +115,34 @@ test('new category assignment remains a flat selector without nested navigation'
   assert.match(script, /GM_setValue\(STORAGE_KEY, \{ version: 2, assignments \}\)/);
 });
 
+test('organized chats save a validated local shortcut for later visits', () => {
+  const chat = hooks.sanitizeSavedChat({
+    title: '  Transcript   Content Warning ',
+    href: 'https://chatgpt.com/g/g-p-abc-123/c/abcd-1234?token=not-stored'
+  }, origin);
+  assert.equal(chat.key, 'chat:abcd-1234');
+  assert.equal(chat.title, 'Transcript Content Warning');
+  assert.equal(chat.href, 'https://chatgpt.com/g/g-p-abc-123/c/abcd-1234');
+  assert.equal(chat.manual, true);
+  assert.equal(hooks.sanitizeSavedChat({
+    title: 'Not a chat', href: 'https://chatgpt.com/g/g-p-abc-123/project'
+  }, origin), null);
+  assert.equal(hooks.sanitizeSavedChat({
+    title: 'Foreign site', href: 'https://example.com/c/abc-1234'
+  }, origin), null);
+});
+
+test('categorizing a chat persists its title and link and rediscovery backfills older assignments', () => {
+  assert.match(script, /GM_getValue\(SAVED_CHATS_KEY, \[\]\)/);
+  assert.match(script, /GM_setValue\(SAVED_CHATS_KEY/);
+  assert.match(script, /function saveChatShortcut\(chat\)/);
+  assert.match(script, /item\.type === 'chat' && !saveChatShortcut\(item\)/);
+  assert.match(script, /item\.type === 'chat' && assignments\[item\.key\]/);
+  assert.match(script, /saveChatShortcut\(activeItem\)/);
+  assert.match(script, /savedChats\.some\(\(saved\) => saved\.key === item\.key\)/);
+  assert.match(script, /savedChats\.filter\(\(c\) => c\.key !== item\.key\)/);
+});
+
 test('manual project shortcut validation accepts only ChatGPT projects', () => {
   const saved = hooks.sanitizeManualProject({
     title: '  Coding   —   Tampermonkey Scripts ',

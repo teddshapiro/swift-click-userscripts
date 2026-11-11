@@ -328,10 +328,21 @@
     // Adjacent to the menu, never overlapping its native actions.
     const actionWidth = 236;
     const actionHeight = 43;
-    const x = Math.max(8, Math.min(window.innerWidth - actionWidth - 8, rect.left));
-    const y = rect.bottom + actionHeight + 12 <= window.innerHeight
-      ? rect.bottom + 5
-      : Math.max(8, rect.top - actionHeight - 5);
+    // Favor an adjacent side panel; placement above a bottom-edge menu can
+    // cover the underlying project row and its three-dot/New Chat controls.
+    let x, y;
+    if (rect.right + actionWidth + 12 <= window.innerWidth) {
+      x = rect.right + 8;
+      y = Math.max(8, Math.min(window.innerHeight - actionHeight - 8, rect.top));
+    } else if (rect.left - actionWidth - 12 >= 0) {
+      x = rect.left - actionWidth - 8;
+      y = Math.max(8, Math.min(window.innerHeight - actionHeight - 8, rect.top));
+    } else {
+      x = Math.max(8, Math.min(window.innerWidth - actionWidth - 8, rect.left));
+      y = rect.bottom + actionHeight + 12 <= window.innerHeight
+        ? rect.bottom + 5
+        : Math.max(8, rect.top - actionHeight - 5);
+    }
     menuActionHost.style.left = x + 'px';
     menuActionHost.style.top = y + 'px';
     menuActionHost.hidden = false;

@@ -159,7 +159,12 @@
       if (migrated) {
         // Preserve project/chat links and category decisions; only flatten
         // category IDs. This is idempotent and uses the existing storage key.
-        GM_setValue(STORAGE_KEY, { version: 2, assignments: clean });
+        try {
+          GM_setValue(STORAGE_KEY, { version: 2, assignments: clean });
+        } catch (error) {
+          // A storage write failure must never blank the user's loaded labels.
+          console.warn('[SwiftClick Organizer] Could not persist category migration:', error);
+        }
       }
       return clean;
     } catch (error) {

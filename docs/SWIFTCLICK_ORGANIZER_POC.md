@@ -2,12 +2,12 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.2)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.3)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
 
-Provide a category-first **front door** to ChatGPT, not a permanent replacement sidebar. On an initial visit to the ChatGPT home route, the organizer opens. After choosing a native project or chat link it gets out of the way. On direct/deep links to a chat or project, it does **not** auto-open. A small launcher, inserted in a suitable sidebar when available (otherwise floating near lower-left), reopens it.
+Provide a category-first **front door** to ChatGPT, not a permanent replacement sidebar. On an initial visit to the ChatGPT home route, the organizer opens. After choosing a native project or chat link it gets out of the way. On direct/deep links to a chat or project, it does **not** auto-open. A compact launcher, positioned near the right edge of the viewport and mounted as a direct child of the document body, reopens it. The script never inserts its launcher into the native ChatGPT sidebar.
 
 This is *not* yet an account-wide conversation database or final visual design.
 
@@ -21,7 +21,7 @@ This is *not* yet an account-wide conversation database or final visual design.
 - **Add project** manual shortcut form: enter a project name, paste its existing ChatGPT project URL, choose a virtual category. Saved manual project shortcuts reappear after refresh even when ChatGPT has not loaded them into its sidebar.
 - Saved project shortcuts can be removed from SwiftClick without affecting ChatGPT.
 - Native ChatGPT links remain intact; regular click closes the organizer, modified/middle clicks preserve their browser behavior.
-- Close button, Escape, click-outside dismissal, Tampermonkey menu command, and ordinary launcher.
+- Close button, Escape, click-outside dismissal, Tampermonkey menu command, and a fixed floating launcher outside ChatGPT-owned navigation.
 - Shadow DOM, constructed stylesheets with fallback, explicit DOM element creation; broken-CSS detection closes the overlay.
 
 ## Deliberate limitations
@@ -43,17 +43,18 @@ This is *not* yet an account-wide conversation database or final visual design.
 5. Expand native ChatGPT Projects/Recents sidebar sections, use the launcher or Tampermonkey menu command to reopen, and look in **Uncategorized**. Confirm loaded links appear. If a link is absent, record whether it was visible in the sidebar at that moment.
 6. Place one observed project or chat in Family → Henry using its select menu. Close and reopen; verify it appears under Family → Henry. Refresh the page, re-expand its native sidebar entry and verify the assignment is preserved.
 7. From the organizer home, click **+ Add project**. Open an existing ChatGPT project in another tab, copy its full browser URL, enter its name, paste the URL, and select **SwiftClick Business** (or another category). Save; close/reopen/refresh to confirm the project shortcut stays visible in the selected category even when its native sidebar entry is hidden. A conversation URL must be rejected as an invalid project URL.
-8. Click a discovered chat/project. Verify ordinary ChatGPT navigation occurs and the organizer disappears. Refresh a deep chat URL: it must **not** auto-open. Click the launcher to open manually.
-9. Test Ctrl-click/middle-click a destination, Escape, outside-click, narrow windows, and both light/dark ChatGPT settings. Verify the original ChatGPT UI stays functional.
-10. Confirm the browser's Network panel shows **no SwiftClick or third-party HTTP requests** made by this script; verify the PoC does not access conversation message bodies.
-11. Check the browser console for `[SwiftClick Organizer]` warnings. Report a screenshot of a missing launcher, unstyled overlay, or missing visible link along with the route and browser version.
+8. With Organizer dismissed, hover over multiple native ChatGPT project rows and confirm the three-dot action menu and New Chat icon appear and are clickable. Verify their behavior with the userscript enabled. The launcher must remain outside the sidebar (right edge of viewport).
+9. Click a discovered chat/project. Verify ordinary ChatGPT navigation occurs and the organizer disappears. Refresh a deep chat URL: it must **not** auto-open. Click the launcher to open manually.
+10. Test Ctrl-click/middle-click a destination, Escape, outside-click, narrow windows, and both light/dark ChatGPT settings. Verify the original ChatGPT UI stays functional.
+11. Confirm the browser's Network panel shows **no SwiftClick or third-party HTTP requests** made by this script; verify the PoC does not access conversation message bodies.
+12. Check the browser console for `[SwiftClick Organizer]` warnings. Report a screenshot of a missing launcher, unstyled overlay, or missing visible link along with the route and browser version.
 
 ### Return evidence before release
 
 - Firefox/Tampermonkey versions and whether the script was installed from the branch.
 - Screenshot of the home modal and launcher placement.
 - Count of discovered projects/chats versus the links visibly loaded.
-- Pass/fail for auto-open, native click + dismiss, persistence, direct-link bypass, Esc, and light/dark styles.
+- Pass/fail for auto-open, native click + dismiss, persistence, direct-link bypass, Esc, project hover controls (three-dot/New Chat), and light/dark styles.
 - Any console errors.
 
 ## Automated checks
@@ -76,3 +77,11 @@ CI workflow for the development branch/PR is `.github/workflows/swiftclick-organ
 - Detect and validate real project→chat relationships instead of guessing from sidebar proximity.
 - Consider dashboard-wide CSP testing and more robust launch placement/accessibility.
 - Only after approval: promote a stable filename on main, add canonical raw-main update/download metadata, and bump to a release version.
+
+## Alpha.3 regression: ChatGPT native project hover controls (2026-11-11)
+
+A user observed that the native sidebar project hover actions (three-dot menu and New Chat button) disappeared while the alpha.2 userscript was active. Code inspection identified a plausible source: `positionLauncher()` inserted the SwiftClick launcher as the first child of the detected ChatGPT `nav`/sidebar element, changing React-owned navigation DOM and potentially its hover/layout selectors. This was a risky DOM mutation and should never have been done.
+
+**Change:** Remove all sidebar launcher insertion/repositioning logic. Mount the launcher only as a top-level `document.body` child with fixed positioning on the right edge of the viewport. Keep discovery read-only (querySelectorAll) and the organizer overlay in its own Shadow DOM. The new regression test rejects the prior `sidebar.insertBefore` behavior.
+
+**Status:** Strong code-level fix, but not yet verified in the logged-in ChatGPT sidebar. Compare project hover controls in Firefox with alpha.3 enabled vs disabled and report any remaining difference. No ChatGPT projects or existing SwiftClick assignments are altered.

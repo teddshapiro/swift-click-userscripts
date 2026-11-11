@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.4)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.5)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -20,6 +20,8 @@ This is *not* yet an account-wide conversation database or final visual design.
 - Per-item category picker. Category assignments persist via Tampermonkey values, keyed to the link identifier.
 - **Add project** manual shortcut form: enter a project name, paste its existing ChatGPT project URL, choose a virtual category. Saved manual project shortcuts reappear after refresh even when ChatGPT has not loaded them into its sidebar.
 - Saved project shortcuts can be removed from SwiftClick without affecting ChatGPT.
+- Assigning a *discovered* project to any virtual category now saves its project link across reloads, just like using the intake form. The UI calls both types **Project**; only a saved link offers a local **Remove shortcut** action.
+- Category pickers show complete paths such as **Hobbies & Interests › Cinema Decoder** to distinguish a top-level category from its subcategory.
 - Native ChatGPT links remain intact; regular click closes the organizer, modified/middle clicks preserve their browser behavior.
 - Close button, Escape, click-outside dismissal, Tampermonkey menu command, and a fixed floating launcher outside ChatGPT-owned navigation.
 - Shadow DOM, constructed stylesheets with fallback, explicit DOM element creation; broken-CSS detection closes the overlay.
@@ -116,3 +118,29 @@ A user observed that the native sidebar project hover actions (three-dot menu an
 - [ ] Verify Firefox both light/dark ChatGPT themes, project menu near viewport bottom, and original three-dot/New Chat controls.
 
 **Not yet verified:** We cannot execute an authenticated Firefox session against the user's ChatGPT UI from the GitHub CI environment. The current implementation and selector assumptions are based on the user-supplied screenshot and browser-compatible DOM conventions; manual acceptance is required. Keep PR #6 draft and do not merge into main.
+
+
+## Alpha.5: navigation intake + project model consolidation (2026-11-11)
+
+### User feedback
+- The menu-adjacent action appeared and opened SwiftClick intake, but the modal disappeared almost immediately.
+- The organizer showed **Saved project** and **Project** badges for different project-link acquisition methods, leading to confusion.
+- A discovered project could have a saved category assignment but disappear from SwiftClick after reload because only its identifier-to-category mapping was stored.
+
+### Root cause and fix
+- The ordinary 1-second route monitor closed any open SwiftClick overlay after ChatGPT navigated to native Project home, including the intake overlay that the navigation itself created. The intake handler now adopts the new pathname *before* displaying the form. The monitor resolves a pending intake transition before applying normal navigation dismissal. A short-lived tab-only sessionStorage intent is used to recover across a full navigation/reload; the intent is cleared on successful handoff or timeout.
+- Both source paths now render the single **Project** item type. A local persistence distinction remains internal; items are deduplicated by parsed project identifier.
+- Assigning a discovered project now also saves its validated project name and URL as a durable local shortcut. Existing saved shortcuts and category mappings remain in the same Tampermonkey storage keys; no migration or reset needed.
+- Dropdowns show full category paths, and discovered document-style titles such as `ChatGPT - Cinema Decoder - Project` are displayed as `Cinema Decoder`.
+
+### Acceptance tests for alpha.5 (Firefox/Tampermonkey)
+1. Update the single existing SwiftClick Organizer script to **0.1.0-alpha.5** and reload ChatGPT. Existing assignments and saved shortcuts must remain.
+2. While viewing project A, open project B's three-dot menu and select **Add to SwiftClick Organizer**. ChatGPT should navigate to B and show the intake form for B. **The intake should remain open** until Cancel, Escape, or Save.
+3. Choose **Hobbies & Interests › Cinema Decoder** and Save. Confirm the project appears inside Cinema Decoder, including after a hard refresh with its native sidebar entry collapsed.
+4. Open **Hobbies & Interests** and inspect rows. Both preexisting manually added projects and discovered projects should read **Project**, not **Saved project**. The subcategory count includes projects assigned to the subcategory, not projects assigned only to the parent.
+5. Find a project with the regular ChatGPT sidebar that was *not* saved through intake. Change its category from Uncategorized to My Health or another category; refresh and collapse its ChatGPT sidebar entry. SwiftClick should still show it, with only one copy per project ID.
+6. Cancel an intake without saving. It should not register a persistent shortcut unless that project had already been saved previously.
+7. Confirm that a normal navigation to another chat still closes the organizer. Native project menu actions, hover icons, and New Chat must remain functional.
+8. If the intake still flashes, record whether ChatGPT's URL changed and whether it fully reloaded. A Firefox console warning is useful; no private conversation text is needed.
+
+**Status:** automated test coverage and syntax checks are available in GitHub Actions, but live Firefox/Tampermonkey behavior is pending user verification. Keep draft PR #6 unmerged until acceptance.

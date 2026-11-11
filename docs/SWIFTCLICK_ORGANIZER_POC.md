@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.3)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.4)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -85,3 +85,34 @@ A user observed that the native sidebar project hover actions (three-dot menu an
 **Change:** Remove all sidebar launcher insertion/repositioning logic. Mount the launcher only as a top-level `document.body` child with fixed positioning on the right edge of the viewport. Keep discovery read-only (querySelectorAll) and the organizer overlay in its own Shadow DOM. The new regression test rejects the prior `sidebar.insertBefore` behavior.
 
 **Status:** Strong code-level fix, but not yet verified in the logged-in ChatGPT sidebar. Compare project hover controls in Firefox with alpha.3 enabled vs disabled and report any remaining difference. No ChatGPT projects or existing SwiftClick assignments are altered.
+
+
+## Alpha.4 contextual menu intake prototype (2026-11-11)
+
+**Goal:** Add an existing project to SwiftClick from its native ChatGPT three-dot menu without asking the user to copy the Project Home URL manually.
+
+**Behavior:**
+
+1. In ChatGPT's sidebar, open the three-dot menu for an existing project.
+2. When that native menu contains an explicit **Project home** command, a separate small **＋ Add to SwiftClick Organizer** companion action appears near the menu.
+3. Clicking that companion action either reads a validated project URL already on the native Project home link or invokes the native Project home command and waits for a newly observed project route.
+4. SwiftClick opens its intake screen showing the detected project URL, a name field, and a category picker. Confirm/save to store a local shortcut. The project itself is untouched.
+
+**DOM safety:** The script does **not** insert a child into React-owned native ChatGPT menus or the native project sidebar. It only observes visible native menu structure, temporarily mounts a separate fixed-position Shadow DOM action in document.body, and uses native Project home navigation when needed. The companion is visually adjacent to (not literally inside) the native menu. This is intentional: editing React-owned menus previously caused sidebar regressions.
+
+**Safety boundary:** It must not use the currently open project as an identifier for an unrelated sidebar project's menu. If no native Project home menu item is available, the companion action will not appear; retain the manual **+ Add project** fallback. If the native Home navigation fails to yield a new valid project route, SwiftClick shows a short error and does not store a guessed project.
+
+**Firefox/Tampermonkey manual acceptance checklist:**
+
+- [ ] Hover a project row and open its three-dot menu. Its native controls and options still work.
+- [ ] Companion **＋ Add to SwiftClick Organizer** appears beside the native menu (the native menu items remain unchanged).
+- [ ] Click the companion from a project **different from the currently open project**. The resulting intake must show the *selected* project, never the project already on-screen.
+- [ ] Name and URL are correct (or a name field is left editable when the menu's link lacks title metadata).
+- [ ] Choose Family → Henry or Hobbies & Interests → Cinema Decoder, then save. Verify saved shortcut under that category after refresh.
+- [ ] The existing manually added project is updated by identifier rather than duplicated.
+- [ ] Escape/cancel without saving does not create a shortcut.
+- [ ] The companion does not show for a chat's three-dot menu or generic site menus.
+- [ ] If the companion does not appear, inspect whether the native menu has role=menu and a **Project home** menuitem. Capture a safe screenshot/DOM sample without conversation text for selector adjustment.
+- [ ] Verify Firefox both light/dark ChatGPT themes, project menu near viewport bottom, and original three-dot/New Chat controls.
+
+**Not yet verified:** We cannot execute an authenticated Firefox session against the user's ChatGPT UI from the GitHub CI environment. The current implementation and selector assumptions are based on the user-supplied screenshot and browser-compatible DOM conventions; manual acceptance is required. Keep PR #6 draft and do not merge into main.

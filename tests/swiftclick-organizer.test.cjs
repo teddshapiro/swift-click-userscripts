@@ -304,12 +304,38 @@ test('manual project feature only stores shortcuts in Tampermonkey metadata', ()
   assert.match(script, /Save project shortcut/);
 });
 
+test('header icon geometry places a small toggle LEFT of search with safe fallback', () => {
+  const allowed = hooks.headerLauncherGeometry({left:300, top:15, width:35, height:35}, 1440);
+  assert.equal(allowed.x,260);
+  assert.equal(allowed.y,17);
+  assert.equal(allowed.size,32);
+  assert.equal(hooks.headerLauncherGeometry({left:135, top:15, width:35, height:35}, 1440),null);
+  assert.equal(hooks.headerLauncherGeometry({left:400, top:200, width:35, height:35},1440),null);
+  assert.equal(hooks.headerLauncherGeometry({left:900, top:15, width:35, height:35},1440),null);
+  assert.equal(hooks.headerLauncherGeometry({left:300, top:15, width:0, height:35},1440),null);
+});
+
+test('icon launcher is visually header-anchored, without injecting into native controls', () => {
+  assert.match(script, /function findHeaderSearchButton\(\)/);
+  assert.match(script, /function positionLauncher\(\)/);
+  assert.match(script, /headerLauncherGeometry\(rect, window\.innerWidth\)/);
+  assert.match(script, /launcherHost\.dataset\.placement = 'header'/);
+  assert.match(script, /launcherHost\.dataset\.placement = 'fallback'/);
+  assert.match(script, /document\.body\.appendChild\(launcherHost\)/);
+  assert.match(script, /document\.createElementNS\('http:\/\/www\.w3\.org\/2000\/svg', 'svg'\)/);
+  assert.match(script, /button\('', '', \(\) => open \? hide\(\) : show\(\)\)/);
+  assert.match(script, /launcherButton\.setAttribute\('aria-expanded', 'true'\)/);
+  assert.match(script, /launcherButton\.setAttribute\('aria-expanded', 'false'\)/);
+  assert.match(script, /window\.addEventListener\('resize', scheduleRefresh/);
+  assert.doesNotMatch(script, /sidebar\.insertBefore|header\.appendChild\(launcherHost\)|searchButton\.parentNode\.insertBefore/);
+});
+
 test('launcher is completely outside native ChatGPT navigation', () => {
   // The previous launcher was inserted as the first child of an existing
   // nav/sidebar. That DOM mutation can disrupt ChatGPT project hover buttons.
   assert.match(script, /document\.body\.appendChild\(launcherHost\)/);
   assert.doesNotMatch(script, /sidebar\.insertBefore|positionLauncher|findSidebar/);
-  assert.doesNotMatch(script, /launcherHost\.dataset\.placement/);
+  assert.match(script, /launcherHost\.dataset\.placement = 'header'/);
   assert.match(script, /pointer-events:none/);
   assert.match(script, /pointer-events:auto/);
 });
@@ -364,7 +390,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.9/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.10/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

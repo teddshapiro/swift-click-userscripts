@@ -64,6 +64,103 @@ test('normalize labels and omit URL query parameters from stored navigation link
   assert.equal(item.href, 'https://chatgpt.com/c/abc-42');
 });
 
+test('category catalog defaults and persists custom names, order and deletion', () => {
+  const defaults = hooks.sanitizeCategoryDefinitions(null);
+  assert.deepEqual(Array.from(defaults, (c) => c.id), [
+    'family','health','finances','home','business','ai','hobbies','uncategorized'
+  ]);
+  assert.equal(defaults[0].label, 'Family');
+  const stored = {
+    version: 1,
+    categories: [
+      {id:'home', label:'House & Renovations'},
+      {id:'custom-garden1', label:'Outdoor projects'},
+      {id:'family', label:'Family'},
+      {id:'uncategorized', label:'Uncategorized'}
+    ]
+  };
+  const loaded = hooks.sanitizeCategoryDefinitions(stored);
+  assert.deepEqual(Array.from(loaded, (c) => c.id), [
+    'home','custom-garden1','family','uncategorized'
+  ]);
+  assert.equal(loaded[0].label, 'House & Renovations');
+  assert.equal(loaded[1].label, 'Outdoor projects');
+  assert.equal(loaded[1].icon, '▦');
+  assert.equal(loaded.some((c) => c.id === 'hobbies'), false); // intentional deletion persists
+});
+
+test('category create, rename, reorder and delete preserve stable item-category IDs', () => {
+  const initial = hooks.sanitizeCategoryDefinitions(null);
+  const created = hooks.createCategoryModel(initial, '  Garden   &  Yard ', 'custom-yard123');
+  assert.ok(created);
+  assert.equal(created[created.length - 2].label, 'Garden & Yard');
+  assert.equal(created[created.length - 2].id, 'custom-yard123');
+  assert.equal(hooks.createCategoryModel(created, 'Family', 'custom-duplicate'), null);
+  assert.equal(hooks.createCategoryModel(created, 'Another', 'invalid-id'), null);
+  assert.equal(hooks.createCategoryModel(created, '   ', 'custom-empty'), null);
+
+  const renamed = hooks.renameCategoryModel(created, 'home', 'House projects');
+  assert.equal(renamed.find((c) => c.id === 'home').label, 'House projects');
+  assert.equal(initial.find((c) => c.id === 'home').label, 'Home'); // pure
+  assert.equal(hooks.renameCategoryModel(created,'home','family'), null);
+  assert.equal(hooks.renameCategoryModel(created,'missing','Nope'), null);
+  const moved = hooks.moveCategoryModel(renamed, 'custom-yard123', -1);
+  assert.ok(moved.findIndex((c) => c.id === 'custom-yard123') <
+            renamed.findIndex((c) => c.id === 'custom-yard123'));
+  assert.equal(hooks.moveCategoryModel(moved, 'family', -1), null);
+  assert.equal(hooks.deleteCategoryModel(created, 'uncategorized'), null);
+  const withoutHome = hooks.deleteCategoryModel(renamed, 'home');
+  assert.equal(withoutHome.some((c) => c.id === 'home'),false);
+
+  const assignments = {'project:g-p-house': 'home', 'chat:other':'family',
+    'project:g-p-garden':'custom-yard123'};
+  const relocated = hooks.deleteCategoryAssignments(assignments,'home');
+  assert.equal(Object.hasOwn(relocated, 'project:g-p-house'), false);
+  assert.equal(relocated['chat:other'], 'family');
+  assert.equal(relocated['project:g-p-garden'], 'custom-yard123');
+  assert.equal(assignments['project:g-p-house'], 'home'); // pure
+  assert.equal(hooks.normalizeCategoryId('home', withoutHome), 'uncategorized');
+});
+
+test('custom categories preserve assignments and ordering across reload', () => {
+  const catalog = hooks.createCategoryModel(hooks.sanitizeCategoryDefinitions(null),
+    'Home Services', 'custom-services');
+  const saved = hooks.sanitizeCategoryDefinitions({version:1,
+    categories:Array.from(catalog,(c)=>({id:c.id,label:c.label}))});
+  assert.equal(hooks.validCategory('custom-services', saved), true);
+  const migrated = hooks.migrateAssignments({'project:g-p-a':'custom-services',
+    'chat:one':'home'}, saved);
+  assert.equal(migrated.assignments['project:g-p-a'], 'custom-services');
+  assert.equal(migrated.assignments['chat:one'], 'home');
+  assert.equal(migrated.migrated, false);
+  const ordered = hooks.sanitizeCategoryOrders({version:1,categories:{
+    'custom-services':['project:g-p-a'], home:['chat:one']
+  }}, saved);
+  assert.deepEqual(Array.from(ordered['custom-services']), ['project:g-p-a']);
+  assert.deepEqual(Array.from(ordered.home), ['chat:one']);
+  const removed = hooks.deleteCategoryModel(saved, 'custom-services');
+  assert.equal(hooks.migrateAssignments({'project:g-p-a':'custom-services'},removed)
+    .assignments['project:g-p-a'],undefined);
+  assert.equal(hooks.migrateAssignments({'project:g-p-a':'custom-services'},removed)
+    .migrated,true);
+});
+
+test('category editor is isolated from chat sidebar and keeps destructive reset in manager', () => {
+  assert.match(script, /const CATEGORY_DEFS_KEY = APP_ID \+ '\.categoryDefinitions\.v1'/);
+  assert.match(script, /CATEGORIES = sanitizeCategoryDefinitions\(GM_getValue\(CATEGORY_DEFS_KEY, null\)\)/);
+  assert.match(script, /GM_setValue\(CATEGORY_DEFS_KEY/);
+  assert.match(script, /const wrapper = el\('div', 'category-manager'\)/);
+  assert.match(script, /button\('⚙ Manage categories', 'action'/);
+  assert.match(script, /content\.appendChild\(makeCategoryManager\(\)\)/);
+  assert.match(script, /button\('Clear all category assignments', 'action remove-action'/);
+  assert.match(script, /deleteCategoryAssignments\(assignments, category\.id\)/);
+  assert.match(script, /category\.id !== 'uncategorized'/);
+  assert.match(script, /row\.addEventListener\('drop'/);
+  assert.match(script, /moveCategoryByArrow\(category\.id, event\.key === 'ArrowUp'/);
+  assert.match(script, /gap:12px;margin-top:22px/);
+  assert.doesNotMatch(script, /const reset = button\('Clear local category labels'/);
+});
+
 test('categories are flat and contain only projects or chats', () => {
   assert.deepEqual(Array.from(hooks.categories), [
     'family', 'health', 'finances', 'home', 'business', 'ai', 'hobbies', 'uncategorized'
@@ -490,7 +587,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.14/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.15/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

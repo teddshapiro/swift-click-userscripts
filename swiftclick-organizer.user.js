@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.14
+// @version      0.1.0-alpha.15
 // @description  Manual-only local organizer for ChatGPT projects and chats. Nothing auto-indexed.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -22,9 +22,10 @@
   const MANUAL_PROJECTS_KEY = APP_ID + '.manualProjects.v1';
   const SAVED_CHATS_KEY = APP_ID + '.savedChats.v1';
   const ORDER_KEY = APP_ID + '.categoryOrder.v1';
+  const CATEGORY_DEFS_KEY = APP_ID + '.categoryDefinitions.v1';
   const LEGACY_PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
   // Flat virtual categories only; do not introduce nested categories in this MVP.
-  const CATEGORIES = [
+  const DEFAULT_CATEGORIES = [
     { id: 'family', label: 'Family', icon: '👪' },
     { id: 'health', label: 'My Health', icon: '♡' },
     { id: 'finances', label: 'Finances', icon: '＄' },
@@ -34,6 +35,90 @@
     { id: 'hobbies', label: 'Hobbies & Interests', icon: '✿' },
     { id: 'uncategorized', label: 'Uncategorized', icon: '▤' }
   ];
+  // Stable IDs are never renamed. User-facing labels/order are locally editable.
+  let CATEGORIES = DEFAULT_CATEGORIES.map((category) => ({ ...category }));
+
+  function categoryLabel(value) {
+    return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 50);
+  }
+
+  function categoryLabelTaken(categories, label, exceptId = null) {
+    const normalized = categoryLabel(label).toLocaleLowerCase();
+    return categories.some((c) => c.id !== exceptId &&
+      c.label.toLocaleLowerCase() === normalized);
+  }
+
+  // A stored category list is authoritative: don't recreate intentionally
+  // deleted defaults on the next reload. Keep Uncategorized as a safe inbox.
+  function sanitizeCategoryDefinitions(raw) {
+    if (!raw || raw.version !== 1 || !Array.isArray(raw.categories)) {
+      return DEFAULT_CATEGORIES.map((c) => ({ ...c }));
+    }
+    const cleaned = [];
+    const ids = new Set();
+    for (const entry of raw.categories.slice(0, 40)) {
+      if (!entry || typeof entry !== 'object') continue;
+      const id = String(entry.id || '');
+      const known = DEFAULT_CATEGORIES.find((c) => c.id === id);
+      if ((!known && !/^custom-[a-z0-9-]{3,80}$/.test(id)) || ids.has(id)) continue;
+      const label = categoryLabel(entry.label);
+      if (!label || categoryLabelTaken(cleaned, label)) continue;
+      cleaned.push({ id, label, icon: known ? known.icon : '▦' });
+      ids.add(id);
+    }
+    if (!ids.has('uncategorized')) {
+      const fallback = DEFAULT_CATEGORIES.find((c) => c.id === 'uncategorized');
+      if (categoryLabelTaken(cleaned, fallback.label)) {
+        // This can happen with corrupted local data; favor a safe distinct
+        // inbox name instead of hiding the default assignment destination.
+        cleaned.push({ ...fallback, label: 'Uncategorized items' });
+      } else cleaned.push({ ...fallback });
+    }
+    return cleaned;
+  }
+
+  function createCategoryModel(categories, label, id) {
+    const name = categoryLabel(label);
+    if (!name || name.length > 50 || categoryLabelTaken(categories, name) ||
+        categories.length >= 40 ||
+        typeof id !== 'string' || !/^custom-[a-z0-9-]{3,80}$/.test(id) ||
+        categories.some((c) => c.id === id)) return null;
+    const inbox = categories.findIndex((c) => c.id === 'uncategorized');
+    const next = categories.map((c) => ({ ...c }));
+    next.splice(inbox < 0 ? next.length : inbox, 0, { id, label: name, icon: '▦' });
+    return next;
+  }
+
+  function renameCategoryModel(categories, id, label) {
+    const name = categoryLabel(label);
+    if (!name || categoryLabelTaken(categories, name, id) ||
+        !categories.some((c) => c.id === id)) return null;
+    return categories.map((c) => c.id === id ? { ...c, label: name } : { ...c });
+  }
+
+  function deleteCategoryModel(categories, id) {
+    if (id === 'uncategorized' || !categories.some((c) => c.id === id)) return null;
+    return categories.filter((c) => c.id !== id).map((c) => ({ ...c }));
+  }
+
+  function moveCategoryModel(categories, id, direction) {
+    const at = categories.findIndex((c) => c.id === id);
+    const destination = at + direction;
+    if (at < 0 || destination < 0 || destination >= categories.length) return null;
+    const next = categories.map((c) => ({ ...c }));
+    const [category] = next.splice(at, 1);
+    next.splice(destination, 0, category);
+    return next;
+  }
+
+  function deleteCategoryAssignments(assignmentsMap, categoryId) {
+    // Removing a label is equivalent to the existing Uncategorized default.
+    const next = { ...assignmentsMap };
+    for (const [key, category] of Object.entries(next)) {
+      if (category === categoryId) delete next[key];
+    }
+    return next;
+  }
 
   function cleanIntakeName(value) {
     const raw = String(value || '').replace(/\s+/g, ' ').trim().slice(0, 140);
@@ -288,7 +373,9 @@
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
-      cleanIntakeName, chooseProjectName, headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
+      cleanIntakeName, chooseProjectName, headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
+      sanitizeCategoryDefinitions, createCategoryModel, renameCategoryModel,
+      deleteCategoryModel, moveCategoryModel, deleteCategoryAssignments, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
       categories: CATEGORIES.map((c) => c.id)
     });
     return;
@@ -296,6 +383,14 @@
 
   if (!document.documentElement || !document.body) return;
   if (document.getElementById(APP_ID + '-overlay')) return;
+
+  // Initialize category definitions before the existing assignment and order
+  // stores read category IDs; old installations have no definitions key.
+  try {
+    CATEGORIES = sanitizeCategoryDefinitions(GM_getValue(CATEGORY_DEFS_KEY, null));
+  } catch (error) {
+    console.warn('[SwiftClick Organizer] Could not load categories; defaults retained:', error);
+  }
 
   const seen = new Map(); // Session-only inventory: no cross-account stored chat titles/links.
   let currentCategory = null;
@@ -312,6 +407,35 @@
   let refreshTimer = 0;
   let dragging = null; // Only local browser UI state; never drag ChatGPT links.
   let editItemKey = null; // One card-level editing popover at a time.
+  let managingCategories = false;
+  let categoryManagerError = '';
+
+  function saveCategoryDefinitions() {
+    try {
+      GM_setValue(CATEGORY_DEFS_KEY, {
+        version: 1,
+        categories: CATEGORIES.map(({ id, label }) => ({ id, label }))
+      });
+      return true;
+    } catch (error) {
+      console.warn('[SwiftClick Organizer] Could not save category definitions:', error);
+      window.alert('SwiftClick could not save categories. Please check Tampermonkey storage.');
+      return false;
+    }
+  }
+
+  function applyCategoryDefinitions(next) {
+    if (!next) return false;
+    const old = CATEGORIES;
+    CATEGORIES = next;
+    if (!saveCategoryDefinitions()) {
+      CATEGORIES = old;
+      return false;
+    }
+    categoryManagerError = '';
+    render();
+    return true;
+  }
 
   function readCategoryOrders() {
     try {

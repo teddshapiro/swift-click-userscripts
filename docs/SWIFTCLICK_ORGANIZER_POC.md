@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.8)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.9)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -39,7 +39,7 @@ This is *not* yet an account-wide conversation database or final visual design.
 ## Manual Firefox + Tampermonkey test procedure
 
 1. Visit [the branch's raw script](https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/feat/swiftclick-organizer-poc-20261111/swiftclick-organizer.user.js). Install it in Tampermonkey, or create a new userscript and paste the full source. **Do not replace an existing production userscript.**
-2. Confirm Tampermonkey displays **SwiftClick Organizer (Technical PoC)** version `0.1.0-alpha.8`. The development script deliberately has **no** production `@updateURL` or `@downloadURL`; reinstall from this branch for new PoC revisions.
+2. Confirm Tampermonkey displays **SwiftClick Organizer (Technical PoC)** version `0.1.0-alpha.9`. The development script deliberately has **no** production `@updateURL` or `@downloadURL`; reinstall from this branch for new PoC revisions.
 3. Open `https://chatgpt.com/` in a **fresh tab**. Verify the front door appears automatically, is styled, and shows the expected category cards.
 4. Click Family. It should show projects/chats directly and a **← Categories** button; there should be no Henry/Bradley folder tiles. Return to Categories; enter Hobbies & Interests. **Cinema Decoder** should appear as a project row—not as a subcategory card.
 5. Expand/collapse native ChatGPT sidebar sections and reopen SwiftClick. **Nothing new should appear** unless you explicitly saved it; only previously saved shortcuts are listed.
@@ -250,3 +250,40 @@ The user prefers **manual curation** over passive automatic discovery. Browsing 
 - Multiple ChatGPT accounts in a single browser profile are not isolated. Browser-native HTML drag and drop remains desktop-oriented.
 
 **Current status:** source and automated tests on the feature branch; manual Firefox acceptance pending. Keep PR #6 draft and \`main\` unchanged.
+
+## Alpha.9 — compact two-column category cards and on-demand editing (2026-11-12)
+
+### User feedback
+
+The previous category list showed one full-width row per project/chat, with the category selector and Remove shortcut button always visible. This made the front door feel more like an administrative table than a compact launcher. The user requested two columns, with each card showing only the **drag handle → Project/Chat → title → small edit icon**. Category selection and shortcut removal should appear only when Edit is opened.
+
+### Implementation
+
+- On desktop-width dialogs, each category now uses a **two-column CSS grid** of equal-width tiles, filled **left to right, then top to bottom**. Below 720px viewport width, it becomes one column.
+- Each tile presents the drag handle (when manual category ordering is available), a compact Project/Chat label, a single-line link title (native title tooltip for overflow), and a small ✎ edit control with an accessible label.
+- Clicking ✎ toggles a **per-card floating edit panel**, not a persistent row of controls. The popover has a category selector, Remove shortcut (with the prior confirmation and local-only semantics), and Close. Only one editor can be open; clicking outside closes it; Escape closes the editor first, then the organizer on a second press.
+- The popover is positioned above its card when needed to avoid the bottom of the scroll region.
+- Existing **category assignments, local shortcuts, and ordered ID lists are unchanged** by upgrading. No storage schema migration.
+- Drag/drop remains confined to SwiftClick's Shadow DOM, without touching native ChatGPT. In the two-column grid, dragging the handle onto a card's **left half inserts before it**, and dragging onto its **right half inserts after it**. Left/right insertion indicators confirm the direction. This supports moving between columns while maintaining a single persistent reading order.
+- Keyboard handle Arrow Up/Down still moves one position in the persisted reading order; global search and category-home view remain non-draggable.
+- Desktop-sized cards are not divided into two independent columns of storage: they are a visual two-column presentation of one ordered list. This is intentional so the order remains stable when the window narrows.
+
+### Acceptance in Firefox / Tampermonkey
+
+1. Update the single script installation to **0.1.0-alpha.9** and reload ChatGPT. Do not clear local Tampermonkey data.
+2. Open **Hobbies & Interests**. Confirm compact two-column rows with the order **⠿ / PROJECT (or CHAT) / title / ✎**, with no visible category selectors or Remove shortcut buttons until clicking ✎.
+3. Click ✎ on **Cinema Decoder**. Confirm the popover offers Category and Remove shortcut; close it via Close, click-away, then Escape.
+4. In Edit, change a project to another category, reopen that category, and verify its shortcut is in the correct place. Choose Cancel for a removal confirmation and confirm nothing is deleted. (Use a disposable test shortcut if testing actual removal.)
+5. Drag **Cinema Decoder** from its tile to the left or right half of a tile in the other column; watch the left/right border highlight, release, and verify the new reading order.
+6. Close/reopen and refresh ChatGPT; the drag ordering and category assignments should persist.
+7. Try Arrow Up/Down while the drag handle is focused. Search results should remain two-column compact tiles but **not** show drag handles.
+8. Narrow the Firefox window to 720px or less; verify a single-column list, full access to editor, and no horizontal clipping.
+9. Verify ChatGPT's native sidebar, three-dot menu, New Chat, and selected-project name/URL intake remain unaffected.
+
+### Limitations and follow-up
+
+- This is a technical UI release on the feature branch; a real authenticated Firefox session has not yet validated cross-column dragging and popover placement. Automated Node tests cover hit-testing, ordering, conditional edit controls and CSS structure.
+- Touch-specific drag gestures and true independent column positioning are deferred.
+- The organizer is still **manual-only**; this revision does not reinstate passive discovery.
+
+**Keep PR #6 as a draft, and do not merge into `main` until browser acceptance.**

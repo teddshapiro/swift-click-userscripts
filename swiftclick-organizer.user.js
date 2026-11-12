@@ -1250,7 +1250,6 @@
       content.appendChild(list);
     }
     panel.appendChild(content);
-    positionOpenEditor();
 
     const footer = el('div', 'foot');
     footer.appendChild(el('span', 'hint', manualProjects.length + ' projects and ' +
@@ -1264,6 +1263,7 @@
     });
     footer.appendChild(reset);
     panel.appendChild(footer);
+    positionOpenEditor();
   }
 
   function show(automatic = false) {

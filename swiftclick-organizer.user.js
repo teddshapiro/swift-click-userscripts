@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.12
+// @version      0.1.0-alpha.13
 // @description  Manual-only local organizer for ChatGPT projects and chats. Nothing auto-indexed.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -639,14 +639,23 @@
     'button:hover{background:#284561;}',
     'button:focus-visible{outline:3px solid #69b6ff;outline-offset:2px;}'
   ].join('\n'));
+  // Trigger the action only on a completed click. The previous pointerdown
+  // handler removed the button before pointerup/click, which could send the
+  // remaining click into ChatGPT's native Project home menu below it.
   const menuActionButton = button('＋ Add to SwiftClick Organizer', '', () => handleProjectMenuAction());
   menuActionButton.setAttribute('aria-label', 'Add this ChatGPT project to SwiftClick Organizer');
   menuActionButton.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
-    // Prevent the native outside-pointer handler from closing its menu first.
     event.preventDefault();
     event.stopPropagation();
-    handleProjectMenuAction();
+    // DO NOT navigate, hide the button or modify the menu on pointerdown.
+  });
+  menuActionButton.addEventListener('pointerup', (event) => {
+    event.stopPropagation();
+  });
+  menuActionButton.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
   });
   menuActionRoot.appendChild(menuActionButton);
   document.body.appendChild(menuActionHost);
@@ -916,15 +925,11 @@
       return;
     }
 
-    pendingNativeProject = { from: location.href, at: Date.now(),
-      trigger: recentProjectTrigger && Date.now() - recentProjectTrigger.at <= 12000
-        ? recentProjectTrigger : null };
-    stashPendingIntake();
-    menuActionHost.hidden = true;
-    home.click();
-    window.setTimeout(resolveNativeProjectIntake, 100);
-    window.setTimeout(resolveNativeProjectIntake, 500);
-    window.setTimeout(resolveNativeProjectIntake, 1400);
+    // No verified project URL: never invoke ChatGPT's Project Home on
+    // the user's behalf. Offer the explicit manual form instead.
+    const fromRow = recentProjectTrigger && Date.now() - recentProjectTrigger.at <= 8000
+      ? recentProjectTrigger : null;
+    openProjectManualIntake(fromRow && fromRow.title ? fromRow.title : '');
   }
 
   function labelFor(id) {

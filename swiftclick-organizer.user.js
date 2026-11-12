@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.19
+// @version      0.1.0-alpha.20
 // @description  Manual ChatGPT categories and customizable quick links in a local two-tab organizer.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -24,6 +24,7 @@
   const ORDER_KEY = APP_ID + '.categoryOrder.v1';
   const CATEGORY_DEFS_KEY = APP_ID + '.categoryDefinitions.v1';
   const QUICK_LINKS_KEY = APP_ID + '.quickLinks.v1';
+  const CHATGPT_TOOLS_KEY = APP_ID + '.chatgptTools.v1';
   const LEGACY_PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
   // Flat virtual categories only; do not introduce nested categories in this MVP.
   const DEFAULT_CATEGORIES = [
@@ -490,6 +491,108 @@
     return ordered.map((id) => byId.get(id));
   }
 
+
+  // Source-maintained catalog; user changes are stored separately as preferences.
+  const CHATGPT_TOOL_GROUPS = [
+    {id:'features',label:'ChatGPT features'},
+    {id:'specialized',label:'Specialized tools'},
+    {id:'account',label:'Account & support'}
+  ];
+  const CHATGPT_TOOL_CATALOG = [
+    {"id":"new-chat","title":"New chat","group":"features","icon":"✏️","href":"https://chatgpt.com/","status":"action"},
+    {"id":"scheduled","title":"Scheduled","group":"features","icon":"📅","href":"https://chatgpt.com/scheduled","status":"check"},
+    {"id":"library","title":"Library","group":"features","icon":"📚","href":"https://chatgpt.com/library","status":"check"},
+    {"id":"plugins","title":"Plugins","group":"features","icon":"🛠️","href":"https://chatgpt.com/plugins","status":"verified"},
+    {"id":"maps","title":"Maps","group":"features","icon":"🧭","href":"https://chatgpt.com/maps","status":"check"},
+    {"id":"images","title":"Images","group":"features","icon":"📸","href":"https://chatgpt.com/images/","status":"verified"},
+    {"id":"gpts","title":"GPTs","group":"features","icon":"🤖","href":"https://chatgpt.com/gpts","status":"check"},
+    {"id":"sites","title":"Sites","group":"features","icon":"🌍","href":"https://chatgpt.com/sites","status":"check"},
+    {"id":"adobe","title":"Adobe","group":"specialized","icon":"🎨","href":null,"status":"setup"},
+    {"id":"health","title":"Health","group":"specialized","icon":"🩺","href":null,"status":"setup"},
+    {"id":"finances","title":"Finances","group":"specialized","icon":"💵","href":"https://chatgpt.com/finances","status":"verified"},
+    {"id":"find-workspaces","title":"Find Workspaces","group":"account","icon":"👥","href":null,"status":"setup"},
+    {"id":"personalization","title":"Personalization","group":"account","icon":"✧","href":null,"status":"setup"},
+    {"id":"profile","title":"Profile","group":"account","icon":"👤","href":"https://chatgpt.com/profile","status":"check"},
+    {"id":"settings","title":"Settings","group":"account","icon":"⚙️","href":"https://chatgpt.com/settings","status":"check"},
+    {"id":"help-center","title":"Help Center","group":"account","icon":"🔖","href":"https://help.openai.com/en/","status":"verified"}
+  ];
+  // This direct link is publicly observed, not an officially guaranteed deep link.
+  const TEMPORARY_CHAT_URL = 'https://chatgpt.com/?temporary-chat=true';
+
+  function validateToolOverride(raw, id) {
+    if (typeof raw !== 'string' || !raw.trim() || raw.trim().length > 1024) return null;
+    try {
+      const url = new URL(raw.trim());
+      const hosts = ['chatgpt.com','www.chatgpt.com','chat.openai.com'];
+      if (id === 'help-center') hosts.push('help.openai.com');
+      if (url.protocol !== 'https:' || !hosts.includes(url.hostname.toLowerCase()) ||
+          url.username || url.password || url.port || url.search || url.hash) return null;
+      return url.href;
+    } catch (_) { return null; }
+  }
+  function sanitizeToolPrefs(raw) {
+    const source = raw && raw.version === 1 ? raw : {};
+    const ids = CHATGPT_TOOL_CATALOG.map((x)=>x.id);
+    const seen = new Set(), order=[];
+    for (const id of [...(Array.isArray(source.order)?source.order.slice(0,100):[]),...ids]) {
+      if (ids.includes(id) && !seen.has(id)) {order.push(id);seen.add(id);}
+    }
+    const hidden = Array.isArray(source.hidden)
+      ? [...new Set(source.hidden.filter((id)=>ids.includes(id)))]:[];
+    const icons={},urlOverrides={};
+    for (const item of CHATGPT_TOOL_CATALOG) {
+      const glyph=source.icons && source.icons[item.id];
+      if (categoryIconAllowed(glyph) && glyph !== item.icon) icons[item.id]=glyph;
+      const rawUrl=source.urlOverrides && source.urlOverrides[item.id];
+      if (item.id !== 'new-chat') {
+        const url=validateToolOverride(rawUrl,item.id);
+        if (url && url !== item.href) urlOverrides[item.id]=url;
+      }
+    }
+    return {version:1,order,hidden,icons,urlOverrides};
+  }
+  function toolHref(item,prefs) {
+    return item.id==='new-chat' ? item.href :
+      (prefs.urlOverrides[item.id] || item.href || null);
+  }
+  function listTools(prefs,group=null,includeHidden=false) {
+    const catalog = new Map(CHATGPT_TOOL_CATALOG.map((t)=>[t.id,t]));
+    return prefs.order.map((id)=>catalog.get(id)).filter((t)=>t &&
+      (!group || t.group === group) && (includeHidden || !prefs.hidden.includes(t.id)));
+  }
+  function editToolPrefs(prefs,id,changes) {
+    const tool=CHATGPT_TOOL_CATALOG.find((x)=>x.id===id);
+    if (!tool) return null;
+    const next={version:1,order:[...prefs.order],hidden:[...prefs.hidden],
+      icons:{...prefs.icons},urlOverrides:{...prefs.urlOverrides}};
+    if (Object.prototype.hasOwnProperty.call(changes,'visible')) {
+      next.hidden=next.hidden.filter((x)=>x!==id);
+      if (!changes.visible) next.hidden.push(id);
+    }
+    if (Object.prototype.hasOwnProperty.call(changes,'icon')) {
+      if (!categoryIconAllowed(changes.icon)) return null;
+      if (changes.icon===tool.icon) delete next.icons[id];else next.icons[id]=changes.icon;
+    }
+    if (Object.prototype.hasOwnProperty.call(changes,'urlOverride')) {
+      if (id==='new-chat') return null;
+      const value=String(changes.urlOverride||'').trim();
+      if (!value) delete next.urlOverrides[id];
+      else {
+        const url=validateToolOverride(value,id);
+        if (!url) return null;
+        if (url===tool.href) delete next.urlOverrides[id];else next.urlOverrides[id]=url;
+      }
+    }
+    return sanitizeToolPrefs(next);
+  }
+  function moveToolPrefs(prefs,moving,target,after=false) {
+    const a=CHATGPT_TOOL_CATALOG.find((x)=>x.id===moving);
+    const b=CHATGPT_TOOL_CATALOG.find((x)=>x.id===target);
+    if (!a || !b || a.group!==b.group || moving===target) return null;
+    const order=reorderKeys(prefs.order,moving,target,after);
+    return order.every((id,i)=>id===prefs.order[i])?null:sanitizeToolPrefs({...prefs,order});
+  }
+
   // Order is independent for each flat category. Keep known IDs even when a
   // lazily-loaded ChatGPT sidebar does not currently expose every item.
   function sanitizeCategoryOrders(raw, categories = CATEGORIES) {
@@ -560,6 +663,9 @@
       categoryIconAllowed, filterCategoryIcons, changeCategoryIconModel,
       iconLibrary: CATEGORY_ICON_LIBRARY,
       defaultQuickLinks: DEFAULT_QUICK_LINKS, sanitizeQuickLink, sanitizeQuickLinks,
+      toolCatalog: CHATGPT_TOOL_CATALOG, toolGroups: CHATGPT_TOOL_GROUPS,
+      temporaryChatUrl: TEMPORARY_CHAT_URL, validateToolOverride, sanitizeToolPrefs,
+      toolHref, listTools, editToolPrefs, moveToolPrefs,
       saveQuickLinkModel, editQuickLinkModel, deleteQuickLinkModel, reorderQuickLinksModel,
       deleteCategoryModel, moveCategoryModel, deleteCategoryAssignments, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
       categories: CATEGORIES.map((c) => c.id)
@@ -580,6 +686,11 @@
 
   const seen = new Map(); // Session-only inventory: no cross-account stored chat titles/links.
   let activeTab = 'categories';
+  let managingTools = false;
+  let editingToolId = null;
+  let newChatOptionsOpen = false;
+  let toolError = '';
+  let toolDragged = null;
   let managingQuickLinks = false;
   let quickLinkEditingId = null;
   let quickLinkAdding = false;
@@ -631,6 +742,47 @@
   }
 
 
+
+  function readToolPrefs() {
+    try { return sanitizeToolPrefs(GM_getValue(CHATGPT_TOOLS_KEY,null)); }
+    catch (error) {
+      console.warn('[SwiftClick Organizer] Could not load ChatGPT tool preferences',error);
+      return sanitizeToolPrefs(null);
+    }
+  }
+  let toolPrefs = readToolPrefs();
+  function applyToolPrefs(next) {
+    if (!next) return false;
+    try { GM_setValue(CHATGPT_TOOLS_KEY,next); }
+    catch (error) {
+      console.warn('[SwiftClick Organizer] Tool preferences could not be saved',error);
+      toolError = 'Could not save tool preferences.';
+      render();
+      return false;
+    }
+    toolPrefs = next;
+    toolError = '';
+    editingToolId = null;
+    render();
+    return true;
+  }
+  function shiftTool(id,delta) {
+    const tool=CHATGPT_TOOL_CATALOG.find((x)=>x.id===id);
+    if (!tool) return;
+    const items=listTools(toolPrefs,tool.group,true);
+    const index=items.findIndex((t)=>t.id===id);
+    if (!items[index+delta]) return;
+    const next=moveToolPrefs(toolPrefs,id,items[index+delta].id,delta>0);
+    if (applyToolPrefs(next)) {
+      const handle=[...panel.querySelectorAll('.tool-drag')]
+        .find((x)=>x.dataset.toolId===id);
+      if (handle) handle.focus();
+    }
+  }
+  function navigateTool(url) {
+    hide();
+    window.location.assign(url);
+  }
   function readQuickLinks() {
     try {
       return sanitizeQuickLinks(GM_getValue(QUICK_LINKS_KEY, null));
@@ -959,6 +1111,35 @@
     '.quick-header{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;}',
     '.quick-header h2{margin:0;font-size:20px;}',
     '.quick-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:22px;align-content:start;}',
+
+    '.tools-group{display:grid;gap:11px;margin:14px 0 25px;}',
+    '.tools-group h3{font-size:14px;font-weight:700;color:#cddfed;margin:0;}',
+    '.tools-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(195px,1fr));gap:10px;}',
+    '.tool-tile{min-height:100px;min-width:0;display:grid;align-content:center;gap:7px;padding:15px;border:1px solid #3d5067;border-radius:12px;background:#1b2a3b;color:#eff6ff;text-decoration:none;text-align:left;font:inherit;}',
+    '.tool-tile[href]:hover,.tool-tile[href]:focus-visible,.tool-tile.actionable:hover{background:#29435c;border-color:#8bc2ff;}',
+    '.tool-icon{font-size:24px;line-height:1.1;}',
+    '.tool-name{font-size:14px;font-weight:700;}',
+    '.tool-status{font-size:11px;color:#afc3d9;}',
+    '.tool-pending{opacity:.65;}',
+    '.tool-split{display:flex;min-width:0;}',
+    '.tool-split .tool-tile{min-width:0;flex:1;border-radius:12px 0 0 12px;cursor:pointer;}',
+    '.tool-split .tool-more{border:1px solid #3d5067;border-left:0;border-radius:0 12px 12px 0;background:#26384d;color:#fff;cursor:pointer;padding:0 12px;font:inherit;}',
+    '.tool-menu{display:grid;gap:7px;margin-top:6px;padding:10px;border:1px solid #526880;border-radius:9px;background:#1a2d43;}',
+    '.tool-manager{display:grid;gap:12px;}',
+    '.tool-manager h2{font-size:20px;margin:0;}',
+    '.tool-row{display:flex;align-items:center;gap:9px;flex-wrap:wrap;border:1px solid #44586f;background:#1b2a3b;border-radius:9px;padding:9px;}',
+    '.tool-drag{cursor:grab;font:700 19px system-ui;color:#d2e5fc;background:transparent;border:0;padding:7px;}',
+    '.tool-row.dragging{opacity:.5;}',
+    '.tool-row.drop-before{border-top:3px solid #8bc2ff;}',
+    '.tool-row.drop-after{border-bottom:3px solid #8bc2ff;}',
+    '.tool-info{display:grid;gap:4px;min-width:120px;flex:1;}',
+    '.tool-info .title{font-size:14px;font-weight:700;margin:0;}',
+    '.tool-info .hint{overflow-wrap:anywhere;}',
+    '.tool-actions{display:flex;gap:5px;flex-wrap:wrap;}',
+    '.tool-edit{display:grid;gap:11px;padding:14px;border:1px solid #587696;border-radius:9px;background:#1a3046;}',
+    '.tool-edit label{display:grid;gap:5px;font-size:12px;}',
+    '.tool-edit input,.tool-edit select{width:100%;min-width:0;padding:9px;background:#202e40;color:#fff;border:1px solid #536981;border-radius:7px;font:inherit;}',
+    '.tool-error{color:#ffbdbd;font-size:12px;}',
     '.quick-card{display:grid;align-content:center;gap:8px;min-width:0;min-height:122px;padding:18px 20px;border:1px solid #3d5067;border-radius:13px;background:#1b2a3b;color:#eef5ff;text-decoration:none;}',
     '.quick-card:hover,.quick-card:focus-visible{background:#29435c;border-color:#8bc2ff;}',
     '.quick-card-icon{font-size:25px;line-height:1;}',
@@ -1710,6 +1891,218 @@
   }
 
 
+
+  function toolTile(item) {
+    const href=toolHref(item,toolPrefs);
+    const icon=toolPrefs.icons[item.id]||item.icon;
+    if (item.id === 'new-chat') {
+      const cell=el('div');
+      const split=el('div','tool-split');
+      const main=button('','tool-tile actionable',()=>navigateTool(item.href));
+      main.setAttribute('aria-label','Start a regular chat');
+      main.appendChild(el('span','tool-icon',icon));
+      main.appendChild(el('span','tool-name','New chat'));
+      main.appendChild(el('span','tool-status','Regular or Temporary'));
+      split.appendChild(main);
+      const more=button('⌄','tool-more',()=>{
+        newChatOptionsOpen=!newChatOptionsOpen;
+        render();
+        const focused=panel.querySelector('.tool-more');
+        if (focused) focused.focus();
+      });
+      more.setAttribute('aria-label','New chat options');
+      more.setAttribute('aria-expanded',String(newChatOptionsOpen));
+      split.appendChild(more);
+      cell.appendChild(split);
+      if (newChatOptionsOpen) {
+        const menu=el('div','tool-menu');
+        menu.appendChild(button('New regular chat','action',()=>navigateTool(item.href)));
+        menu.appendChild(button('New temporary chat','action',
+          ()=>navigateTool(TEMPORARY_CHAT_URL)));
+        menu.appendChild(el('p','hint',
+          'Confirm the Temporary banner and select personalization before sending. ' +
+          'Direct URL requires signed-in Firefox verification.'));
+        cell.appendChild(menu);
+      }
+      return cell;
+    }
+    const node=href?el('a','tool-tile'):el('div','tool-tile tool-pending');
+    if (href) {
+      node.href=href;
+      if (new URL(href).hostname==='help.openai.com') {
+        node.target='_blank';
+        node.rel='noopener noreferrer';
+      } else {
+        node.addEventListener('click',()=>hide());
+      }
+      node.setAttribute('aria-label','Open '+item.title);
+    } else {
+      node.setAttribute('aria-disabled','true');
+      node.title='No verified destination yet; use Manage ChatGPT Tools';
+    }
+    node.appendChild(el('span','tool-icon',icon));
+    node.appendChild(el('span','tool-name',item.title));
+    node.appendChild(el('span','tool-status',!href?'Needs a verified URL':
+      item.status==='check'&&!toolPrefs.urlOverrides[item.id]?'Check in Firefox':'Open tool'));
+    return node;
+  }
+
+  function makeToolsFront() {
+    const wrapper=el('div');
+    wrapper.appendChild(el('h2','title','ChatGPT Tools'));
+    for (const group of CHATGPT_TOOL_GROUPS) {
+      const list=listTools(toolPrefs,group.id);
+      if (!list.length) continue;
+      const section=el('section','tools-group');
+      section.appendChild(el('h3','',group.label));
+      const grid=el('div','tools-grid');
+      for (const item of list) grid.appendChild(toolTile(item));
+      section.appendChild(grid);
+      wrapper.appendChild(section);
+    }
+    return wrapper;
+  }
+
+  function toolEditor(item) {
+    const form=el('form','tool-edit');
+    form.appendChild(el('div','brand','Edit '+item.title));
+    const iconLabel=el('label','','Icon');
+    const iconSelect=el('select');
+    for (const choice of CATEGORY_ICON_LIBRARY) {
+      const option=el('option','',choice.icon+' '+choice.label);
+      option.value=choice.icon;
+      iconSelect.appendChild(option);
+    }
+    iconSelect.value=toolPrefs.icons[item.id]||item.icon;
+    iconLabel.appendChild(iconSelect);
+    form.appendChild(iconLabel);
+    let urlInput=null;
+    if (item.id!=='new-chat') {
+      const label=el('label','','Custom destination URL');
+      urlInput=el('input');
+      urlInput.type='url';
+      urlInput.maxLength=1024;
+      urlInput.placeholder='Leave blank for built-in URL';
+      urlInput.value=toolPrefs.urlOverrides[item.id]||'';
+      label.appendChild(urlInput);
+      form.appendChild(label);
+      form.appendChild(el('p','hint',
+        'Only HTTPS ChatGPT URLs'+(item.id==='help-center'?' or help.openai.com':'')+
+        ', without queries, fragments, ports or credentials. Blank resets to built-in.'));
+    } else {
+      form.appendChild(el('p','hint',
+        'Regular and Temporary chat addresses are fixed for safety.'));
+    }
+    const error=el('div','tool-error');
+    error.setAttribute('role','alert');
+    form.appendChild(error);
+    const controls=el('div','tool-actions');
+    const save=el('button','action','Save changes');
+    save.type='submit';
+    controls.appendChild(save);
+    controls.appendChild(button('Cancel','action',()=>{editingToolId=null;render();}));
+    form.appendChild(controls);
+    form.addEventListener('submit',(event)=>{
+      event.preventDefault();
+      const changes={icon:iconSelect.value};
+      if (urlInput) changes.urlOverride=urlInput.value;
+      const updated=editToolPrefs(toolPrefs,item.id,changes);
+      if (!updated) {error.textContent='Invalid URL or icon. Please correct the entry.';return;}
+      applyToolPrefs(updated);
+    });
+    return form;
+  }
+
+  function toolsManager() {
+    const wrapper=el('div','tool-manager');
+    wrapper.appendChild(el('h2','','Manage ChatGPT Tools'));
+    wrapper.appendChild(el('p','hint',
+      'Show, hide, edit icons and trusted URLs, and reorder within each section.'));
+    for (const group of CHATGPT_TOOL_GROUPS) {
+      const section=el('section','tools-group');
+      section.appendChild(el('h3','',group.label));
+      const items=listTools(toolPrefs,group.id,true);
+      for (const [i,item] of items.entries()) {
+        const row=el('div','tool-row');
+        const grip=button('⠿','tool-drag',()=>{});
+        grip.draggable=true;
+        grip.dataset.toolId=item.id;
+        grip.title='Drag or press Arrow Up / Down';
+        grip.setAttribute('aria-label','Reorder '+item.title);
+        grip.addEventListener('keydown',(e)=>{
+          if (!['ArrowUp','ArrowDown'].includes(e.key)) return;
+          e.preventDefault();
+          shiftTool(item.id,e.key==='ArrowUp'?-1:1);
+        });
+        grip.addEventListener('dragstart',(e)=>{
+          if (!e.dataTransfer) return;
+          toolDragged=item.id;
+          e.dataTransfer.effectAllowed='move';
+          e.dataTransfer.setData('text/plain','SwiftClick ChatGPT Tool');
+          row.classList.add('dragging');
+        });
+        grip.addEventListener('dragend',()=>{
+          toolDragged=null;
+          for (const node of wrapper.querySelectorAll('.tool-row'))
+            node.classList.remove('dragging','drop-before','drop-after');
+        });
+        row.addEventListener('dragover',(e)=>{
+          const moving=CHATGPT_TOOL_CATALOG.find((x)=>x.id===toolDragged);
+          if (!moving||moving.group!==item.group||moving.id===item.id||!e.dataTransfer)return;
+          e.preventDefault();
+          const r=row.getBoundingClientRect();
+          const after=e.clientY>=r.top+r.height/2;
+          row.classList.toggle('drop-before',!after);
+          row.classList.toggle('drop-after',after);
+        });
+        row.addEventListener('dragleave',(e)=>{
+          if (!e.relatedTarget || !row.contains(e.relatedTarget))
+            row.classList.remove('drop-before','drop-after');
+        });
+        row.addEventListener('drop',(e)=>{
+          const moving=CHATGPT_TOOL_CATALOG.find((x)=>x.id===toolDragged);
+          if (!moving||moving.group!==item.group||moving.id===item.id)return;
+          e.preventDefault();
+          const r=row.getBoundingClientRect();
+          const next=moveToolPrefs(toolPrefs,moving.id,item.id,e.clientY>=r.top+r.height/2);
+          toolDragged=null;
+          applyToolPrefs(next);
+        });
+        row.appendChild(grip);
+        row.appendChild(el('span','quick-row-symbol',toolPrefs.icons[item.id]||item.icon));
+        const info=el('div','tool-info');
+        info.appendChild(el('span','title',item.title));
+        info.appendChild(el('span','hint',toolHref(item,toolPrefs)||'Needs a verified URL'));
+        row.appendChild(info);
+        const actions=el('div','tool-actions');
+        const hidden=toolPrefs.hidden.includes(item.id);
+        actions.appendChild(button(hidden?'Show':'Hide','action',()=>
+          applyToolPrefs(editToolPrefs(toolPrefs,item.id,{visible:hidden}))));
+        actions.appendChild(button('Edit','action',()=>{
+          editingToolId=editingToolId===item.id?null:item.id;
+          render();
+        }));
+        const up=button('↑','action',()=>shiftTool(item.id,-1));
+        up.disabled=i===0;
+        up.setAttribute('aria-label','Move '+item.title+' up');
+        actions.appendChild(up);
+        const down=button('↓','action',()=>shiftTool(item.id,1));
+        down.disabled=i===items.length-1;
+        down.setAttribute('aria-label','Move '+item.title+' down');
+        actions.appendChild(down);
+        row.appendChild(actions);
+        section.appendChild(row);
+        if (editingToolId===item.id) section.appendChild(toolEditor(item));
+      }
+      wrapper.appendChild(section);
+    }
+    if (toolError) wrapper.appendChild(el('div','tool-error',toolError));
+    wrapper.appendChild(button('Restore default Tools settings','action',()=>{
+      if (window.confirm('Restore all ChatGPT Tools preferences to defaults?'))
+        applyToolPrefs(sanitizeToolPrefs(null));
+    }));
+    return wrapper;
+  }
   function makeQuickLinkCard(link) {
     const card = el('a', 'quick-card');
     card.href = link.href;
@@ -2314,9 +2707,13 @@
     const tabs = el('div', 'section-tabs');
     tabs.setAttribute('role', 'tablist');
     for (const tab of [{ id: 'categories', title: 'ChatGPT Categories' },
-      { id: 'quicklinks', title: 'Quick Links' }]) {
+      { id: 'quicklinks', title: 'Quick Links' },
+      { id: 'tools', title: 'ChatGPT Tools' }]) {
       const control = button(tab.title, 'section-tab', () => {
         activeTab = tab.id;
+        managingTools = false;
+        editingToolId = null;
+        newChatOptionsOpen = false;
         managingQuickLinks = false;
         quickLinkEditingId = null;
         quickLinkAdding = false;
@@ -2340,6 +2737,29 @@
     panel.appendChild(tabs);
 
     const content = el('div', 'main');
+
+    if (activeTab==='tools') {
+      if (managingTools) {
+        content.appendChild(toolsManager());
+        panel.appendChild(content);
+        const foot=el('div','foot');
+        foot.appendChild(el('span','hint','Only display preferences are stored locally.'));
+        foot.appendChild(button('← Back to ChatGPT Tools','action',()=>{
+          managingTools=false;editingToolId=null;render();
+        }));
+        panel.appendChild(foot);
+      } else {
+        content.appendChild(makeToolsFront());
+        panel.appendChild(content);
+        const foot=el('div','foot');
+        foot.appendChild(el('span','hint','Unverified links may need adjustment in Firefox.'));
+        foot.appendChild(button('⚙ Manage ChatGPT Tools','action',()=>{
+          managingTools=true;newChatOptionsOpen=false;render();
+        }));
+        panel.appendChild(foot);
+      }
+      return;
+    }
     if (activeTab === 'quicklinks') {
       if (managingQuickLinks) {
         content.appendChild(makeQuickLinkManager());
@@ -2511,6 +2931,9 @@
 
   function show(automatic = false) {
     activeTab = 'categories';
+    managingTools = false;
+    editingToolId = null;
+    newChatOptionsOpen = false;
     managingQuickLinks = false;
     quickLinkEditingId = null;
     quickLinkAdding = false;
@@ -2544,6 +2967,10 @@
   }
 
   function hide() {
+    managingTools = false;
+    editingToolId = null;
+    newChatOptionsOpen = false;
+    toolDragged = null;
     managingQuickLinks = false;
     quickLinkAdding = false;
     quickLinkEditingId = null;
@@ -2562,7 +2989,13 @@
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && open) {
       event.preventDefault();
-      if (activeTab === 'quicklinks' && managingQuickLinks && quickLinkEditingId !== null) {
+      if (activeTab === 'tools' && managingTools && editingToolId !== null) {
+        editingToolId = null;render();
+      } else if (activeTab === 'tools' && managingTools) {
+        managingTools=false;render();
+      } else if (activeTab === 'tools' && newChatOptionsOpen) {
+        newChatOptionsOpen=false;render();
+      } else if (activeTab === 'quicklinks' && managingQuickLinks && quickLinkEditingId !== null) {
         quickLinkEditingId = null;
         render();
       } else if (activeTab === 'quicklinks' && managingQuickLinks && quickLinkAdding) {

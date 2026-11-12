@@ -65,6 +65,58 @@ test('normalize labels and omit URL query parameters from stored navigation link
 });
 
 
+
+test('ChatGPT Tools catalog, three tabs, and regular/temporary New Chat split action', () => {
+  assert.equal(hooks.toolCatalog.length,16);
+  assert.deepEqual(Array.from(hooks.toolGroups,(g)=>g.id),['features','specialized','account']);
+  assert.equal(hooks.toolCatalog.find((t)=>t.id==='new-chat').status,'action');
+  assert.equal(hooks.temporaryChatUrl,'https://chatgpt.com/?temporary-chat=true');
+  assert.match(script,/button\('New regular chat','action'/);
+  assert.match(script,/button\('New temporary chat','action'/);
+  assert.match(script,/Confirm the Temporary banner and select personalization/);
+  assert.match(script,/\{ id: 'tools', title: 'ChatGPT Tools' \}/);
+  assert.match(script,/if \(activeTab==='tools'\)/);
+});
+test('ChatGPT Tools preferences persist only user overrides and do not alter shortcut storage', () => {
+  const p=hooks.sanitizeToolPrefs(null);
+  assert.equal(p.order.length,16);
+  assert.equal(p.hidden.length,0);
+  assert.deepEqual(Object.keys(p.icons),[]);
+  const changed=hooks.editToolPrefs(p,'images',{visible:false,icon:'📚'});
+  assert.ok(changed.hidden.includes('images'));
+  assert.equal(changed.icons.images,'📚');
+  assert.equal(hooks.listTools(changed,'features').some((x)=>x.id==='images'),false);
+  const loaded=hooks.sanitizeToolPrefs({version:1,order:['settings','fake','settings'],
+    hidden:['images','images','fake'],icons:{images:'📚',plugins:'<img>'},
+    urlOverrides:{gpts:'javascript:alert(1)'}});
+  assert.equal(loaded.order[0],'settings');
+  assert.equal(loaded.order.length,16);
+  assert.deepEqual(Array.from(loaded.hidden),['images']);
+  assert.equal(loaded.icons.plugins,undefined);
+  assert.equal(loaded.urlOverrides.gpts,undefined);
+  assert.match(script,/GM_setValue\(CHATGPT_TOOLS_KEY,next\)/);
+});
+test('ChatGPT Tools URL overrides are safe and New Chat cannot be overridden', () => {
+  const p=hooks.sanitizeToolPrefs(null);
+  assert.equal(hooks.validateToolOverride('https://chatgpt.com/area','adobe'),
+    'https://chatgpt.com/area');
+  for(const url of ['https://evil.example','http://chatgpt.com/test',
+     'javascript:alert(1)','https://chatgpt.com@evil.example/',
+     'https://chatgpt.com/?token=abc','https://chatgpt.com:8080/path']) {
+    assert.equal(hooks.validateToolOverride(url,'adobe'),null);
+  }
+  assert.equal(hooks.validateToolOverride('https://help.openai.com/en/','help-center'),
+    'https://help.openai.com/en/');
+  assert.equal(hooks.validateToolOverride('https://help.openai.com/en/','adobe'),null);
+  const x=hooks.editToolPrefs(p,'adobe',{urlOverride:'https://chatgpt.com/plugins/example'});
+  assert.equal(hooks.toolHref(hooks.toolCatalog.find((t)=>t.id==='adobe'),x),
+    'https://chatgpt.com/plugins/example');
+  assert.equal(hooks.editToolPrefs(p,'new-chat',{urlOverride:'https://chatgpt.com/test'}),null);
+  assert.equal(hooks.moveToolPrefs(p,'plugins','finances',false),null);
+  assert.ok(hooks.moveToolPrefs(p,'plugins','scheduled',false));
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+});
+
 test('Quick Links start with YouTube and Google Drive only for uninitialized storage', () => {
   const defaults = hooks.sanitizeQuickLinks(null);
   assert.deepEqual(Array.from(defaults, (item) => item.title), ['YouTube', 'Google Drive']);
@@ -807,7 +859,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.19/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.20/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

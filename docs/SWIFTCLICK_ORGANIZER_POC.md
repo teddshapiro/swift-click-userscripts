@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.19)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.20)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -584,3 +584,24 @@ The authoritative working draft is **“SwiftClick — Backup, Data Export, Impo
 - Acceptance checks: faithful local export; no missed stored sections, secret leakage or network upload; user warning; URL scan false-positive handling; explicit version and stable IDs; no Trusted Types-unsafe HTML sinks.
 
 **Current status:** documented requirements only. Neither exporter nor importer is implemented in alpha.19. Product features are not considered shipped merely because their requirements are documented.
+
+## Alpha.20 — curated ChatGPT Tools + New Chat actions (2026-11-12)
+
+Added a third **ChatGPT Tools** tab (16 built-in entries in the ChatGPT features, Specialized tools, and Account & support sections). Existing ChatGPT Categories and Quick Links behavior/data remain unchanged.
+
+New Chat is a split control: the main tile starts a regular chat. A ⌄ dropdown offers **New regular chat** and **New temporary chat**. Temporary uses `https://chatgpt.com/?temporary-chat=true`, which responds as a Temporary Chat publicly but is **not an officially stable documented deep-link API**. The menu advises checking the **Temporary** banner and selecting Personalized or Unpersonalized before sending any message. Confirm in the signed-in Firefox session; if the banner is absent, use ChatGPT's native Temporary toggle.
+
+Built-in routes: Scheduled, Library, Plugins, Maps, Images, GPTs, Sites, Finances, Profile, Settings and Help Center. Candidate routes not authenticated-tested show **Check in Firefox**. Adobe, pinned Health, Find Workspaces and Personalization are **visible but not clickable** until a reliable ChatGPT URL is entered through **Manage ChatGPT Tools**. Avoid guessing paths or programmatically clicking native account menus. Help Center opens a new tab; other tools navigate within the current tab.
+
+Management includes **Show/Hide**, **Edit icon**, **optional first-party URL override**, **drag/keyboard order within groups**, and **Restore default Tools settings**. The immutable source catalog is code-defined; only preferences persist in `swiftclick-organizer-poc.chatgptTools.v1` with `version:1,order,hidden,icons,urlOverrides`. Override destinations accept HTTPS ChatGPT hostnames (plus help.openai.com for Help Center), without credentials, query, fragment or custom port. New Chat URLs cannot be overridden. All UI uses explicit DOM creation and textContent, not HTML string sinks.
+
+### Firefox acceptance
+
+1. Update to alpha.20 and reload. Confirm three tabs and preservation of projects, chats, category icons/orders, and Quick Links.
+2. Open ChatGPT Tools; verify 16 entries. Try Plugins, Images, Finances and Help Center; verify Help Center opens a new browser tab.
+3. Check the candidate routes Scheduled, Library, Maps, GPTs, Sites, Profile and Settings; note unexpected pages. Health, Adobe, Find Workspaces and Personalization should display an honest setup state until configured.
+4. Use New Chat's primary action for a regular chat, then dropdown New temporary chat. Confirm the **Temporary** banner and personalization controls before typing; this requires signed-in testing.
+5. Manage tools: hide/reveal, choose an icon, reorder via arrow keys and drag, set a verified first-party URL for a setup-only tool, refresh for persistence, reject invalid external URL, restore defaults.
+6. Confirm no native ChatGPT sidebar changes or interception of private account data.
+
+**Status:** alpha feature branch, draft PR #6; browser acceptance pending.

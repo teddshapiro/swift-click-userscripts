@@ -753,10 +753,11 @@
     if (event.button !== 0 || open) return;
     const node = event.target && event.target.closest &&
       event.target.closest('button, [role="button"]');
-    if (!node || !node.closest ||
-        !node.closest('nav, aside, [data-testid*="sidebar"]')) return;
-    // Clear stale context on every sidebar button interaction. An unrelated
-    // project from several seconds ago must never be called "already saved".
+    if (!node || launcherHost.contains(node) || overlayHost.contains(node) ||
+        menuActionHost.contains(node)) return;
+    // ChatGPT's sidebar isn't always marked up as nav/aside. Capture only
+    // this button's nearby row; never scan unrelated chats or add inventory.
+    // Clear stale identity even if this particular row has no usable link.
     recentProjectTrigger = captureProjectTrigger(event.target);
   }, true);
 

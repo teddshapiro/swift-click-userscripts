@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.6)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.7)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -39,7 +39,7 @@ This is *not* yet an account-wide conversation database or final visual design.
 ## Manual Firefox + Tampermonkey test procedure
 
 1. Visit [the branch's raw script](https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/feat/swiftclick-organizer-poc-20261111/swiftclick-organizer.user.js). Install it in Tampermonkey, or create a new userscript and paste the full source. **Do not replace an existing production userscript.**
-2. Confirm Tampermonkey displays **SwiftClick Organizer (Technical PoC)** version `0.1.0-alpha.6`. The development script deliberately has **no** production `@updateURL` or `@downloadURL`; reinstall from this branch for new PoC revisions.
+2. Confirm Tampermonkey displays **SwiftClick Organizer (Technical PoC)** version `0.1.0-alpha.7`. The development script deliberately has **no** production `@updateURL` or `@downloadURL`; reinstall from this branch for new PoC revisions.
 3. Open `https://chatgpt.com/` in a **fresh tab**. Verify the front door appears automatically, is styled, and shows the expected category cards.
 4. Click Family. It should show projects/chats directly and a **← Categories** button; there should be no Henry/Bradley folder tiles. Return to Categories; enter Hobbies & Interests. **Cinema Decoder** should appear as a project row—not as a subcategory card.
 5. Expand native ChatGPT Projects/Recents sidebar sections, use the launcher or Tampermonkey menu command to reopen, and look in **Uncategorized**. Confirm loaded links appear. If a link is absent, record whether it was visible in the sidebar at that moment.
@@ -179,3 +179,36 @@ The user explicitly requested a **flat, category-first** system with only projec
 9. Confirm the local Tampermonkey data was preserved from alpha.5, and the project/chat assignment migration does not re-run unnecessarily upon subsequent reloads.
 
 **Current status:** code and automated tests are available in the same development branch and draft PR #6. Firefox acceptance is still required before merging/releasing. The older alpha.3–5 sections above are historical design notes, not current UI requirements.
+
+## Alpha.7 — custom drag-and-drop order inside categories (2026-11-11)
+
+User requested direct reordering of projects/chats inside a flat category (for example AI Video, Cinema Decoder, Image Production within Hobbies & Interests).
+
+### Behavior
+
+- Each project/chat row now has an **⠿ drag handle** at the left while browsing a category. Drag the handle and drop the item above/below another row. An insertion border marks before or after.
+- Rows can mix both kinds of item; drag affects **SwiftClick's display order only**, never ChatGPT project/chat membership.
+- **Keyboard fallback:** focus the handle (Tab), then press **Arrow Up** / **Arrow Down** to move one position. Focus follows the moved handle.
+- Changes persist locally in Tampermonkey under a new isolated key `swiftclick-organizer-poc.categoryOrder.v1`, one ordered ID list per category. Previous category labels and saved links remain untouched.
+- New/previously undiscovered items append after a category's saved order. Reordering preserves IDs not presently visible because ChatGPT's sidebar inventory is incomplete.
+- Moving an item into a different SwiftClick category or removing a shortcut clears its old position; the item enters its new category at the end until reordered.
+- A **Reset order** control is available within categories that have a custom order. It returns that category to the original default ordering without affecting any other category.
+- Drag handles do not appear on the category-first home screen or in global search results; reordering is disabled in search to avoid ambiguous cross-category changes, and in categories with more than 250 displayed items for this PoC.
+- Browser native drag data contains only the harmless text `SwiftClick Organizer`, not a URL, project title, or message data. Drag logic lives entirely in the organizer's Shadow DOM, without altering ChatGPT-native sidebar or menus.
+
+### Manual Firefox/Tampermonkey acceptance
+
+1. Update the existing SwiftClick userscript to **0.1.0-alpha.7** (ensure only one copy is enabled) and reload ChatGPT. Do **not** clear stored categories.
+2. Go to **Hobbies & Interests** and drag **Cinema Decoder** above **AI Video** using the ⠿ handle. Verify the visual order changes immediately.
+3. Close/reopen the organizer and reload ChatGPT. Confirm the custom order remains, with the projects still opening their correct native ChatGPT URLs.
+4. Focus the handle for **Image Production**, press Arrow Up, and verify it moves one row upward; test Arrow Down and that focus stays on the handle.
+5. Change **Cinema Decoder** to another category, then return it to Hobbies & Interests. It should appear at the end of the category until reordered. The other items' relative order should not change.
+6. Search for a project; confirm search results are navigable but do **not** show drag handles.
+7. Choose **Reset order** in Hobbies & Interests. Only that category's manually chosen order resets.
+8. Confirm native ChatGPT project hover menus, New Chat buttons, existing saved categories/chats, and menu intake remain functional.
+
+### Limitations
+
+- Browser-native HTML drag and drop is optimized here for desktop mouse/trackpad. Touch/pointer gesture-specific reordering can be considered later.
+- The repository's Node tests cover ordering logic and safety invariants. The graphical drag interaction itself still requires logged-in Firefox/Tampermonkey validation.
+- Cross-account/workspace storage isolation remains future work; treat the local browser profile as one ChatGPT account.

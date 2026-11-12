@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.7)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.8)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -16,11 +16,11 @@ This is *not* yet an account-wide conversation database or final visual design.
 - Standalone Tampermonkey script limited to ChatGPT domains.
 - Flat category-first opening screen: Family; My Health; SwiftClick Business; Generative AI; Hobbies & Interests; Uncategorized. Each category contains **only ChatGPT projects and conversations**, with no subcategories.
 - Clickable flat virtual categories and global title search. The Cinema Decoder **project** is a normal item inside Hobbies & Interests—not another SwiftClick category.
-- Read-only observation of projects/chats **currently linked in the native page navigation** and of the current page URL; no message-body extraction.
+- **Manual-only collection:** no automatic inventory discovery from the ChatGPT sidebar, current URL, or project/chats on page load. Only explicitly saved shortcuts are listed. The script still observes a native **Project home** menu when the user deliberately invokes its add action; it does not index that menu until the user confirms Save.
 - Per-item category picker. Category assignments persist via Tampermonkey values, keyed to the link identifier.
 - **Add project** manual shortcut form: enter a project name, paste its existing ChatGPT project URL, choose a virtual category. Saved manual project shortcuts reappear after refresh even when ChatGPT has not loaded them into its sidebar.
 - Saved project shortcuts can be removed from SwiftClick without affecting ChatGPT.
-- Assigning a *discovered* project to any virtual category now saves its project link across reloads, just like using the intake form. The UI calls both types **Project**; only a saved link offers a local **Remove shortcut** action.
+- Saved **Project** and **Chat** rows are the only inventory. Any link explicitly saved in an earlier alpha version remains; links that were only transiently observed in old versions are no longer shown until added manually.
 - Category pickers offer only the six top-level categories; the nested options no longer exist.
 - Native ChatGPT links remain intact; regular click closes the organizer, modified/middle clicks preserve their browser behavior.
 - Close button, Escape, click-outside dismissal, Tampermonkey menu command, and a fixed floating launcher outside ChatGPT-owned navigation.
@@ -28,25 +28,25 @@ This is *not* yet an account-wide conversation database or final visual design.
 
 ## Deliberate limitations
 
-1. **Not a complete account inventory.** The script sees loaded links only. A collapsed or virtualized ChatGPT sidebar can yield an incomplete or empty list; ChatGPT can change its DOM at any time. The on-screen count says "observed", never "total".
-2. Discovery is session-only for *unassigned* chats/projects. Once a user assigns a **project or chat** to a category, SwiftClick retains its validated title and URL locally for future visits. It also backfills previously categorized chat shortcuts when ChatGPT loads them again. For older chat IDs whose link/title never reappears, no name or URL can be reliably restored solely from their old category assignment; revisit the chat to index it. Account/workspace isolation is not implemented: avoid multiple ChatGPT accounts in the same browser profile until scoping is added. Titles and URLs of explicitly organized items remain in local Tampermonkey storage; no message bodies are stored.
+1. **A curated inventory, not an account-wide inventory.** SwiftClick intentionally lists only projects and chats explicitly saved through its controls. Opening or expanding ChatGPT's sidebar by itself does not add anything.
+2. Existing **saved** project/chat shortcuts, categories, and manually arranged order survive this update. Old **category-only** chat assignments without a stored URL/title are retained as metadata but cannot appear until the user manually adds that chat. Account/workspace isolation is still absent: use one ChatGPT account per browser profile. Only explicitly saved titles and URLs—not message bodies—are stored in Tampermonkey.
 3. The PoC does not infer that a chat belongs to a project, so project assignment **does not automatically assign its conversations** yet. The hierarchy is virtual.
-4. Category names and ordering are seeded, **not yet editable**. This is a technical PoC, not the finished MVP.
-5. Project/chat title extraction relies on page navigation links and can miss items or show imperfect titles; no hidden ChatGPT endpoints or scraping of messages.
+4. Top-level category names/order are seeded and not yet editable. **Items inside each category can be reordered by drag-and-drop** and keyboard.
+5. During a **user-triggered project intake**, SwiftClick tries to read the selected sidebar project title before ChatGPT navigates, or finds the selected project's link by ID. If it cannot verify a title, the input remains editable and may be blank; no other open project's title should be substituted. No hidden ChatGPT APIs or message-body scraping.
 6. Does not move, delete or rename ChatGPT content, alter project instructions, call external APIs, or use AI.
-7. Browser UI has not been validated against a logged-in 2026 ChatGPT account; DOM, CSS, and accessibility require manual testing before a release.
+7. Earlier versions have been visually checked in a logged-in Firefox session; **alpha.8's manual-only behavior and project-name autofill still require user acceptance** before release.
 
 ## Manual Firefox + Tampermonkey test procedure
 
 1. Visit [the branch's raw script](https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/feat/swiftclick-organizer-poc-20261111/swiftclick-organizer.user.js). Install it in Tampermonkey, or create a new userscript and paste the full source. **Do not replace an existing production userscript.**
-2. Confirm Tampermonkey displays **SwiftClick Organizer (Technical PoC)** version `0.1.0-alpha.7`. The development script deliberately has **no** production `@updateURL` or `@downloadURL`; reinstall from this branch for new PoC revisions.
+2. Confirm Tampermonkey displays **SwiftClick Organizer (Technical PoC)** version `0.1.0-alpha.8`. The development script deliberately has **no** production `@updateURL` or `@downloadURL`; reinstall from this branch for new PoC revisions.
 3. Open `https://chatgpt.com/` in a **fresh tab**. Verify the front door appears automatically, is styled, and shows the expected category cards.
 4. Click Family. It should show projects/chats directly and a **← Categories** button; there should be no Henry/Bradley folder tiles. Return to Categories; enter Hobbies & Interests. **Cinema Decoder** should appear as a project row—not as a subcategory card.
-5. Expand native ChatGPT Projects/Recents sidebar sections, use the launcher or Tampermonkey menu command to reopen, and look in **Uncategorized**. Confirm loaded links appear. If a link is absent, record whether it was visible in the sidebar at that moment.
-6. Place one observed project or chat in Family using its select menu. Close and reopen; verify it appears under Family. Refresh and leave its native sidebar entry collapsed; the saved shortcut should still be visible. Repeat with a chat to verify local chat-link persistence.
-7. From the organizer home, click **+ Add project**. Open an existing ChatGPT project in another tab, copy its full browser URL, enter its name, paste the URL, and select **SwiftClick Business** (or another category). Save; close/reopen/refresh to confirm the project shortcut stays visible in the selected category even when its native sidebar entry is hidden. A conversation URL must be rejected as an invalid project URL.
+5. Expand/collapse native ChatGPT sidebar sections and reopen SwiftClick. **Nothing new should appear** unless you explicitly saved it; only previously saved shortcuts are listed.
+6. Add an existing project through the native three-dot menu's **Add to SwiftClick Organizer** companion control. Verify the selected project's **name and URL** are prefilled, then choose Family and Save. Reopen and refresh to confirm persistence.
+7. Use **+ Add project** to paste a project URL manually as a fallback. Use **+ Add chat** while viewing a chat to prefill its current URL and title when available; alternatively paste a chat URL and name manually. Confirm saving and persistence in a selected category.
 8. With Organizer dismissed, hover over multiple native ChatGPT project rows and confirm the three-dot action menu and New Chat icon appear and are clickable. Verify their behavior with the userscript enabled. The launcher must remain outside the sidebar (right edge of viewport).
-9. Click a discovered chat/project. Verify ordinary ChatGPT navigation occurs and the organizer disappears. Refresh a deep chat URL: it must **not** auto-open. Click the launcher to open manually.
+9. Click a saved chat/project. Verify ordinary ChatGPT navigation occurs and the organizer disappears. Refresh a deep chat URL: it must **not** auto-open. Click the launcher to open manually.
 10. Test Ctrl-click/middle-click a destination, Escape, outside-click, narrow windows, and both light/dark ChatGPT settings. Verify the original ChatGPT UI stays functional.
 11. Confirm the browser's Network panel shows **no SwiftClick or third-party HTTP requests** made by this script; verify the PoC does not access conversation message bodies.
 12. Check the browser console for `[SwiftClick Organizer]` warnings. Report a screenshot of a missing launcher, unstyled overlay, or missing visible link along with the route and browser version.
@@ -55,7 +55,7 @@ This is *not* yet an account-wide conversation database or final visual design.
 
 - Firefox/Tampermonkey versions and whether the script was installed from the branch.
 - Screenshot of the home modal and launcher placement.
-- Count of discovered projects/chats versus the links visibly loaded.
+- Count of saved projects/chats and whether a deliberately opened project prefilled the right name/URL.
 - Pass/fail for auto-open, native click + dismiss, persistence, direct-link bypass, Esc, project hover controls (three-dot/New Chat), and light/dark styles.
 - Any console errors.
 
@@ -73,8 +73,8 @@ CI workflow for the development branch/PR is `.github/workflows/swiftclick-organ
 ## Post-PoC MVP decisions
 
 - Identify a privacy-safe stable account/workspace scope before retaining a persistent link inventory.
-- Decide whether to import a user-supplied ChatGPT export to seed a complete historic index.
-- Investigate why some native project links are not observed even when sidebar project names are visible; do not claim all projects are auto-discovered.
+- Do **not** reintroduce automatic sidebar indexing or export-driven bulk discovery without a new user decision; manual intake is the deliberate default.
+- Improve manual intake when ChatGPT changes its native menu or project-row structure; preserve the fallback to editable name and pasted URL.
 - Add editable/reorderable categories, then optional favorites and recent items.
 - Detect and validate real project→chat relationships instead of guessing from sidebar proximity.
 - Consider dashboard-wide CSP testing and more robust launch placement/accessibility.
@@ -212,3 +212,41 @@ User requested direct reordering of projects/chats inside a flat category (for e
 - Browser-native HTML drag and drop is optimized here for desktop mouse/trackpad. Touch/pointer gesture-specific reordering can be considered later.
 - The repository's Node tests cover ordering logic and safety invariants. The graphical drag interaction itself still requires logged-in Firefox/Tampermonkey validation.
 - Cross-account/workspace storage isolation remains future work; treat the local browser profile as one ChatGPT account.
+
+## Alpha.8 — manual-only project/chat collection and project-name autofill (2026-11-12)
+
+### User decision
+
+The user prefers **manual curation** over passive automatic discovery. Browsing ChatGPT, opening the sidebar, or opening a new project/chat must never populate SwiftClick's library. Keep the existing category-first home screen and drag-and-drop category order.
+
+### Behavior now
+
+- Remove the old \`collectLoadedLinks\` and \`indexAnchor\` paths completely, including calls during initialization, overlay opening, sidebar mutation, and route changes. The remaining MutationObserver only detects the **open Project Home menu**, so the explicit Add companion still appears.
+- Seed the organizer library exclusively from existing manually saved project shortcuts (\`manualProjects.v1\`) and chats (\`savedChats.v1\`). **Do not reset existing data.** Existing category mappings and custom order remain intact.
+- Project intake via the native three-dot menu now captures the clicked project's sidebar **name and link identity** on user interaction before React opens its menu. That name is carried through the project's native navigation, including across a full reload using a short-lived tab session intent.
+- When the menu has a project link but the click-capture fails, a targeted search for that exact project's sidebar anchor label is permitted **only after** the user selects the SwiftClick Add action. This does not index or save anything.
+- Name selection is guarded by project ID: if the clicked row's ID is not the Project Home destination's ID, do not use the unrelated row name. Previously saved title or the destination's title can be used as a fallback. If name is unavailable, leave the required text input editable rather than falsely asserting "Unnamed project".
+- The organizer now provides **+ Add chat**. While viewing a chat, clicking it pre-fills the chat URL and available title. Alternatively the user can paste a link and name manually. Choosing a category and Save explicitly stores the shortcut.
+- Users can still use **+ Add project** with pasted name/URL and choose a category. These explicit actions are the only ways to add inventory, aside from already saved items.
+- No undocumented ChatGPT API requests, no message extraction, no background indexing, and no mutations of native ChatGPT projects/chats.
+
+### Firefox/Tampermonkey acceptance
+
+1. Upgrade the existing installation to **0.1.0-alpha.8** without clearing Tampermonkey data; ensure exactly one copy of the script is enabled.
+2. Verify **Hobbies & Interests** still contains existing saved projects such as AI Video, Cinema Decoder, and Image Production in the custom drag order.
+3. While viewing project A, open project B's native three-dot menu. Select **＋ Add to SwiftClick Organizer**. Confirm the intake name is **B's name**, not "Unnamed project" or A's name; the URL must point to B.
+4. Save to a category and refresh. Confirm one shortcut for B, without duplicates or lost prior assignments. Repeat with a project that has not been saved previously.
+5. If the name cannot be captured, it must remain editable and the project URL must still be prefilled. Record the screenshot and the exact visible project row label so its DOM structure can be debugged.
+6. Open a chat, click **+ Add chat**, confirm title and URL prefill, assign to a category and Save. Reopen on a different chat; the saved one must remain. Try a manually pasted chat URL from a project where no chat is currently open.
+7. Expand sidebar projects/chats, switch conversations, and navigate projects without clicking Add. Verify **no new items appear** in SwiftClick even if visible natively.
+8. Verify normal ChatGPT project menus, hover controls, New Chat, project instructions, launcher behavior, and direct-link bypass still work.
+9. Verify local save data unchanged except explicit saved items; no message body data or SwiftClick network requests.
+
+### Known limitations
+
+- Automatic indexing is intentionally disabled. Previously visible-but-not-saved items in older builds will no longer appear. Re-add them manually when wanted.
+- Old category assignments with no saved title/URL remain in local storage but cannot display until the link is manually added again.
+- ChatGPT may change its DOM structure or title markup; this contextual name capture still needs Firefox validation on the current live interface. A blank name is a safer failure than copying the wrong project's title.
+- Multiple ChatGPT accounts in a single browser profile are not isolated. Browser-native HTML drag and drop remains desktop-oriented.
+
+**Current status:** source and automated tests on the feature branch; manual Firefox acceptance pending. Keep PR #6 draft and \`main\` unchanged.

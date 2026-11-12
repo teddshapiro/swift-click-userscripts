@@ -118,7 +118,7 @@ test('Quick Links add, edit, remove and reorder are pure and preserve IDs', () =
 });
 
 test('Quick Links opens real new-tab anchors and is isolated from ChatGPT inventory', () => {
-  assert.match(script,/const QUICK_LINKS_KEY = APP_ID \+ '\\.quickLinks\\.v1'/);
+  assert.match(script,/const QUICK_LINKS_KEY = APP_ID \+ '\.quickLinks\.v1'/);
   assert.match(script,/GM_getValue\(QUICK_LINKS_KEY, null\)/);
   assert.match(script,/GM_setValue\(QUICK_LINKS_KEY, \{ version: 1/);
   assert.match(script,/const DEFAULT_QUICK_LINKS = \[/);

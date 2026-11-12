@@ -177,6 +177,101 @@ test('ChatGPT Tools URL overrides are safe and New Chat cannot be overridden', (
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 
+
+test('Quick Link subheadings coexist with links in stable ordered v2 storage', () => {
+  const old = hooks.sanitizeQuickLinks({version:1,links:[
+    {id:'google-drive',title:'Google Drive',href:'https://drive.google.com/',icon:'📁'},
+    {id:'youtube',title:'YouTube',href:'https://www.youtube.com/',icon:'🎬'}
+  ]});
+  assert.deepEqual(Array.from(old,(x)=>x.id),['google-drive','youtube']);
+  const withHeading=hooks.saveQuickHeadingModel(old,{
+    kind:'heading',id:'qh-research001',title:'  Research   and   Reference '
+  });
+  assert.equal(withHeading.length,3);
+  assert.equal(withHeading[2].title,'Research and Reference');
+  assert.equal(hooks.isQuickHeading(withHeading[2]),true);
+  const positioned=hooks.reorderQuickLinksModel(withHeading,'qh-research001','google-drive',true);
+  assert.deepEqual(Array.from(positioned,(x)=>x.id),
+    ['google-drive','qh-research001','youtube']);
+  const saved=hooks.serializeQuickLinksV2(positioned);
+  assert.equal(saved.version,2);
+  assert.equal(saved.entries[1].kind,'heading');
+  assert.equal(saved.entries[1].href,undefined);
+  const loaded=hooks.sanitizeQuickLinks(saved);
+  assert.deepEqual(Array.from(loaded,(x)=>x.id),
+    ['google-drive','qh-research001','youtube']);
+  assert.equal(loaded[0].href,'https://drive.google.com/');
+  assert.equal(loaded[2].href,'https://www.youtube.com/');
+  assert.equal(loaded[1].title,'Research and Reference');
+  assert.equal(hooks.sanitizeQuickLinks({version:2,entries:[]}).length,0);
+});
+
+test('Quick Link subheadings rename, move, and delete without deleting their links', () => {
+  const old=hooks.sanitizeQuickLinks(null);
+  const heading=hooks.saveQuickHeadingModel(old,{
+    kind:'heading',id:'qh-work001',title:'Work'
+  });
+  assert.equal(old.length,2);
+  assert.equal(hooks.saveQuickHeadingModel(heading,{
+    kind:'heading',id:'qh-work001',title:'Duplicate'
+  }),null);
+  assert.equal(hooks.saveQuickHeadingModel(heading,{
+    kind:'heading',id:'qh-',title:'Bad'
+  }),null);
+  assert.equal(hooks.saveQuickHeadingModel(heading,{
+    kind:'heading',id:'qh-empty001',title:'   '
+  }),null);
+  const renamed=hooks.editQuickHeadingModel(heading,'qh-work001',{title:'Personal Research'});
+  assert.equal(renamed[2].title,'Personal Research');
+  assert.equal(heading[2].title,'Work');
+  assert.equal(hooks.editQuickHeadingModel(renamed,'youtube',{title:'Not a heading'}),null);
+  assert.equal(hooks.editQuickLinkModel(renamed,'qh-work001',{title:'Not a link'}),null);
+  const moved=hooks.reorderQuickLinksModel(renamed,'qh-work001','youtube',false);
+  assert.deepEqual(Array.from(moved,(x)=>x.id),['qh-work001','youtube','google-drive']);
+  const removed=hooks.deleteQuickLinkModel(moved,'qh-work001');
+  assert.deepEqual(Array.from(removed,(x)=>x.id),['youtube','google-drive']);
+  assert.equal(removed[0].href,'https://www.youtube.com/');
+  assert.equal(removed[1].href,'https://drive.google.com/');
+});
+
+test('Quick Link headings reject unsafe and malformed records without losing other links', () => {
+  const raw={version:2,entries:[
+    {kind:'heading',id:'qh-good001',title:'Useful'},
+    {kind:'heading',id:'qh-good001',title:'Duplicate'},
+    {kind:'heading',id:'qh-bad001',title:'  '},
+    {kind:'heading',id:'qh-bad002',title:'x'.repeat(81)},
+    {kind:'heading',id:'youtube',title:'Malformed'},
+    {kind:'heading',id:'qh-bad003',title:'Image',href:'javascript:alert(1)'},
+    {id:'youtube',title:'YouTube',href:'https://www.youtube.com/',icon:'🎬'}
+  ]};
+  const result=hooks.sanitizeQuickLinks(raw);
+  // Subheadings have no destination: unexpected fields are stripped.
+  assert.deepEqual(Array.from(result,(x)=>x.id),
+    ['qh-good001','qh-bad003','youtube']);
+  assert.equal(result[1].href,undefined);
+  assert.equal(hooks.sanitizeQuickHeading({kind:'link',id:'qh-x001',title:'Wrong type'}),null);
+  assert.equal(hooks.sanitizeQuickLinks({version:3,entries:[]}).length,0);
+});
+
+test('Quick Link subheadings render section breaks and share link drag order', () => {
+  assert.match(script,/const QUICK_LINKS_V2_KEY = APP_ID \+ '\.quickLinks\.v2'/);
+  assert.match(script,/const savedV2 = GM_getValue\(QUICK_LINKS_V2_KEY, null\)/);
+  assert.match(script,/if \(savedV2 !== null\) return sanitizeQuickLinks\(savedV2\)/);
+  assert.match(script,/function makeQuickLinksSections\(items\)/);
+  assert.match(script,/sections\.appendChild\(el\('h3', 'quick-section-title', item\.title\)\)/);
+  assert.match(script,/sections\.appendChild\(cards\)/);
+  assert.match(script,/content\.appendChild\(sections\)/);
+  assert.match(script,/button\(quickHeadingAdding \? '− Cancel subheading' : '\+ Add subheading'/);
+  assert.match(script,/function makeQuickHeadingForm\(heading = null\)/);
+  assert.match(script,/rows\.appendChild\(isQuickHeading\(link\) \? makeQuickHeadingForm\(link\) : makeQuickLinkForm\(link\)\)/);
+  assert.match(script,/reorderQuickLinksModel\(quickLinks, source, link\.id, after\)/);
+  assert.match(script,/moveQuickLink\(link\.id, -1\)/);
+  assert.match(script,/Links below it will remain in the list/);
+  assert.match(script,/quickHeadingAdding = false/);
+  assert.match(script,/if \(activeTab === 'quicklinks' && managingQuickLinks && quickHeadingAdding\)/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+});
+
 test('Quick Links start with YouTube and Google Drive only for uninitialized storage', () => {
   const defaults = hooks.sanitizeQuickLinks(null);
   assert.deepEqual(Array.from(defaults, (item) => item.title), ['YouTube', 'Google Drive']);
@@ -262,8 +357,9 @@ test('footer intake preserves project/chat autofill, cancellation and form focus
 
 test('Quick Links opens real new-tab anchors and is isolated from ChatGPT inventory', () => {
   assert.match(script,/const QUICK_LINKS_KEY = APP_ID \+ '\.quickLinks\.v1'/);
+  assert.match(script,/GM_getValue\(QUICK_LINKS_V2_KEY, null\)/);
   assert.match(script,/GM_getValue\(QUICK_LINKS_KEY, null\)/);
-  assert.match(script,/GM_setValue\(QUICK_LINKS_KEY, \{ version: 1/);
+  assert.match(script,/GM_setValue\(QUICK_LINKS_V2_KEY, serializeQuickLinksV2\(next\)\)/);
   assert.match(script,/const DEFAULT_QUICK_LINKS = \[/);
   assert.match(script,/card\.target = '_blank'/);
   assert.match(script,/card\.rel = 'noopener noreferrer'/);
@@ -919,7 +1015,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.22/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.23/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

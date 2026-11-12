@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.22)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.23)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -630,3 +630,23 @@ Two UI-only refinements requested after successful browser review of alpha.21:
 **Acceptance:** After updating to alpha.22, open ChatGPT Categories and compare icon sizes with ChatGPT Tools. Confirm category card summaries match project/chat counts after adding, deleting or recategorizing an item. Refresh to confirm no saved items, categories, icons or orders changed.
 
 **Status:** feature development branch and draft PR #6; browser acceptance pending.
+
+## Alpha.23 — Movable Quick Links subheadings (2026-11-12)
+
+**Feature:** Add user-defined, visually distinct **subheadings / section dividers** to the Quick Links tab. Headings are peers in the same ordered list as links, not separate categories or nested containers. **Manage Quick Links** now presents **+ Add quick link** and **+ Add subheading**. Users can enter/rename a heading (maximum 80 characters), edit it, delete it without deleting links, and drag or use Up/Down to move it across links and other headings. The public Quick Links tab renders a full-width heading and a new link-card grid after every subheading, preserving the single-column sequence of heading positions. Links appearing before any heading remain at the top unheaded. Consecutive or trailing headings remain visible and are valid.
+
+**Persistent format:** Original `swiftclick-organizer-poc.quickLinks.v1` is left untouched as a safety fallback. On load, the script first checks the new `swiftclick-organizer-poc.quickLinks.v2`; only if absent does it read v1 or initialize the YouTube/Google Drive defaults. The next real edit writes v2 `{version:2,entries:[...]}` preserving link titles, hrefs, icons and relative order. Normal links retain the previous shape (`id,title,href,icon`); heading records use only `{kind:"heading",id:"qh-...",title}`. IDs remain stable and unique. Deleting a heading retains all following links; they now visually belong to the section before the deleted divider. Deleting all entries is still persistent and must never silently restore defaults. Existing ChatGPT Categories and ChatGPT Tools data are unaffected.
+
+**Security / resilience:** Heading text passes through textContent using explicit DOM constructors, never HTML injection. Headings have no href, cannot navigate, and any extraneous fields on imported/corrupt heading objects are ignored. URL validation for real links and new-tab noreferrer behavior are unchanged. At most 100 combined list entries; migrated old records are validated. Export/import design must eventually treat v2 as the authoritative Quick Links collection.
+
+### Browser acceptance
+
+1. Update without clearing Tampermonkey data. Verify the existing YouTube, Google Drive and any custom Quick Links are unchanged and in the same order.
+2. Open Manage Quick Links and choose Add subheading. Enter a title, save, then use drag/Up/Down to place it above a set of links. Return to Quick Links; verify a full-width subheading and a fresh link grid below it.
+3. Add another subheading, edit its title and move it up/down among links. Confirm the display grouping follows its exact list position.
+4. Refresh ChatGPT; verify headings, links, icons and ordering persist.
+5. Delete a heading; verify the links remain, the visual divider disappears, and nothing is lost. If all entries are removed, reload and verify nothing is reseeded.
+6. Test a heading at the top, two adjacent headings, a heading at the bottom and zero links. Check both normal and narrow browser widths.
+7. Confirm all Quick Links still open new tabs; unrelated Categories/Tools features work and existing data remains intact.
+
+**Status:** feature branch and draft PR #6; browser verification pending. No merge into main until approved.

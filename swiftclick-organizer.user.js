@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.22
+// @version      0.1.0-alpha.23
 // @description  Organize ChatGPT projects, quick links, and ChatGPT tools in three tabs.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -24,6 +24,7 @@
   const ORDER_KEY = APP_ID + '.categoryOrder.v1';
   const CATEGORY_DEFS_KEY = APP_ID + '.categoryDefinitions.v1';
   const QUICK_LINKS_KEY = APP_ID + '.quickLinks.v1';
+  const QUICK_LINKS_V2_KEY = APP_ID + '.quickLinks.v2';
   const CHATGPT_TOOLS_KEY = APP_ID + '.chatgptTools.v1';
   const SUPPRESS_NEXT_HOME_AUTOOPEN_KEY = APP_ID + '.suppressNextHomeAutoOpen.v1';
   const LEGACY_PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
@@ -461,18 +462,56 @@
     }
   }
 
+  // Headings are visual dividers in the same ordered list as website links.
+  // They contain no URL and never navigate. Keep legacy link records intact.
+  function sanitizeQuickHeading(raw) {
+    if (!raw || typeof raw !== 'object' || raw.kind !== 'heading') return null;
+    const id = String(raw.id || '');
+    const title = String(raw.title || '').replace(/\s+/g, ' ').trim();
+    if (!/^qh-[a-z0-9-]{3,80}$/.test(id) || !title || title.length > 80) return null;
+    return { kind: 'heading', id, title };
+  }
+
+  function isQuickHeading(item) {
+    return Boolean(item && item.kind === 'heading');
+  }
+
   function sanitizeQuickLinks(raw) {
     if (raw == null) return DEFAULT_QUICK_LINKS.map((entry) => ({ ...entry }));
-    if (!raw || raw.version !== 1 || !Array.isArray(raw.links)) return [];
+    const source = raw && raw.version === 2 ? raw.entries :
+      raw && raw.version === 1 ? raw.links : null;
+    if (!Array.isArray(source)) return [];
     const result = [];
     const ids = new Set();
-    for (const value of raw.links.slice(0, 100)) {
-      const item = sanitizeQuickLink(value);
-      if (!item || ids.has(item.id)) continue;
-      result.push(item);
-      ids.add(item.id);
+    for (const value of source.slice(0, 100)) {
+      const entry = isQuickHeading(value) ? sanitizeQuickHeading(value) : sanitizeQuickLink(value);
+      if (!entry || ids.has(entry.id)) continue;
+      result.push(entry);
+      ids.add(entry.id);
     }
     return result;
+  }
+
+  function saveQuickHeadingModel(items, raw) {
+    if (!Array.isArray(items) || items.length >= 100) return null;
+    const heading = sanitizeQuickHeading(raw);
+    if (!heading || items.some((entry) => entry.id === heading.id)) return null;
+    return [...items, heading];
+  }
+
+  function editQuickHeadingModel(items, id, changes) {
+    if (!Array.isArray(items)) return null;
+    const prior = items.find((entry) => entry.id === id);
+    if (!isQuickHeading(prior)) return null;
+    const updated = sanitizeQuickHeading({ ...prior, ...changes, kind: 'heading', id });
+    if (!updated) return null;
+    return items.map((entry) => entry.id === id ? updated : entry);
+  }
+
+  function serializeQuickLinksV2(items) {
+    return { version: 2, entries: items.map((entry) => isQuickHeading(entry)
+      ? { kind: 'heading', id: entry.id, title: entry.title }
+      : { id: entry.id, title: entry.title, href: entry.href, icon: entry.icon }) };
   }
 
   function saveQuickLinkModel(items, raw) {
@@ -485,6 +524,7 @@
   function editQuickLinkModel(items, id, changes) {
     if (!Array.isArray(items) || !items.some((item) => item.id === id)) return null;
     const current = items.find((item) => item.id === id);
+    if (isQuickHeading(current)) return null;
     const updated = sanitizeQuickLink({ ...current, ...changes, id });
     if (!updated) return null;
     return items.map((item) => item.id === id ? updated : item);
@@ -676,6 +716,8 @@
       categoryIconAllowed, filterCategoryIcons, changeCategoryIconModel,
       iconLibrary: CATEGORY_ICON_LIBRARY,
       defaultQuickLinks: DEFAULT_QUICK_LINKS, sanitizeQuickLink, sanitizeQuickLinks,
+      sanitizeQuickHeading, isQuickHeading, saveQuickHeadingModel, editQuickHeadingModel,
+      serializeQuickLinksV2,
       toolCatalog: CHATGPT_TOOL_CATALOG, toolGroups: CHATGPT_TOOL_GROUPS,
       temporaryChatUrl: TEMPORARY_CHAT_URL, validateToolOverride, sanitizeToolPrefs,
       toolHref, listTools, editToolPrefs, moveToolPrefs,
@@ -707,6 +749,7 @@
   let managingQuickLinks = false;
   let quickLinkEditingId = null;
   let quickLinkAdding = false;
+  let quickHeadingAdding = false;
   let quickLinkError = '';
   let quickLinkDragged = null;
   let currentCategory = null;
@@ -803,6 +846,10 @@
   }
   function readQuickLinks() {
     try {
+      // The original v1 key remains untouched. Read it only when no v2
+      // snapshot exists, preserving user-created links and custom order.
+      const savedV2 = GM_getValue(QUICK_LINKS_V2_KEY, null);
+      if (savedV2 !== null) return sanitizeQuickLinks(savedV2);
       return sanitizeQuickLinks(GM_getValue(QUICK_LINKS_KEY, null));
     } catch (error) {
       console.warn('[SwiftClick Organizer] Could not read Quick Links:', error);
@@ -814,9 +861,7 @@
   function applyQuickLinks(next) {
     if (!next) return false;
     try {
-      GM_setValue(QUICK_LINKS_KEY, { version: 1,
-        links: next.map(({ id, title, href, icon }) => ({ id, title, href, icon }))
-      });
+      GM_setValue(QUICK_LINKS_V2_KEY, serializeQuickLinksV2(next));
     } catch (error) {
       console.warn('[SwiftClick Organizer] Could not save Quick Links:', error);
       quickLinkError = 'Could not save Quick Links. Check Tampermonkey storage.';
@@ -826,6 +871,7 @@
     quickLinks = next;
     quickLinkError = '';
     quickLinkAdding = false;
+    quickHeadingAdding = false;
     quickLinkEditingId = null;
     render();
     return true;
@@ -1159,6 +1205,14 @@
     '.tool-edit label{display:grid;gap:5px;font-size:12px;}',
     '.tool-edit input,.tool-edit select{width:100%;min-width:0;padding:9px;background:#202e40;color:#fff;border:1px solid #536981;border-radius:7px;font:inherit;}',
     '.tool-error{color:#ffbdbd;font-size:12px;}',
+
+    '.quick-sections{display:grid;gap:12px;margin-top:20px;align-content:start;}',
+    '.quick-sections .quick-cards{margin-top:0;}',
+    '.quick-section-title{font-size:14px;font-weight:700;letter-spacing:.01em;color:#d7e7fa;margin:8px 0 0;padding:0 0 8px;border-bottom:1px solid #4c6480;}',
+    '.quick-manager-buttons{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}',
+    '.quick-heading-row{border-color:#5d7895;background:#21344a;}',
+    '.quick-heading-row .quick-row-title{color:#e6f3ff;}',
+    '.quick-heading-row .quick-row-symbol{color:#a6c9ed;font-size:21px;}',
     '.quick-card{display:grid;align-content:center;gap:8px;min-width:0;min-height:122px;padding:18px 20px;border:1px solid #3d5067;border-radius:13px;background:#1b2a3b;color:#eef5ff;text-decoration:none;}',
     '.quick-card:hover,.quick-card:focus-visible{background:#29435c;border-color:#8bc2ff;}',
     '.quick-card-icon{font-size:25px;line-height:1;}',
@@ -2135,6 +2189,23 @@
     return card;
   }
 
+  function makeQuickLinksSections(items) {
+    const sections = el('div', 'quick-sections');
+    let cards = null;
+    for (const item of items) {
+      if (isQuickHeading(item)) {
+        if (cards && cards.childElementCount) sections.appendChild(cards);
+        cards = null;
+        sections.appendChild(el('h3', 'quick-section-title', item.title));
+      } else {
+        if (!cards) cards = el('div', 'quick-cards');
+        cards.appendChild(makeQuickLinkCard(item));
+      }
+    }
+    if (cards && cards.childElementCount) sections.appendChild(cards);
+    return sections;
+  }
+
   function makeQuickLinkForm(link) {
     const edit = Boolean(link);
     const form = el('form', 'quick-edit-form');
@@ -2179,6 +2250,7 @@
     actions.appendChild(save);
     actions.appendChild(button('Cancel', 'action', () => {
       quickLinkAdding = false;
+      quickHeadingAdding = false;
       quickLinkEditingId = null;
       render();
     }));
@@ -2199,26 +2271,84 @@
     return form;
   }
 
+  function makeQuickHeadingForm(heading = null) {
+    const edit = Boolean(heading);
+    const form = el('form', 'quick-edit-form');
+    form.appendChild(el('div', 'brand', edit ? 'Edit subheading' : 'Add subheading'));
+    const label = el('label', '', 'Section heading');
+    const name = el('input');
+    name.type = 'text';
+    name.required = true;
+    name.maxLength = 80;
+    name.placeholder = 'e.g. Research and reference';
+    name.value = edit ? heading.title : '';
+    label.appendChild(name);
+    form.appendChild(label);
+    form.appendChild(el('p', 'hint',
+      'Subheadings visually divide Quick Links. They do not open a website.'));
+    const error = el('div', 'quick-error');
+    error.setAttribute('role', 'alert');
+    form.appendChild(error);
+    const actions = el('div', 'quick-edit-actions');
+    const submit = el('button', 'action', edit ? 'Save subheading' : 'Add subheading');
+    submit.type = 'submit';
+    actions.appendChild(submit);
+    actions.appendChild(button('Cancel', 'action', () => {
+      quickHeadingAdding = false;
+      quickLinkEditingId = null;
+      render();
+    }));
+    form.appendChild(actions);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const id = edit ? heading.id :
+        'qh-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 9);
+      const value = { kind: 'heading', id, title: name.value };
+      const next = edit ? editQuickHeadingModel(quickLinks, id, value)
+        : saveQuickHeadingModel(quickLinks, value);
+      if (!next) {
+        error.textContent = 'Enter a nonempty subheading of 80 characters or fewer.';
+        return;
+      }
+      applyQuickLinks(next);
+    });
+    return form;
+  }
+
   function makeQuickLinkManager() {
     const wrapper = el('div', 'quick-manager');
     wrapper.appendChild(el('h2', '', 'Manage Quick Links'));
     wrapper.appendChild(el('p', 'hint',
-      'Edit titles, destination URLs and icons. Drag ⠿ or use ↑ / ↓ to choose the launch order.'));
-    const addButton = button(quickLinkAdding ? '− Cancel adding' : '+ Add quick link', 'action', () => {
+      'Add website links and subheadings. Drag ⠿ or use ↑ / ↓ to move either item. ' +
+      'A subheading divides the links that follow it into a new section.'));
+    const addButtons = el('div', 'quick-manager-buttons');
+    addButtons.appendChild(button(quickLinkAdding ? '− Cancel link' : '+ Add quick link', 'action', () => {
       quickLinkAdding = !quickLinkAdding;
+      quickHeadingAdding = false;
       quickLinkEditingId = null;
       render();
       if (quickLinkAdding) {
         const nameField = panel.querySelector('.quick-edit-form input');
         if (nameField) nameField.focus();
       }
-    });
-    wrapper.appendChild(addButton);
+    }));
+    addButtons.appendChild(button(quickHeadingAdding ? '− Cancel subheading' : '+ Add subheading', 'action', () => {
+      quickHeadingAdding = !quickHeadingAdding;
+      quickLinkAdding = false;
+      quickLinkEditingId = null;
+      render();
+      if (quickHeadingAdding) {
+        const nameField = panel.querySelector('.quick-edit-form input');
+        if (nameField) nameField.focus();
+      }
+    }));
+    wrapper.appendChild(addButtons);
     if (quickLinkAdding) wrapper.appendChild(makeQuickLinkForm(null));
+    if (quickHeadingAdding) wrapper.appendChild(makeQuickHeadingForm());
 
     const rows = el('div', 'quick-rows');
     for (const [index, link] of quickLinks.entries()) {
-      const row = el('div', 'quick-row');
+      const row = el('div', isQuickHeading(link) ? 'quick-row quick-heading-row' : 'quick-row');
       const grip = button('⠿', 'quick-drag', () => {});
       grip.draggable = true;
       grip.dataset.linkId = link.id;
@@ -2270,14 +2400,16 @@
         }
       });
       row.appendChild(grip);
-      row.appendChild(el('span', 'quick-row-symbol', link.icon));
+      row.appendChild(el('span', 'quick-row-symbol', isQuickHeading(link) ? '≡' : link.icon));
       const text = el('div', 'quick-row-text');
       text.appendChild(el('span', 'quick-row-title', link.title));
-      text.appendChild(el('span', 'quick-row-url', link.href));
+      text.appendChild(el('span', 'quick-row-url',
+        isQuickHeading(link) ? 'Subheading · Section divider' : link.href));
       row.appendChild(text);
       const actions = el('div', 'quick-row-actions');
       const edit = button('Edit', 'action', () => {
         quickLinkAdding = false;
+        quickHeadingAdding = false;
         quickLinkEditingId = quickLinkEditingId === link.id ? null : link.id;
         render();
       });
@@ -2292,19 +2424,26 @@
       down.setAttribute('aria-label', 'Move ' + link.title + ' down');
       actions.appendChild(down);
       const remove = button('Delete', 'action remove-action', () => {
-        if (!window.confirm('Remove the Quick Link "' + link.title +
-            '" from SwiftClick? This will not change the destination website.')) return;
+        const prompt = isQuickHeading(link)
+          ? 'Remove subheading "' + link.title + '"? Links below it will remain in the list.'
+          : 'Remove the Quick Link "' + link.title +
+            '" from SwiftClick? This will not change the destination website.';
+        if (!window.confirm(prompt)) return;
         applyQuickLinks(deleteQuickLinkModel(quickLinks, link.id));
       });
-      remove.setAttribute('aria-label', 'Delete quick link ' + link.title);
+      remove.setAttribute('aria-label',
+        (isQuickHeading(link) ? 'Delete subheading ' : 'Delete quick link ') + link.title);
       actions.appendChild(remove);
       row.appendChild(actions);
       rows.appendChild(row);
-      if (quickLinkEditingId === link.id) rows.appendChild(makeQuickLinkForm(link));
+      if (quickLinkEditingId === link.id) {
+        rows.appendChild(isQuickHeading(link) ? makeQuickHeadingForm(link) : makeQuickLinkForm(link));
+      }
     }
     wrapper.appendChild(rows);
-    if (!quickLinks.length && !quickLinkAdding) {
-      wrapper.appendChild(el('p', 'empty', 'No Quick Links saved. Use + Add quick link to create one.'));
+    if (!quickLinks.length && !quickLinkAdding && !quickHeadingAdding) {
+      wrapper.appendChild(el('p', 'empty',
+        'No Quick Links or subheadings saved. Use Add quick link or Add subheading to begin.'));
     }
     if (quickLinkError) {
       const error = el('div', 'quick-error', quickLinkError);
@@ -2749,6 +2888,7 @@
         managingQuickLinks = false;
         quickLinkEditingId = null;
         quickLinkAdding = false;
+        quickHeadingAdding = false;
         quickLinkError = '';
         managingCategories = false;
         iconPickerCategoryId = null;
@@ -2802,6 +2942,7 @@
           managingQuickLinks = false;
           quickLinkEditingId = null;
           quickLinkAdding = false;
+          quickHeadingAdding = false;
           render();
         }));
         panel.appendChild(footer);
@@ -2810,15 +2951,17 @@
         title.appendChild(el('h2', '', 'Quick Links'));
         title.appendChild(el('span', 'hint', 'Open your favorite websites in a new browser tab.'));
         content.appendChild(title);
-        const cards = el('div', 'quick-cards');
-        for (const link of quickLinks) cards.appendChild(makeQuickLinkCard(link));
-        if (!quickLinks.length) cards.appendChild(el('p', 'empty',
-          'No links saved yet. Choose Manage Quick Links to add your first website.'));
-        content.appendChild(cards);
+        const sections = makeQuickLinksSections(quickLinks);
+        if (!quickLinks.length) sections.appendChild(el('p', 'empty',
+          'No links saved yet. Choose Manage Quick Links to add a website or subheading.'));
+        content.appendChild(sections);
         panel.appendChild(content);
+        const linkCount = quickLinks.filter((entry) => !isQuickHeading(entry)).length;
+        const headingCount = quickLinks.length - linkCount;
         const footer = el('div', 'foot');
         footer.appendChild(el('span', 'hint',
-          quickLinks.length + ' quick link' + (quickLinks.length === 1 ? '' : 's') + ' saved locally.'));
+          linkCount + ' quick link' + (linkCount === 1 ? '' : 's') + ' · ' +
+          headingCount + ' subheading' + (headingCount === 1 ? '' : 's') + ' saved locally.'));
         footer.appendChild(button('⚙ Manage Quick Links', 'action', () => {
           managingQuickLinks = true;
           quickLinkError = '';
@@ -2969,6 +3112,7 @@
     managingQuickLinks = false;
     quickLinkEditingId = null;
     quickLinkAdding = false;
+    quickHeadingAdding = false;
     quickLinkError = '';
     editItemKey = null;
     iconPickerCategoryId = null;
@@ -3005,6 +3149,7 @@
     toolDragged = null;
     managingQuickLinks = false;
     quickLinkAdding = false;
+    quickHeadingAdding = false;
     quickLinkEditingId = null;
     quickLinkDragged = null;
     editItemKey = null;
@@ -3032,6 +3177,9 @@
         render();
       } else if (activeTab === 'quicklinks' && managingQuickLinks && quickLinkAdding) {
         quickLinkAdding = false;
+        render();
+      } else if (activeTab === 'quicklinks' && managingQuickLinks && quickHeadingAdding) {
+        quickHeadingAdding = false;
         render();
       } else if (activeTab === 'quicklinks' && managingQuickLinks) {
         managingQuickLinks = false;

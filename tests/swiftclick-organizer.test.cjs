@@ -143,6 +143,72 @@ test('categorizing a chat persists its title and link and rediscovery backfills 
   assert.match(script, /savedChats\.filter\(\(c\) => c\.key !== item\.key\)/);
 });
 
+
+test('manual ordering supports moving mixed chat/project rows before or after targets', () => {
+  const initial = ['project:ai', 'chat:note', 'project:cinema'];
+  assert.deepEqual(Array.from(hooks.reorderKeys(initial, 'project:cinema', 'project:ai')), [
+    'project:cinema', 'project:ai', 'chat:note'
+  ]);
+  assert.deepEqual(Array.from(hooks.reorderKeys(initial, 'project:ai', 'project:cinema', true)), [
+    'chat:note', 'project:cinema', 'project:ai'
+  ]);
+  assert.deepEqual(Array.from(hooks.reorderKeys(initial, 'project:ai', 'project:ai')), initial);
+  assert.deepEqual(Array.from(hooks.reorderKeys(initial, 'chat:absent', 'project:cinema')), initial);
+  assert.deepEqual(initial, ['project:ai', 'chat:note', 'project:cinema']); // pure
+});
+
+test('ordered items are category-specific and previously unseen items append', () => {
+  const items = [
+    { key: 'project:ai', title: 'AI Video', type: 'project' },
+    { key: 'chat:note', title: 'Transcript', type: 'chat' },
+    { key: 'project:cinema', title: 'Cinema Decoder', type: 'project' },
+    { key: 'project:new', title: 'New project', type: 'project' }
+  ];
+  const stored = { hobbies: ['project:cinema', 'chat:note', 'project:ai'] };
+  assert.deepEqual(
+    Array.from(hooks.orderItems(items, 'hobbies', stored), (item) => item.key),
+    ['project:cinema', 'chat:note', 'project:ai', 'project:new']
+  );
+  assert.deepEqual(
+    Array.from(hooks.orderItems(items, 'family', stored), (item) => item.key),
+    ['chat:note', 'project:ai', 'project:cinema', 'project:new']
+  );
+});
+
+test('reordering preserves stored IDs that are not currently visible', () => {
+  const stored = ['project:ai', 'chat:hidden', 'project:cinema'];
+  const visibleReordered = ['project:cinema', 'project:ai', 'project:new'];
+  assert.deepEqual(
+    Array.from(hooks.mergeVisibleOrder(stored, visibleReordered)),
+    ['project:cinema', 'chat:hidden', 'project:ai', 'project:new']
+  );
+});
+
+test('category order deserialization removes invalid and duplicate IDs', () => {
+  const state = hooks.sanitizeCategoryOrders({ version: 1, categories: {
+    hobbies: ['project:cinema', 'project:cinema', 'chat:note', 'bad', 123],
+    family: ['chat:henry'],
+    madeUp: ['project:unrelated']
+  } });
+  assert.deepEqual(Array.from(state.hobbies), ['project:cinema', 'chat:note']);
+  assert.deepEqual(Array.from(state.family), ['chat:henry']);
+  assert.equal(Object.hasOwn(state, 'madeUp'), false);
+});
+
+test('drag handle changes virtual order only; search results stay non-draggable', () => {
+  assert.match(script, /const ORDER_KEY = APP_ID \+ '\.categoryOrder\.v1'/);
+  assert.match(script, /GM_setValue\(ORDER_KEY, \{ version: 1, categories: categoryOrders \}\)/);
+  assert.match(script, /handle\.draggable = true/);
+  assert.match(script, /handle\.addEventListener\('dragstart'/);
+  assert.match(script, /row\.addEventListener\('dragover'/);
+  assert.match(script, /row\.addEventListener\('drop'/);
+  assert.match(script, /keyboardReorder\(item, event\.key === 'ArrowUp'/);
+  assert.match(script, /!hasSearch && currentCategory !== null && ordered\.length <= 250/);
+  assert.match(script, /forgetItemOrder\(item\.key\)/);
+  assert.match(script, /event\.dataTransfer\.setData\('text\/plain', 'SwiftClick Organizer'\)/);
+  assert.doesNotMatch(script, /row\.draggable = true/);
+});
+
 test('manual project shortcut validation accepts only ChatGPT projects', () => {
   const saved = hooks.sanitizeManualProject({
     title: '  Coding   —   Tampermonkey Scripts ',
@@ -224,7 +290,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.6/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.7/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

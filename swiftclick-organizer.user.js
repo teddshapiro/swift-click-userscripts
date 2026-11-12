@@ -888,6 +888,99 @@
     return row;
   }
 
+  function currentChatForManualIntake() {
+    // Only inspect the current chat when the user explicitly clicks Add chat.
+    const item = parseItemLink(location.href, '', location.origin);
+    if (!item || item.type !== 'chat') return null;
+    let title = cleanIntakeName(document.title);
+    // Document titles can be generic; one explicit, ID-matched lookup of the
+    // current native link is allowed as part of this manual Add action.
+    if (!title) {
+      for (const link of document.querySelectorAll('nav a[href], aside a[href]')) {
+        const linked = parseItemLink(link.getAttribute('href'), '', location.origin);
+        if (linked && linked.key === item.key) {
+          title = cleanIntakeName(link.textContent || link.getAttribute('aria-label'));
+          if (title) break;
+        }
+      }
+    }
+    return { ...item, title };
+  }
+
+  function makeAddChatForm() {
+    const form = el('form', 'add-form');
+    form.appendChild(el('div', 'brand', 'Add a ChatGPT conversation'));
+    form.appendChild(el('p', 'hint',
+      'If you are viewing a chat, its URL and available title are filled in. Otherwise paste a ChatGPT conversation URL and give it a name.'));
+    const nameLabel = el('label', 'field-label', 'Chat title');
+    const name = el('input', 'entry-field');
+    name.type = 'text';
+    name.maxLength = 140;
+    name.required = true;
+    name.placeholder = 'Name this conversation';
+    if (intakeChat) name.value = cleanIntakeName(intakeChat.title);
+    nameLabel.appendChild(name);
+    form.appendChild(nameLabel);
+
+    const urlLabel = el('label', 'field-label', 'ChatGPT conversation URL');
+    const url = el('input', 'entry-field');
+    url.type = 'url';
+    url.required = true;
+    url.placeholder = 'https://chatgpt.com/c/…';
+    if (intakeChat) url.value = intakeChat.href;
+    urlLabel.appendChild(url);
+    form.appendChild(urlLabel);
+
+    const categoryLabel = el('label', 'field-label', 'Show conversation in');
+    const selector = el('select');
+    for (const category of CATEGORIES) {
+      const option = el('option', '', category.label);
+      option.value = category.id;
+      selector.appendChild(option);
+    }
+    const existing = intakeChat ? assignments[intakeChat.key] : null;
+    selector.value = existing && validCategory(existing)
+      ? existing : validCategory(currentCategory) ? currentCategory : 'uncategorized';
+    categoryLabel.appendChild(selector);
+    form.appendChild(categoryLabel);
+
+    const message = el('div', 'error');
+    message.setAttribute('role', 'alert');
+    form.appendChild(message);
+    const actions = el('div', 'form-actions');
+    const save = el('button', 'action', 'Save chat shortcut');
+    save.type = 'submit';
+    actions.appendChild(save);
+    actions.appendChild(button('Cancel', 'action', () => {
+      addingChat = false;
+      intakeChat = null;
+      render();
+    }));
+    form.appendChild(actions);
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const item = sanitizeSavedChat({ title: name.value, href: url.value }, location.origin);
+      if (!item) {
+        message.textContent = 'Please enter a title and a valid ChatGPT conversation link (not a project URL).';
+        return;
+      }
+      if (!saveChatShortcut(item)) {
+        message.textContent = 'Could not save the chat shortcut (or the 500-chat limit was reached).';
+        return;
+      }
+      if (selector.value === 'uncategorized') delete assignments[item.key];
+      else assignments[item.key] = selector.value;
+      saveAssignments();
+      addingChat = false;
+      intakeChat = null;
+      query = '';
+      currentCategory = selector.value;
+      render();
+    });
+    return form;
+  }
+
   function makeAddProjectForm() {
     const form = el('form', 'add-form');
     form.appendChild(el('div', 'brand', intakeProject ? 'Organize this ChatGPT project' : 'Add an existing ChatGPT project'));
@@ -984,14 +1077,26 @@
     }
 
     const addBar = el('div', 'toolbar');
-    addBar.appendChild(button(addingProject ? '− Cancel adding project' : '+ Add project', 'action', () => {
+    const addActions = el('div', 'form-actions');
+    addActions.appendChild(button(addingProject ? '− Cancel project' : '+ Add project', 'action', () => {
       addingProject = !addingProject;
+      addingChat = false;
+      intakeChat = null;
       intakeProject = null;
       render();
     }));
-    addBar.appendChild(el('span', 'hint', 'Create a shortcut to an existing ChatGPT project'));
+    addActions.appendChild(button(addingChat ? '− Cancel chat' : '+ Add chat', 'action', () => {
+      addingChat = !addingChat;
+      addingProject = false;
+      intakeProject = null;
+      intakeChat = addingChat ? currentChatForManualIntake() : null;
+      render();
+    }));
+    addBar.appendChild(addActions);
+    addBar.appendChild(el('span', 'hint', 'Only items you explicitly add are listed'));
     content.appendChild(addBar);
     if (addingProject) content.appendChild(makeAddProjectForm());
+    if (addingChat) content.appendChild(makeAddChatForm());
 
     const search = el('input', 'search');
     search.type = 'search';
@@ -1066,7 +1171,9 @@
     open = true;
     currentCategory = null;
     addingProject = false;
+    addingChat = false;
     intakeProject = null;
+    intakeChat = null;
     query = '';
     render();
     overlayHost.hidden = false;

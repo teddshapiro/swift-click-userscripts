@@ -269,6 +269,32 @@ test('manual-only mode retains prior saved items without indexing the sidebar', 
   assert.match(script, /Only the dedicated handle is draggable/);
 });
 
+test('menu companion identifies saved projects strictly by native project ID', () => {
+  const existing = {key:'project:g-p-aaa-111', title:'Home Structural Maintenance', at:1000};
+  assert.equal(hooks.resolveMenuProjectKey(null, existing, origin, 2000), 'project:g-p-aaa-111');
+  assert.equal(hooks.resolveMenuProjectKey('', existing, origin, 2000), 'project:g-p-aaa-111');
+  assert.equal(hooks.resolveMenuProjectKey(
+    '/g/g-p-other-222/project', existing, origin, 2000
+  ), 'project:g-p-other-222'); // explicit menu link overrides stale captured row
+  assert.equal(hooks.resolveMenuProjectKey(null, existing, origin, 12000), null);
+  assert.equal(hooks.resolveMenuProjectKey(null, {key:'chat:abc', at:1000}, origin, 2000), null);
+  assert.equal(hooks.resolveMenuProjectKey(null, {key:'project:g-p-aaa-111', at:3000}, origin, 2000), null);
+  assert.equal(hooks.resolveMenuProjectKey('/c/another-chat', null, origin, 2000), null);
+  assert.equal(hooks.resolveMenuProjectKey('https://untrusted.example/g/g-p-a/project', null, origin, 2000), null);
+});
+
+test('project menu shows Already in Organizer for saved ID and opens the existing category', () => {
+  assert.match(script, /menuActionButton\.textContent = saved \? '✓ Already in Organizer' : '＋ Add to SwiftClick Organizer'/);
+  assert.match(script, /const saved = savedProjectForMenu\(found\.home\)/);
+  assert.match(script, /const key = nativeProjectMenuKey\(home\)/);
+  assert.match(script, /manualProjects\.find\(\(item\) => item\.key === key\)/);
+  assert.match(script, /function handleProjectMenuAction\(\)/);
+  assert.match(script, /if \(saved\) \{\s*openSavedProjectCategory\(saved\);\s*return;/);
+  assert.match(script, /currentCategory = categoryFor\(project\)/);
+  assert.match(script, /if \(saved\) \{\s*pendingNativeProject = null;\s*clearPendingIntake\(\);\s*openSavedProjectCategory\(saved\);/);
+  assert.doesNotMatch(script, /menu\.appendChild\(menuActionHost\)|sidebar\.insertBefore/);
+});
+
 test('manual project-menu intake captures selected project title, not current page', () => {
   assert.equal(hooks.cleanIntakeName(' Unnamed project '), '');
   assert.equal(hooks.cleanIntakeName('  ChatGPT - Cinema Decoder - Project '), 'Cinema Decoder');
@@ -403,7 +429,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.11/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.12/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

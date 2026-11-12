@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.18
+// @version      0.1.0-alpha.19
 // @description  Manual ChatGPT categories and customizable quick links in a local two-tab organizer.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1026,6 +1026,8 @@
     '.pill{color:#b0c0d4;font-size:11px;text-transform:uppercase;letter-spacing:.5px;}',
     'select{max-width:280px;min-width:160px;background:#223449;border:1px solid #52657c;border-radius:8px;padding:7px;color:#f3f8ff;font-size:12px;}',
     '.foot{padding:12px 20px;border-top:1px solid #304052;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}',
+    '.footer-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;}',
+    '.footer-actions .action{white-space:nowrap;}',
     '.hint{color:#b1c2d8;font-size:12px;line-height:1.55;}',
     '.empty{padding:24px 14px;border:1px dashed #526579;border-radius:12px;color:#b6c5d9;text-align:center;font-size:13px;}',
     '@media(max-width:720px){.items{grid-template-columns:minmax(0,1fr)}.main{padding:14px}.head{padding:12px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.card{padding:12px;min-height:90px}.category-manager-row{flex-wrap:wrap}.category-manager-row input{flex-basis:60%}.category-row-actions{width:100%;justify-content:flex-end}}'
@@ -2400,32 +2402,9 @@
       }));
       toolbar.appendChild(el('span', 'muted', labelFor(currentCategory)));
       content.appendChild(toolbar);
-    } else {
-      content.appendChild(el('h2', 'title', 'Where would you like to go?'));
     }
 
-    const addBar = el('div', 'toolbar');
-    const addActions = el('div', 'form-actions');
-    addActions.appendChild(button(addingProject ? '− Cancel project' : '+ Add project', 'action', () => {
-      addingProject = !addingProject;
-      addingChat = false;
-      intakeChat = null;
-      intakeProject = addingProject ? currentProjectForManualIntake() : null;
-      render();
-    }));
-    addActions.appendChild(button(addingChat ? '− Cancel chat' : '+ Add chat', 'action', () => {
-      addingChat = !addingChat;
-      addingProject = false;
-      intakeProject = null;
-      intakeChat = addingChat ? currentChatForManualIntake() : null;
-      render();
-    }));
-    addBar.appendChild(addActions);
-    addBar.appendChild(el('span', 'hint', 'Only items you explicitly add are listed'));
-    content.appendChild(addBar);
-    if (addingProject) content.appendChild(makeAddProjectForm());
-    if (addingChat) content.appendChild(makeAddChatForm());
-
+    // Search remains at the top; add actions live in the persistent footer.
     const search = el('input', 'search');
     search.type = 'search';
     search.placeholder = 'Search saved projects and chats...';
@@ -2442,6 +2421,8 @@
       }
     });
     content.appendChild(search);
+    if (addingProject) content.appendChild(makeAddProjectForm());
+    if (addingChat) content.appendChild(makeAddChatForm());
 
     const hasSearch = query.trim().length > 0;
     // Category cards appear ONLY on the front door, never within a category.
@@ -2458,7 +2439,7 @@
     const ordered = orderItems(filtered, hasSearch ? 'uncategorized' : currentCategory, categoryOrders);
     if (!hasSearch && currentCategory === null) {
       // The default front door is categories, not a wall of chat links.
-      content.appendChild(el('p', 'hint', 'Choose a category or search your saved items. Add projects and chats explicitly; nothing is collected automatically.'));
+      content.appendChild(el('p', 'hint', 'Choose a category or search your saved items.'));
     } else {
       content.appendChild(el('p', 'hint', hasSearch
         ? filtered.length + ' search result' + (filtered.length === 1 ? '' : 's')
@@ -2483,8 +2464,35 @@
 
     const footer = el('div', 'foot');
     footer.appendChild(el('span', 'hint', manualProjects.length + ' projects and ' +
-      savedChats.length + ' chats saved locally. Items appear only when you add them.'));
-    footer.appendChild(button('⚙ Manage categories', 'action', () => {
+      savedChats.length + ' chats saved locally.'));
+    const footerActions = el('div', 'footer-actions');
+    footerActions.appendChild(button(addingProject ? '− Cancel project' : '+ Add project', 'action', () => {
+      addingProject = !addingProject;
+      addingChat = false;
+      intakeChat = null;
+      intakeProject = addingProject ? currentProjectForManualIntake() : null;
+      render();
+      if (addingProject) {
+        const main = panel.querySelector('.main');
+        if (main) main.scrollTop = 0;
+        const firstField = panel.querySelector('.add-form input');
+        if (firstField) firstField.focus();
+      }
+    }));
+    footerActions.appendChild(button(addingChat ? '− Cancel chat' : '+ Add chat', 'action', () => {
+      addingChat = !addingChat;
+      addingProject = false;
+      intakeProject = null;
+      intakeChat = addingChat ? currentChatForManualIntake() : null;
+      render();
+      if (addingChat) {
+        const main = panel.querySelector('.main');
+        if (main) main.scrollTop = 0;
+        const firstField = panel.querySelector('.add-form input');
+        if (firstField) firstField.focus();
+      }
+    }));
+    footerActions.appendChild(button('⚙ Manage categories', 'action', () => {
       managingCategories = true;
       categoryManagerError = '';
       currentCategory = null;
@@ -2496,6 +2504,7 @@
       query = '';
       render();
     }));
+    footer.appendChild(footerActions);
     panel.appendChild(footer);
     positionOpenEditor();
   }

@@ -117,6 +117,37 @@ test('Quick Links add, edit, remove and reorder are pure and preserve IDs', () =
   assert.equal(hooks.deleteQuickLinkModel(removed,'youtube'),null);
 });
 
+
+test('ChatGPT category search precedes forms, cards and footer Add controls', () => {
+  const render = script.slice(script.indexOf('  function render() {'),script.indexOf('  function show('));
+  const search = render.indexOf("const search = el('input', 'search')");
+  const intake = render.indexOf("if (addingProject) content.appendChild(makeAddProjectForm())");
+  const items = render.indexOf("const hasSearch = query.trim().length > 0");
+  const footer = render.lastIndexOf("const footer = el('div', 'foot')");
+  const add = render.indexOf("footerActions.appendChild(button(addingProject ?",footer);
+  const chat = render.indexOf("footerActions.appendChild(button(addingChat ?",footer);
+  const manage = render.indexOf("footerActions.appendChild(button('⚙ Manage categories'",footer);
+  assert.ok(search >= 0 && search < intake && intake < items && items < footer &&
+    footer < add && add < chat && chat < manage);
+  assert.equal((render.match(/button\(addingProject \?/g)||[]).length,1);
+  assert.equal((render.match(/button\(addingChat \?/g)||[]).length,1);
+  assert.match(render,/footer\.appendChild\(footerActions\)/);
+  assert.match(script,/\.footer-actions\{display:flex/);
+  assert.doesNotMatch(render,/Where would you like to go\?|Only items you explicitly add are listed/);
+});
+test('footer intake preserves project/chat autofill, cancellation and form focus', () => {
+  const render = script.slice(script.indexOf('  function render() {'),script.indexOf('  function show('));
+  assert.match(render,/intakeProject = addingProject \? currentProjectForManualIntake\(\) : null/);
+  assert.match(render,/intakeChat = addingChat \? currentChatForManualIntake\(\) : null/);
+  assert.match(render,/if \(addingProject\) content\.appendChild\(makeAddProjectForm\(\)\)/);
+  assert.match(render,/if \(addingChat\) content\.appendChild\(makeAddChatForm\(\)\)/);
+  assert.match(render,/if \(main\) main\.scrollTop = 0/);
+  assert.match(render,/const firstField = panel\.querySelector\('\.add-form input'\)/);
+  assert.match(render,/if \(firstField\) firstField\.focus\(\)/);
+  assert.match(render,/button\('⚙ Manage Quick Links', 'action'/);
+  assert.match(render,/activeTab === 'quicklinks'/);
+});
+
 test('Quick Links opens real new-tab anchors and is isolated from ChatGPT inventory', () => {
   assert.match(script,/const QUICK_LINKS_KEY = APP_ID \+ '\.quickLinks\.v1'/);
   assert.match(script,/GM_getValue\(QUICK_LINKS_KEY, null\)/);
@@ -549,7 +580,7 @@ test('manual-only mode retains prior saved items without indexing the sidebar', 
   assert.match(script, /for \(const chat of savedChats\) seen\.set/);
   assert.doesNotMatch(script, /function indexAnchor|collectLoadedLinks/);
   assert.doesNotMatch(script, /function show\(automatic = false\) \{\s*collect/);
-  assert.match(script, /Only items you explicitly add are listed/);
+  assert.doesNotMatch(script, /Only items you explicitly add are listed/);
   assert.match(script, /\+ Add project/);
   assert.match(script, /\+ Add chat/);
   assert.match(script, /Only the dedicated handle is draggable/);
@@ -776,7 +807,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.18/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.19/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.18)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.19)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -553,3 +553,21 @@ The existing SwiftClick Organizer front door becomes **two top-level tabs**: **C
 Pure model helpers and Node regression tests cover starter seeding, blank-list persistence, URL restrictions, add/edit/delete/reorder behavior, no HTML injection, and safe new-tab links. All UI uses explicit `document.createElement` and Shadow DOM rather than `innerHTML`.
 
 **Status:** experimental feature branch, draft PR #6; keep `main` unchanged until Firefox acceptance.
+
+## Alpha.19 — move ChatGPT Add controls into footer (2026-11-12)
+
+- The **ChatGPT Categories** tab now puts the search input first in the scrollable main area, directly below the persistent header and tabs. Removed the redundant “Where would you like to go?” heading, the top Add project/chat toolbar, and explanatory “only explicitly added” wording.
+- Its persistent footer groups **+ Add project**, **+ Add chat**, and **⚙ Manage categories** together; the saved project/chat counts remain on the left. Footer controls wrap responsively on smaller screens.
+- Clicking an Add action retains project/chat URL and title autofill when available. The form appears **beneath search**; the main pane scrolls to the top and focuses the form's first field. The footer action changes to a Cancel option while that form is open.
+- Category navigation, search, saved shortcuts, custom ordering and icons remain unchanged. **Quick Links** and its separate management footer are unchanged.
+- No storage schema changes. Injected UI still uses explicit DOM creation with no HTML-string sinks.
+
+### Firefox acceptance
+1. Update to alpha.19 without clearing Tampermonkey data and reload ChatGPT.
+2. On **ChatGPT Categories**, confirm search is first and the top Add buttons/explanatory text are gone. Footer shows Add project, Add chat, Manage categories beside the saved-item counts.
+3. Click Add project while on a native ChatGPT project. Confirm the intake appears below search with the current project's title/URL prefilled. Save or cancel.
+4. Repeat Add chat in a ChatGPT conversation and in a category. Confirm footer remains usable while the content area scrolls.
+5. Resize the browser narrow: the three controls should wrap rather than be clipped. Switch to Quick Links; its Manage Quick Links footer should still be unchanged.
+6. Confirm saved category cards, shortcuts, link editing, drag order and icons are preserved after refresh.
+
+**Status:** development feature branch; Firefox acceptance pending, PR #6 remains draft.

@@ -1,18 +1,18 @@
 name: SwiftClick Organizer PoC checks
 
+# Run one check per pull request update, not both PR and branch push.
+# Draft PRs are included; this preserves CI validation on every code change.
 on:
   pull_request:
     paths:
       - swiftclick-organizer.user.js
       - tests/swiftclick-organizer.test.cjs
       - .github/workflows/swiftclick-organizer-poc.yml
-  push:
-    branches:
-      - feat/swiftclick-organizer-poc-20261111
-    paths:
-      - swiftclick-organizer.user.js
-      - tests/swiftclick-organizer.test.cjs
-      - .github/workflows/swiftclick-organizer-poc.yml
+
+# If a newer commit arrives during an in-progress check, prefer the latest.
+concurrency:
+  group: organizer-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

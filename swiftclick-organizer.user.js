@@ -34,11 +34,12 @@
   ];
 
   function cleanIntakeName(value) {
-    const title = String(value || '').replace(/\s+/g, ' ').trim().slice(0, 140);
-    if (!title || /^(?:unnamed project|untitled chat|chatgpt|project home|project|chat)$/i.test(title)) {
-      return '';
-    }
-    return title.replace(/^ChatGPT\s*[-–|]\s*/i, '').replace(/\s*[-–|]\s*Project$/i, '').trim();
+    const raw = String(value || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+    const title = raw.replace(/^ChatGPT\s*[-–|]\s*/i, '')
+      .replace(/\s*[-–|]\s*ChatGPT$/i, '')
+      .replace(/\s*[-–|]\s*Project$/i, '').trim();
+    return title && !/^(?:unnamed project|untitled chat|chatgpt|project home|project|chat)$/i.test(title)
+      ? title : '';
   }
 
   // Prefer the title on the clicked sidebar project row over the title of the

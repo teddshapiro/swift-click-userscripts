@@ -715,6 +715,10 @@
     let node = buttonNode;
     for (let depth = 0; node && depth < 7; depth++, node = node.parentElement) {
       if (!node.querySelectorAll) continue;
+      const bounds = node.getBoundingClientRect && node.getBoundingClientRect();
+      // Stop when leaving the clicked row. A whole sidebar section with only
+      // one link is NOT proof that its link belongs to the clicked button.
+      if (depth > 0 && bounds && bounds.height > 110) break;
       const links = [];
       for (const anchor of node.querySelectorAll('a[href]')) {
         const project = parseItemLink(anchor.getAttribute('href'), '', location.origin);
@@ -842,7 +846,9 @@
     menuActionButton.title = (isSaved || isPossible)
       ? (isSaved ? 'Saved in ' : 'Name matches a project in ') +
         labelFor(categoryFor(context.project)) + '. Click to review.'
-      : 'Add this project to SwiftClick Organizer';
+      : context && context.status === 'manual'
+        ? 'Project URL unavailable here. Intake will request its link instead of navigating.'
+        : 'Add this project to SwiftClick Organizer';
     const rect = found.menu.getBoundingClientRect();
     if (!rect.width || !rect.height) {
       menuActionHost.hidden = true;
@@ -1236,8 +1242,11 @@
 
   function makeAddProjectForm() {
     const form = el('form', 'add-form');
-    form.appendChild(el('div', 'brand', intakeProject ? 'Organize this ChatGPT project' : 'Add an existing ChatGPT project'));
-    form.appendChild(el('p', 'hint', intakeProject ? 'Confirm the detected project and choose where its shortcut should appear.' : 'Open the project in ChatGPT, copy its address from the browser, and paste it here. This creates only a SwiftClick shortcut.'));
+    const hasVerifiedUrl = Boolean(intakeProject && intakeProject.href);
+    form.appendChild(el('div', 'brand', hasVerifiedUrl ? 'Organize this ChatGPT project' : 'Add an existing ChatGPT project'));
+    form.appendChild(el('p', 'hint', hasVerifiedUrl
+      ? 'Confirm the selected project and choose where its shortcut should appear.'
+      : 'The project URL was not available from that menu. Open the native Project home and use + Add project to prefill it, or paste the URL here. SwiftClick will not navigate on your behalf.'));
     const nameLabel = el('label', 'field-label', 'Project name');
     const name = el('input', 'entry-field');
     name.type = 'text';

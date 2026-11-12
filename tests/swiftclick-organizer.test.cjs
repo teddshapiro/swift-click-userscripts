@@ -334,6 +334,7 @@ test('project menu action is click-based, status-safe and never navigates native
   assert.match(script, /openProjectManualIntake\(context\.title\)/);
   assert.match(script, /currentCategory = categoryFor\(project\)/);
   assert.doesNotMatch(script, /home\.click\(\)|resolveNativeProjectIntake|pendingNativeProject/);
+  assert.match(script, /if \(depth > 0 && bounds && bounds\.height > 110\) break/);
   assert.doesNotMatch(script, /menu\.appendChild\(menuActionHost\)|sidebar\.insertBefore/);
 });
 
@@ -435,7 +436,9 @@ test('project-menu companion avoids mutations inside native menus and sidebar', 
 
 test('project intake validates a project URL and keeps native data unchanged', () => {
   assert.match(script, /function openProjectIntake\(project\)/);
-  assert.match(script, /Confirm the detected project and choose where its shortcut should appear/);
+  assert.match(script, /Confirm the selected project and choose where its shortcut should appear/);
+  assert.match(script, /The project URL was not available from that menu/);
+  assert.match(script, /intakeProject = addingProject \? currentProjectForManualIntake\(\) : null/);
   assert.match(script, /sanitizeManualProject\(\{ title: name\.value, href: url\.value \}/);
   assert.match(script, /GM_setValue\(MANUAL_PROJECTS_KEY/);
   assert.match(script, /function openProjectManualIntake\(title\)/);

@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.10)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.11)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -14,7 +14,7 @@ This is *not* yet an account-wide conversation database or final visual design.
 ## What currently works in the PoC
 
 - Standalone Tampermonkey script limited to ChatGPT domains.
-- Flat category-first opening screen: Family; My Health; SwiftClick Business; Generative AI; Hobbies & Interests; Uncategorized. Each category contains **only ChatGPT projects and conversations**, with no subcategories.
+- Flat category-first opening screen: Family; My Health; Finances; Home; SwiftClick Business; Generative AI; Hobbies & Interests; Uncategorized. Each category contains **only ChatGPT projects and conversations**, with no subcategories.
 - Clickable flat virtual categories and global title search. The Cinema Decoder **project** is a normal item inside Hobbies & Interests—not another SwiftClick category.
 - **Manual-only collection:** no automatic inventory discovery from the ChatGPT sidebar, current URL, or project/chats on page load. Only explicitly saved shortcuts are listed. The script still observes a native **Project home** menu when the user deliberately invokes its add action; it does not index that menu until the user confirms Save.
 - Per-item category picker. Category assignments persist via Tampermonkey values, keyed to the link identifier.
@@ -314,3 +314,28 @@ Place a small SwiftClick Organizer toggle icon immediately to the left of ChatGP
 ### Validation status
 - Node syntax and pure geometry/regression tests passed on the feature branch; live header DOM placement is **not yet confirmed** on the user's logged-in Firefox session.
 - Keep draft PR #6 **unmerged** pending verification. No changes were made to production `main`.
+
+## Alpha.11 — Finances and Home categories (2026-11-12)
+
+The user requested two additional top-level categories in the front-door UI:
+- **Finances** (ID `finances`, icon ＄): investment plans, financial dashboards, retirement, banking, household financial topics, etc.
+- **Home** (ID `home`, icon ⌂): home maintenance, structural projects, renovations, repairs, and household improvement projects.
+
+The new cards appear after My Health and before SwiftClick Business. Both are ordinary flat categories—no subcategory nesting. They're automatically included in the existing category assignment selector (the ✎ edit panel for saved projects/chats) and the Add project / Add chat intake forms, and use the existing per-category drag ordering.
+
+### Data compatibility
+- **No reset, data migration, or automatic reassignment.** Existing saved projects, chats, category IDs, per-category orders, and the header toggle are unaffected. Old data deserializes through the same validation logic.
+- The script intentionally does not automatically move an existing project such as **Home Structural Maintenance** from Hobbies & Interests into Home. To file that project, enter its current category, click ✎ on the saved shortcut, and select Home. The original ChatGPT project is not moved.
+- Likewise, use the item's ✎ control to move any saved financial projects or chats to Finances.
+- Manual-only curation is unchanged: browsing ChatGPT never adds items on its own.
+- The icon is generated in the existing category card UI using the same textContent/DOM approach, not HTML injection.
+
+### Firefox acceptance
+1. Update the installed userscript to **0.1.0-alpha.11** without clearing Tampermonkey storage.
+2. Open the Organizer from its compact header icon; confirm **Finances** and **Home** appear as top-level cards.
+3. Go to Hobbies & Interests, find the existing **Home Structural Maintenance** shortcut if already saved, click ✎, choose **Home**. Confirm it appears in Home and remains after reloading.
+4. Add or move another item to Finances. Verify the category selector lists Finances and Home on both project and chat forms.
+5. Reorder two items in Home or Finances if available, reload, and confirm that local order persists.
+6. Confirm preexisting categories and items remain, the native ChatGPT header/sidebar controls still work, and no passive discovery resumes.
+
+**Status:** code and Node tests are in the development branch, draft PR #6 remains unmerged pending Firefox acceptance.

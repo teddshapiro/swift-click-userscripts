@@ -658,11 +658,29 @@
     '.topline{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}',
     'input.search{width:100%;padding:12px 14px;border-radius:10px;background:#202e40;color:#fff;border:1px solid #536478;font:inherit;font-size:14px;}',
     'input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid #72b6ff;outline-offset:2px;}',
-    '.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;}',
+    '.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:22px;}',
     '.card{background:#1b2a3b;border:1px solid #3d5067;color:#f0f5ff;text-align:left;border-radius:13px;padding:20px;cursor:pointer;min-height:102px;}',
     '.card:hover,.card:focus-visible{background:#29435c;border-color:#8bc2ff;}',
     '.card-title{display:block;font-weight:700;font-size:15px;margin:8px 0 4px;}',
     '.card-meta{color:#afc1d8;font-size:12px;}',
+    '.category-manager{display:grid;gap:15px;max-width:850px;}',
+    '.category-manager h2{margin:0;font-size:20px;}',
+    '.category-manager-list{display:grid;gap:9px;}',
+    '.category-manager-row{display:flex;align-items:center;gap:8px;background:#1b2a3b;border:1px solid #3d5067;border-radius:10px;padding:9px;min-width:0;}',
+    '.category-manager-row input{flex:1;min-width:110px;padding:9px 10px;background:#202e40;color:#fff;border:1px solid #536478;border-radius:7px;font:inherit;}',
+    '.category-manager-row .action{white-space:nowrap;}',
+    '.category-manager-row.dragging{opacity:.5;}',
+    '.category-manager-row.drop-before{border-top:3px solid #8ac8ff;padding-top:7px;}',
+    '.category-manager-row.drop-after{border-bottom:3px solid #8ac8ff;padding-bottom:7px;}',
+    '.category-drag{background:transparent;border:1px solid transparent;border-radius:7px;color:#cfddf0;font:700 18px system-ui;cursor:grab;padding:8px;}',
+    '.category-drag:hover,.category-drag:focus-visible{background:#334b63;}',
+    '.category-row-actions{display:flex;align-items:center;gap:4px;flex:none;}',
+    '.category-add{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}',
+    '.category-add input{flex:1;min-width:180px;padding:10px;background:#202e40;color:#fff;border:1px solid #536478;border-radius:7px;font:inherit;}',
+    '.category-danger{border-top:1px solid #405066;padding-top:14px;display:grid;gap:8px;}',
+    '.category-error{color:#ffc2c2;min-height:16px;font-size:13px;}',
+    '.category-system{font-size:11px;color:#a7b7cc;flex:none;}',
+
     '.toolbar{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-bottom:16px;}',
     '.title{font-size:20px;font-weight:750;margin:0 0 4px;}',
     '.action{background:#25384d;border:1px solid #526680;color:#eaf4ff;border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit;font-size:12px;}',
@@ -697,7 +715,7 @@
     '.foot{padding:12px 20px;border-top:1px solid #304052;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}',
     '.hint{color:#b1c2d8;font-size:12px;line-height:1.55;}',
     '.empty{padding:24px 14px;border:1px dashed #526579;border-radius:12px;color:#b6c5d9;text-align:center;font-size:13px;}',
-    '@media(max-width:720px){.items{grid-template-columns:minmax(0,1fr)}.main{padding:14px}.head{padding:12px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.card{padding:12px;min-height:90px}}'
+    '@media(max-width:720px){.items{grid-template-columns:minmax(0,1fr)}.main{padding:14px}.head{padding:12px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.card{padding:12px;min-height:90px}.category-manager-row{flex-wrap:wrap}.category-manager-row input{flex-basis:60%}.category-row-actions{width:100%;justify-content:flex-end}}'
   ].join('\n');
 
   const launcherHost = el('div');
@@ -1107,6 +1125,186 @@
 
   function visibleItems(categoryId) {
     return [...seen.values()].filter((item) => itemInCategory(categoryFor(item), categoryId));
+  }
+
+  function focusCategoryDragHandle(categoryId) {
+    const handle = [...panel.querySelectorAll('.category-drag')]
+      .find((node) => node.dataset.categoryId === categoryId);
+    if (handle) handle.focus();
+  }
+
+  function moveCategoryByArrow(categoryId, direction) {
+    if (applyCategoryDefinitions(moveCategoryModel(CATEGORIES, categoryId, direction))) {
+      focusCategoryDragHandle(categoryId);
+    }
+  }
+
+  function reorderCategoryFromDrop(movingId, targetId, after) {
+    const ids = CATEGORIES.map((c) => c.id);
+    const reordered = reorderKeys(ids, movingId, targetId, after);
+    if (ids.every((id, index) => id === reordered[index])) return;
+    const lookup = new Map(CATEGORIES.map((c) => [c.id, c]));
+    applyCategoryDefinitions(reordered.map((id) => ({ ...lookup.get(id) })));
+    focusCategoryDragHandle(movingId);
+  }
+
+  function makeCategoryManager() {
+    const wrapper = el('div', 'category-manager');
+    wrapper.appendChild(el('h2', '', 'Manage categories'));
+    wrapper.appendChild(el('p', 'hint',
+      'Rename categories, drag or use the arrows to reorder them, and create new ones. ' +
+      'Renaming and reordering do not change your saved projects or chats.'));
+
+    const list = el('div', 'category-manager-list');
+    let movingId = null;
+    for (const [index, category] of CATEGORIES.entries()) {
+      const row = el('div', 'category-manager-row');
+      row.dataset.categoryId = category.id;
+      const handle = button('⠿', 'category-drag', () => {});
+      handle.draggable = true;
+      handle.title = 'Drag to reorder category; or press Up/Down arrow';
+      handle.dataset.categoryId = category.id;
+      handle.setAttribute('aria-label', 'Reorder ' + category.label);
+      handle.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+        event.preventDefault();
+        moveCategoryByArrow(category.id, event.key === 'ArrowUp' ? -1 : 1);
+      });
+      handle.addEventListener('dragstart', (event) => {
+        if (!event.dataTransfer) return;
+        movingId = category.id;
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', 'SwiftClick category');
+        row.classList.add('dragging');
+      });
+      handle.addEventListener('dragend', () => {
+        movingId = null;
+        for (const item of list.querySelectorAll('.category-manager-row')) {
+          item.classList.remove('dragging', 'drop-before', 'drop-after');
+        }
+      });
+      row.addEventListener('dragover', (event) => {
+        if (!movingId || movingId === category.id || !event.dataTransfer) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        const rect = row.getBoundingClientRect();
+        const after = event.clientY >= rect.top + rect.height / 2;
+        row.classList.toggle('drop-before', !after);
+        row.classList.toggle('drop-after', after);
+      });
+      row.addEventListener('dragleave', (event) => {
+        if (!event.relatedTarget || !row.contains(event.relatedTarget)) {
+          row.classList.remove('drop-before', 'drop-after');
+        }
+      });
+      row.addEventListener('drop', (event) => {
+        if (!movingId || movingId === category.id) return;
+        event.preventDefault();
+        const rect = row.getBoundingClientRect();
+        const after = event.clientY >= rect.top + rect.height / 2;
+        const moved = movingId;
+        movingId = null;
+        reorderCategoryFromDrop(moved, category.id, after);
+      });
+      row.appendChild(handle);
+      const name = el('input');
+      name.type = 'text';
+      name.maxLength = 50;
+      name.value = category.label;
+      name.setAttribute('aria-label', 'Category name: ' + category.label);
+      row.appendChild(name);
+
+      const actions = el('div', 'category-row-actions');
+      const update = () => {
+        const next = renameCategoryModel(CATEGORIES, category.id, name.value);
+        if (!next) {
+          categoryManagerError = 'Choose a unique, non-empty name of 50 characters or fewer.';
+          render();
+          return;
+        }
+        applyCategoryDefinitions(next);
+      };
+      const save = button('Save name', 'action', update);
+      save.title = 'Save category name';
+      actions.appendChild(save);
+      name.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          update();
+        }
+      });
+      const up = button('↑', 'action', () => moveCategoryByArrow(category.id, -1));
+      up.disabled = index === 0;
+      up.setAttribute('aria-label', 'Move ' + category.label + ' up');
+      actions.appendChild(up);
+      const down = button('↓', 'action', () => moveCategoryByArrow(category.id, 1));
+      down.disabled = index === CATEGORIES.length - 1;
+      down.setAttribute('aria-label', 'Move ' + category.label + ' down');
+      actions.appendChild(down);
+      if (category.id !== 'uncategorized') {
+        const remove = button('Delete', 'action remove-action', () => {
+          const items = visibleItems(category.id).length;
+          if (!window.confirm('Delete the category "' + category.label + '"?\\n\\n' +
+              items + ' saved item(s) will move to ' + labelFor('uncategorized') +
+              '. No original ChatGPT projects/chats or SwiftClick shortcuts will be deleted.')) return;
+          const next = deleteCategoryModel(CATEGORIES, category.id);
+          if (!applyCategoryDefinitions(next)) return;
+          assignments = deleteCategoryAssignments(assignments, category.id);
+          saveAssignments();
+          delete categoryOrders[category.id];
+          persistCategoryOrders();
+        });
+        remove.setAttribute('aria-label', 'Delete category ' + category.label);
+        actions.appendChild(remove);
+      } else {
+        actions.appendChild(el('span', 'category-system', 'Inbox · cannot delete'));
+      }
+      row.appendChild(actions);
+      list.appendChild(row);
+    }
+    wrapper.appendChild(list);
+
+    const create = el('form', 'category-add');
+    const newName = el('input');
+    newName.type = 'text';
+    newName.maxLength = 50;
+    newName.placeholder = 'New category name';
+    newName.required = true;
+    newName.setAttribute('aria-label', 'New category name');
+    create.appendChild(newName);
+    const add = el('button', 'action', '+ Create category');
+    add.type = 'submit';
+    create.appendChild(add);
+    create.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const id = 'custom-' + Date.now().toString(36) + '-' +
+        Math.random().toString(36).slice(2, 9);
+      const next = createCategoryModel(CATEGORIES, newName.value, id);
+      if (!next) {
+        categoryManagerError = 'Category name must be unique and non-empty (maximum 50 characters; 40 categories total).';
+        render();
+        return;
+      }
+      applyCategoryDefinitions(next);
+    });
+    wrapper.appendChild(create);
+    const error = el('div', 'category-error', categoryManagerError);
+    error.setAttribute('role', 'alert');
+    wrapper.appendChild(error);
+
+    const danger = el('div', 'category-danger');
+    danger.appendChild(el('p', 'hint',
+      'Advanced: clear saved category assignments only. Projects and chats stay in SwiftClick, under the inbox category.'));
+    danger.appendChild(button('Clear all category assignments', 'action remove-action', () => {
+      if (!window.confirm('Move EVERY saved project and chat to ' +
+          labelFor('uncategorized') + '?\\n\\nThis will remove all category assignments. Your saved shortcuts are not deleted.')) return;
+      assignments = {};
+      saveAssignments();
+      categoryManagerError = '';
+      render();
+    }));
+    wrapper.appendChild(danger);
+    return wrapper;
   }
 
   function makeCategoryCard(category) {

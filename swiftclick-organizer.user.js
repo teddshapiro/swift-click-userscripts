@@ -1688,6 +1688,22 @@
     panel.appendChild(header);
 
     const content = el('div', 'main');
+    if (managingCategories) {
+      content.appendChild(makeCategoryManager());
+      panel.appendChild(content);
+      const footer = el('div', 'foot');
+      footer.appendChild(el('span', 'hint',
+        'Categories are stored locally in Tampermonkey. Saved projects and chats are never moved in native ChatGPT.'));
+      footer.appendChild(button('← Back to categories', 'action', () => {
+        managingCategories = false;
+        categoryManagerError = '';
+        currentCategory = null;
+        query = '';
+        render();
+      }));
+      panel.appendChild(footer);
+      return;
+    }
     if (currentCategory !== null) {
       const toolbar = el('div', 'toolbar');
       toolbar.appendChild(button('← Categories', 'action', () => {
@@ -1781,20 +1797,26 @@
     const footer = el('div', 'foot');
     footer.appendChild(el('span', 'hint', manualProjects.length + ' projects and ' +
       savedChats.length + ' chats saved locally. Items appear only when you add them.'));
-    const reset = button('Clear local category labels', 'action', () => {
-      if (window.confirm('Clear all locally saved SwiftClick Organizer category assignments? This will not change ChatGPT.')) {
-        assignments = {};
-        saveAssignments();
-        render();
-      }
-    });
-    footer.appendChild(reset);
+    footer.appendChild(button('⚙ Manage categories', 'action', () => {
+      managingCategories = true;
+      categoryManagerError = '';
+      currentCategory = null;
+      editItemKey = null;
+      addingProject = false;
+      addingChat = false;
+      intakeProject = null;
+      intakeChat = null;
+      query = '';
+      render();
+    }));
     panel.appendChild(footer);
     positionOpenEditor();
   }
 
   function show(automatic = false) {
     editItemKey = null;
+    managingCategories = false;
+    categoryManagerError = '';
     open = true;
     launcherButton.setAttribute('aria-expanded', 'true');
     launcherButton.setAttribute('aria-label', 'Close SwiftClick Organizer');
@@ -1821,6 +1843,7 @@
 
   function hide() {
     editItemKey = null;
+    managingCategories = false;
     dragging = null;
     open = false;
     launcherButton.setAttribute('aria-expanded', 'false');
@@ -1832,7 +1855,12 @@
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && open) {
       event.preventDefault();
-      if (editItemKey !== null) {
+      if (managingCategories) {
+        managingCategories = false;
+        categoryManagerError = '';
+        currentCategory = null;
+        render();
+      } else if (editItemKey !== null) {
         const lastEditing = editItemKey;
         editItemKey = null;
         render();

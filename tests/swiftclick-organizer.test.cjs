@@ -66,10 +66,12 @@ test('normalize labels and omit URL query parameters from stored navigation link
 
 test('categories are flat and contain only projects or chats', () => {
   assert.deepEqual(Array.from(hooks.categories), [
-    'family', 'health', 'business', 'ai', 'hobbies', 'uncategorized'
+    'family', 'health', 'finances', 'home', 'business', 'ai', 'hobbies', 'uncategorized'
   ]);
   assert.equal(hooks.validCategory('family'), true);
   assert.equal(hooks.validCategory('hobbies'), true);
+  assert.equal(hooks.validCategory('finances'), true);
+  assert.equal(hooks.validCategory('home'), true);
   assert.equal(hooks.validCategory('cinema'), false);
   assert.equal(hooks.validCategory('henry'), false);
   assert.equal(hooks.validCategory('bradley'), false);
@@ -77,6 +79,9 @@ test('categories are flat and contain only projects or chats', () => {
   assert.equal(hooks.itemInCategory('hobbies', 'hobbies'), true);
   assert.equal(hooks.itemInCategory('family', 'hobbies'), false);
   assert.equal(hooks.itemInCategory('hobbies', null), true);
+  assert.equal(hooks.itemInCategory('finances', 'finances'), true);
+  assert.equal(hooks.itemInCategory('home', 'home'), true);
+  assert.equal(hooks.itemInCategory('home', 'finances'), false);
 });
 
 test('legacy assignments migrate to top-level categories without losing links', () => {
@@ -87,7 +92,9 @@ test('legacy assignments migrate to top-level categories without losing links', 
     'chat:bradley': 'bradley',
     'project:another': 'family-other',
     'chat:health': 'health',
-    'project:ai-video': 'hobbies'
+    'project:ai-video': 'hobbies',
+    'project:house': 'home',
+    'chat:retirement': 'finances'
   };
   const { assignments, migrated } = hooks.migrateAssignments(old);
   assert.equal(migrated, true);
@@ -99,6 +106,8 @@ test('legacy assignments migrate to top-level categories without losing links', 
   assert.equal(assignments['project:another'], 'family');
   assert.equal(assignments['chat:health'], 'health');
   assert.equal(assignments['project:ai-video'], 'hobbies');
+  assert.equal(assignments['project:house'], 'home');
+  assert.equal(assignments['chat:retirement'], 'finances');
   assert.equal(hooks.migrateAssignments(assignments).migrated, false);
   assert.equal(hooks.normalizeCategoryId('cinema'), 'hobbies');
   assert.equal(hooks.normalizeCategoryId('henry'), 'family');
@@ -222,10 +231,14 @@ test('category order deserialization removes invalid and duplicate IDs', () => {
   const state = hooks.sanitizeCategoryOrders({ version: 1, categories: {
     hobbies: ['project:cinema', 'project:cinema', 'chat:note', 'bad', 123],
     family: ['chat:henry'],
+    home: ['project:maintenance'],
+    finances: ['chat:investments'],
     madeUp: ['project:unrelated']
   } });
   assert.deepEqual(Array.from(state.hobbies), ['project:cinema', 'chat:note']);
   assert.deepEqual(Array.from(state.family), ['chat:henry']);
+  assert.deepEqual(Array.from(state.home), ['project:maintenance']);
+  assert.deepEqual(Array.from(state.finances), ['chat:investments']);
   assert.equal(Object.hasOwn(state, 'madeUp'), false);
 });
 
@@ -390,7 +403,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.10/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.11/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

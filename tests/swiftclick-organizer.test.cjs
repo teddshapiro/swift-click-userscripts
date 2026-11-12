@@ -252,6 +252,60 @@ test('saved chats persist only via explicit actions, not background observation'
 
 
 
+test('project and chat shortcut display names can be edited without changing link identity', () => {
+  const projects = [
+    hooks.sanitizeManualProject({title:'Cinema Decoder',
+      href:origin + '/g/g-p-cinema123/project'}, origin),
+    hooks.sanitizeManualProject({title:'AI Video',
+      href:origin + '/g/g-p-ai123/project'}, origin)
+  ];
+  const renamed = hooks.renameSavedShortcutModel(projects, projects[0].key,
+    '  Film   analysis \n research  ', origin);
+  assert.ok(renamed);
+  assert.equal(renamed[0].title, 'Film analysis research');
+  assert.equal(renamed[0].key, projects[0].key);
+  assert.equal(renamed[0].href, projects[0].href);
+  assert.equal(renamed[1].title, 'AI Video');
+  assert.equal(projects[0].title, 'Cinema Decoder'); // immutable
+  assert.deepEqual(Array.from(renamed, (v)=>v.key), Array.from(projects, (v)=>v.key));
+
+  const chats = [hooks.sanitizeSavedChat({title:'Original conversation',
+    href:origin + '/c/abc-123'}, origin)];
+  const editedChat = hooks.renameSavedShortcutModel(chats, chats[0].key,
+    'Personal reference', origin);
+  assert.ok(editedChat);
+  assert.equal(editedChat[0].title, 'Personal reference');
+  assert.equal(editedChat[0].key, chats[0].key);
+  assert.equal(editedChat[0].href, chats[0].href);
+  assert.equal(chats[0].title, 'Original conversation');
+});
+
+test('shortcut renaming rejects blank, too-long, missing or mismatched links', () => {
+  const projects = [hooks.sanitizeManualProject({
+    title:'Home',href:origin+'/g/g-p-house123/project'
+  }, origin)];
+  assert.equal(hooks.renameSavedShortcutModel(projects, projects[0].key, '   ', origin), null);
+  assert.equal(hooks.renameSavedShortcutModel(projects, projects[0].key, 'A'.repeat(141), origin), null);
+  assert.equal(hooks.renameSavedShortcutModel(projects, 'project:g-p-not-saved', 'New', origin), null);
+  assert.equal(hooks.renameSavedShortcutModel([], projects[0].key, 'New', origin), null);
+});
+
+test('edit popover saves name and category together and keeps remove action separate', () => {
+  assert.match(script, /const nameInput = el\('input', 'edit-name'\)/);
+  assert.match(script, /nameInput\.value = item\.title/);
+  assert.match(script, /nameInput\.maxLength = 140/);
+  assert.match(script, /const saveChanges = \(\) =>/);
+  assert.match(script, /button\('Save changes', 'action', saveChanges\)/);
+  assert.match(script, /title !== item\.title && !renameSavedShortcut\(item, title\)/);
+  assert.match(script, /if \(selector\.value !== categoryFor\(item\)\)/);
+  assert.match(script, /button\('Remove shortcut', 'action remove-action'/);
+  assert.doesNotMatch(script, /selector\.addEventListener\('change'/);
+  assert.match(script, /GM_setValue\(storageKey, updated\.map/);
+  assert.match(script, /seen\.set\(item\.key, renamed\)/);
+  assert.match(script, /const storageKey = isProject \? MANUAL_PROJECTS_KEY : SAVED_CHATS_KEY/);
+  assert.match(script, /Only the SwiftClick shortcut name changes, not the title in ChatGPT/);
+});
+
 test('two-column grid offers compact cards with edit-only secondary actions', () => {
   assert.match(script, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(script, /@media\(max-width:720px\).*grid-template-columns:minmax\(0,1fr\)/);
@@ -576,7 +630,7 @@ test('native menu companion never navigates or restores an old automatic intake'
 });
 
 test('categorizing a discovered project preserves its shortcut across reloads', () => {
-  assert.match(script, /item\.type === 'project' && !saveProjectShortcut\(item\)/);
+  assert.match(script, /title !== item\.title && !renameSavedShortcut\(item, title\)/);
   assert.match(script, /function saveProjectShortcut\(project\)/);
   assert.match(script, /manualProjects = manualProjects\.filter/);
   assert.match(script, /seen\.set\(parsed\.key, parsed\)/);
@@ -587,7 +641,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.15/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.16/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

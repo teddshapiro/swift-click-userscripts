@@ -237,21 +237,21 @@
     return pathname === '/' || pathname === '';
   }
 
-  function validCategory(id) {
-    return CATEGORIES.some((c) => c.id === id);
+  function validCategory(id, categories = CATEGORIES) {
+    return categories.some((c) => c.id === id);
   }
 
-  function normalizeCategoryId(id) {
+  function normalizeCategoryId(id, categories = CATEGORIES) {
     const mapped = Object.prototype.hasOwnProperty.call(LEGACY_CATEGORIES, id)
       ? LEGACY_CATEGORIES[id] : id;
-    return validCategory(mapped) ? mapped : 'uncategorized';
+    return validCategory(mapped, categories) ? mapped : 'uncategorized';
   }
 
   function itemInCategory(assignedId, selectedId) {
     return selectedId === null || normalizeCategoryId(assignedId) === selectedId;
   }
 
-  function migrateAssignments(rawAssignments) {
+  function migrateAssignments(rawAssignments, categories = CATEGORIES) {
     const clean = {};
     let migrated = false;
     if (!rawAssignments || typeof rawAssignments !== 'object' || Array.isArray(rawAssignments)) {
@@ -259,7 +259,7 @@
     }
     for (const [key, oldId] of Object.entries(rawAssignments)) {
       if (!/^(chat|project):[a-zA-Z0-9-]{1,160}$/.test(key)) continue;
-      const id = normalizeCategoryId(oldId);
+      const id = normalizeCategoryId(oldId, categories);
       if (id !== oldId) migrated = true;
       // Uncategorized is the default and requires no explicit stored label.
       if (id !== 'uncategorized') clean[key] = id;
@@ -311,11 +311,11 @@
 
   // Order is independent for each flat category. Keep known IDs even when a
   // lazily-loaded ChatGPT sidebar does not currently expose every item.
-  function sanitizeCategoryOrders(raw) {
+  function sanitizeCategoryOrders(raw, categories = CATEGORIES) {
     const source = raw && typeof raw === 'object' && !Array.isArray(raw)
       ? raw.categories : null;
     const cleaned = {};
-    for (const category of CATEGORIES) {
+    for (const category of categories) {
       const entries = source && source[category.id];
       if (!Array.isArray(entries)) continue;
       const unique = new Set();

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.9
+// @version      0.1.0-alpha.10
 // @description  Manual-only local organizer for ChatGPT projects and chats. Nothing auto-indexed.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -71,6 +71,23 @@
     if (!title) return null;
     const item = parseItemLink(raw.href, title, origin);
     return item && item.type === 'chat' ? { ...item, manual: true } : null;
+  }
+
+  // Pure geometry guard: leave room for ChatGPT's heading and avoid overlapping
+  // Search or Sidebar Toggle. Fall back when the sidebar is too narrow.
+  function headerLauncherGeometry(rect, viewportWidth) {
+    if (!rect || !Number.isFinite(viewportWidth) ||
+        ![rect.left, rect.top, rect.width, rect.height].every(Number.isFinite)) return null;
+    const size = 32;
+    const gap = 8;
+    const x = Math.round(rect.left - size - gap);
+    const y = Math.round(rect.top + (rect.height - size) / 2);
+    if (rect.width < 18 || rect.width > 76 ||
+        rect.height < 18 || rect.height > 76 ||
+        rect.top < 0 || rect.top > 115 ||
+        rect.left > Math.min(520, viewportWidth * 0.65) ||
+        x < 120 || y < 4 || x + size > viewportWidth - 12) return null;
+    return { x, y, size };
   }
 
   function isHomeRoute(pathname) {
@@ -213,7 +230,7 @@
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
-      cleanIntakeName, chooseProjectName, sanitizeCategoryOrders, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
+      cleanIntakeName, chooseProjectName, headerLauncherGeometry, sanitizeCategoryOrders, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
       categories: CATEGORIES.map((c) => c.id)
     });
     return;
@@ -433,11 +450,16 @@
   }
 
   const LAUNCHER_CSS = [
-    ':host{display:block;font-family:system-ui,-apple-system,sans-serif;}',
-    ':host{position:fixed;right:10px;top:50%;transform:translateY(-50%);z-index:2147483600;pointer-events:none;}',
-    'button{pointer-events:auto;display:flex;align-items:center;gap:8px;cursor:pointer;padding:9px 12px;border:1px solid #778397;border-radius:12px;background:#17212f;color:#fff;font:600 12px/1.4 system-ui;box-shadow:0 4px 16px #0003;}',
-    'button:focus-visible{outline:3px solid #7dbbff;outline-offset:2px;}',
-    'button:hover{background:#26374b;}'
+    ':host{display:block;position:fixed;z-index:2147483600;pointer-events:none;font-family:system-ui,-apple-system,sans-serif;}',
+    ':host([data-placement="header"]){transform:none;}',
+    ':host([data-placement="fallback"]){right:10px;top:50%;transform:translateY(-50%);}',
+    'button{pointer-events:auto;display:grid;place-items:center;cursor:pointer;width:32px;height:32px;padding:0;border:0;border-radius:9px;background:transparent;color:var(--sc-launcher-color,#64748b);box-shadow:none;}',
+    'button:hover{background:var(--sc-launcher-hover,rgba(125,140,155,.13));}',
+    'button[aria-expanded="true"]{background:var(--sc-launcher-hover,rgba(125,140,155,.17));}',
+    'button:focus-visible{outline:2px solid #499cfa;outline-offset:2px;}',
+    'svg{display:block;width:19px;height:19px;stroke:currentColor;stroke-width:1.9;stroke-linejoin:round;fill:none;}',
+    ':host([data-placement="fallback"]) button{background:#17212f;color:#fff;border:1px solid #778397;box-shadow:0 4px 16px #0003;}',
+    ':host([data-placement="fallback"]) button:hover{background:#26374b;}'
   ].join('\n');
 
   const OVERLAY_CSS = [
@@ -497,13 +519,77 @@
 
   const launcherHost = el('div');
   launcherHost.id = APP_ID + '-launcher';
+  launcherHost.dataset.placement = 'fallback';
   const launcherRoot = launcherHost.attachShadow({ mode: 'open' });
   stylesheet(launcherRoot, LAUNCHER_CSS);
-  const launcherButton = button('▦  SwiftClick Organizer', '', () => show());
+  const launcherButton = button('', '', () => open ? hide() : show());
   launcherButton.setAttribute('aria-label', 'Open SwiftClick Organizer');
+  launcherButton.setAttribute('aria-expanded', 'false');
+  launcherButton.title = 'SwiftClick Organizer';
+  // Explicit 2x2 tile icon, compatible with Trusted Types/CSP restrictions.
+  const iconSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  iconSvg.setAttribute('viewBox', '0 0 24 24');
+  iconSvg.setAttribute('aria-hidden', 'true');
+  for (const [x, y] of [[3, 3], [13, 3], [3, 13], [13, 13]]) {
+    const tile = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    tile.setAttribute('x', String(x));
+    tile.setAttribute('y', String(y));
+    tile.setAttribute('width', '8');
+    tile.setAttribute('height', '8');
+    tile.setAttribute('rx', '1.5');
+    iconSvg.appendChild(tile);
+  }
+  launcherButton.appendChild(iconSvg);
   launcherRoot.appendChild(launcherButton);
-  // Never inject into ChatGPT-owned navigation: its DOM layout/hover actions are fragile.
+  // Visually aligned with ChatGPT, but NEVER inserted into React-owned header.
   document.body.appendChild(launcherHost);
+
+  function findHeaderSearchButton() {
+    const candidates = document.querySelectorAll(
+      'button[aria-label],button[title],button[data-testid],' +
+      '[role="button"][aria-label],a[aria-label],a[href="/search"]'
+    );
+    for (const candidate of candidates) {
+      if (launcherHost.contains(candidate) || overlayHost.contains(candidate) ||
+          menuActionHost.contains(candidate)) continue;
+      const title = [
+        candidate.getAttribute('aria-label'),
+        candidate.getAttribute('title'),
+        candidate.getAttribute('data-testid'),
+        candidate.getAttribute('href')
+      ].filter(Boolean).join(' ').toLowerCase();
+      if (!/(?:^|[^a-z])search(?:[^a-z]|$)/.test(title)) continue;
+      const rect = candidate.getBoundingClientRect();
+      const geometry = headerLauncherGeometry(rect, window.innerWidth);
+      if (geometry && candidate.getClientRects().length) return { candidate, geometry };
+    }
+    return null;
+  }
+
+  function positionLauncher() {
+    const match = findHeaderSearchButton();
+    if (match) {
+      const { candidate, geometry } = match;
+      const hit = document.elementFromPoint(geometry.x + geometry.size / 2,
+        geometry.y + geometry.size / 2);
+      // Never cover a native button or link if ChatGPT's sidebar narrows.
+      const overlap = hit && !launcherHost.contains(hit) && hit.closest &&
+        hit.closest('button,a,[role="button"],input,[role="textbox"]');
+      if (!overlap) {
+        const computed = window.getComputedStyle(candidate);
+        launcherHost.style.setProperty('--sc-launcher-color', computed.color);
+        launcherHost.style.left = geometry.x + 'px';
+        launcherHost.style.top = geometry.y + 'px';
+        launcherHost.style.right = 'auto';
+        launcherHost.dataset.placement = 'header';
+        return;
+      }
+    }
+    launcherHost.style.left = 'auto';
+    launcherHost.style.top = '50%';
+    launcherHost.style.right = '10px';
+    launcherHost.dataset.placement = 'fallback';
+  }
 
   const overlayHost = el('div');
   overlayHost.id = APP_ID + '-overlay';
@@ -1269,6 +1355,8 @@
   function show(automatic = false) {
     editItemKey = null;
     open = true;
+    launcherButton.setAttribute('aria-expanded', 'true');
+    launcherButton.setAttribute('aria-label', 'Close SwiftClick Organizer');
     currentCategory = null;
     addingProject = false;
     addingChat = false;
@@ -1294,6 +1382,8 @@
     editItemKey = null;
     dragging = null;
     open = false;
+    launcherButton.setAttribute('aria-expanded', 'false');
+    launcherButton.setAttribute('aria-label', 'Open SwiftClick Organizer');
     overlayHost.hidden = true;
     launcherButton.focus();
   }
@@ -1318,6 +1408,7 @@
     if (refreshTimer) window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(() => {
       refreshTimer = 0;
+      positionLauncher();
       positionProjectMenuAction();
       resolveNativeProjectIntake();
     }, 150);
@@ -1341,6 +1432,7 @@
       scheduleRefresh();
     }
     resolveNativeProjectIntake();
+    positionLauncher();
     positionProjectMenuAction();
   }, 1000);
 
@@ -1348,6 +1440,9 @@
     GM_registerMenuCommand('Open SwiftClick Organizer', show);
   }
 
+  positionLauncher();
+  window.addEventListener('resize', scheduleRefresh, { passive: true });
+  window.addEventListener('scroll', scheduleRefresh, { passive: true, capture: true });
   positionProjectMenuAction();
   resumePendingIntake(); // Full page navigation should not lose an intake.
 

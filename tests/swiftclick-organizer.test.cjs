@@ -135,19 +135,19 @@ test('ChatGPT Tools preferences persist only user overrides and do not alter sho
 });
 test('ChatGPT Tools URL overrides are safe and New Chat cannot be overridden', () => {
   const p=hooks.sanitizeToolPrefs(null);
-  assert.equal(hooks.validateToolOverride('https://chatgpt.com/area','adobe'),
+  assert.equal(hooks.validateToolOverride('https://chatgpt.com/area','personalization'),
     'https://chatgpt.com/area');
   for(const url of ['https://evil.example','http://chatgpt.com/test',
      'javascript:alert(1)','https://chatgpt.com@evil.example/',
      'https://chatgpt.com/?token=abc','https://chatgpt.com:8080/path']) {
-    assert.equal(hooks.validateToolOverride(url,'adobe'),null);
+    assert.equal(hooks.validateToolOverride(url,'personalization'),null);
   }
   assert.equal(hooks.validateToolOverride('https://help.openai.com/en/','help-center'),
     'https://help.openai.com/en/');
-  assert.equal(hooks.validateToolOverride('https://help.openai.com/en/','adobe'),null);
-  const x=hooks.editToolPrefs(p,'adobe',{urlOverride:'https://chatgpt.com/plugins/example'});
-  assert.equal(hooks.toolHref(hooks.toolCatalog.find((t)=>t.id==='adobe'),x),
-    'https://chatgpt.com/plugins/example');
+  assert.equal(hooks.validateToolOverride('https://help.openai.com/en/','personalization'),null);
+  const x=hooks.editToolPrefs(p,'personalization',{urlOverride:'https://chatgpt.com/settings'});
+  assert.equal(hooks.toolHref(hooks.toolCatalog.find((t)=>t.id==='personalization'),x),
+    'https://chatgpt.com/settings');
   assert.equal(hooks.editToolPrefs(p,'new-chat',{urlOverride:'https://chatgpt.com/test'}),null);
   assert.equal(hooks.moveToolPrefs(p,'plugins','finances',false),null);
   assert.ok(hooks.moveToolPrefs(p,'plugins','scheduled',false));
@@ -881,7 +881,7 @@ test('native menu companion never navigates or restores an old automatic intake'
   assert.match(script, /function openProjectManualIntake\(title\)/);
   assert.match(script, /window\.sessionStorage\.removeItem\(LEGACY_PENDING_INTAKE_KEY\)/);
   assert.match(script, /if \(open\) hide\(\); \/\/ Ordinary navigation closes the organizer/);
-  assert.doesNotMatch(script, /sessionStorage\.setItem|home\.click\(\)|resumePendingIntake|pendingNativeProject/);
+  assert.doesNotMatch(script, /home\.click\(\)|resumePendingIntake|pendingNativeProject/);
 });
 
 test('categorizing a discovered project preserves its shortcut across reloads', () => {

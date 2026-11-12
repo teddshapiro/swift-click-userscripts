@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.13
+// @version      0.1.0-alpha.14
 // @description  Manual-only local organizer for ChatGPT projects and chats. Nothing auto-indexed.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -94,6 +94,21 @@
 
   // Resolve only a real project identifier. Never assume projects with the
   // same title are the same or use the currently open page as evidence.
+  // Some ChatGPT sidebar rows are buttons rather than anchors.
+  // Accept ONLY an exact project ID from an explicit attribute of the
+  // clicked row, never from a matching title or an unrelated sidebar item.
+  function projectIdFromMetadata(attributes) {
+    if (!attributes || typeof attributes !== 'object') return null;
+    for (const field of ['data-project-id', 'data-projectid', 'data-project-uuid',
+      'data-item-id', 'data-entity-id']) {
+      const raw = attributes[field];
+      if (typeof raw !== 'string') continue;
+      const id = raw.trim().replace(/^project:/, '');
+      if (/^g-p-[a-zA-Z0-9-]{3,160}$/.test(id)) return id;
+    }
+    return null;
+  }
+
   function resolveMenuProjectKey(nativeHref, trigger, origin, now = Date.now()) {
     const direct = nativeHref && parseItemLink(nativeHref, '', origin);
     if (direct && direct.type === 'project') return direct.key;
@@ -273,7 +288,7 @@
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
-      cleanIntakeName, chooseProjectName, headerLauncherGeometry, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
+      cleanIntakeName, chooseProjectName, headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
       categories: CATEGORIES.map((c) => c.id)
     });
     return;
@@ -738,6 +753,32 @@
       // A broader ancestor with several different project links is not
       // identifying evidence for the clicked project's ID.
       if (links.length > 1) break;
+
+      // Fallback for linkless project rows: inspect ONLY the clicked row.
+      // Reject multiple conflicting IDs rather than guessing.
+      const candidates = [node, ...node.querySelectorAll(
+        '[data-project-id], [data-projectid], [data-project-uuid], ' +
+        '[data-item-id], [data-entity-id]'
+      )];
+      const ids = new Set();
+      for (const candidate of candidates) {
+        const attributes = {};
+        for (const name of ['data-project-id', 'data-projectid', 'data-project-uuid',
+          'data-item-id', 'data-entity-id']) {
+          attributes[name] = candidate.getAttribute(name);
+        }
+        const id = projectIdFromMetadata(attributes);
+        if (id) ids.add(id);
+      }
+      if (ids.size === 1) {
+        const id = [...ids][0];
+        const project = parseItemLink('/g/' + id + '/project', '', location.origin);
+        if (project) {
+          const title = cleanIntakeName(possibleTitle || node.textContent);
+          return { at: Date.now(), title, key: project.key, href: project.href };
+        }
+      }
+      if (ids.size > 1) break;
 
       // Some ChatGPT sidebar rows don't contain an anchor, only buttons.
       // Capture a short nearby label for a conservative, unique-name hint.

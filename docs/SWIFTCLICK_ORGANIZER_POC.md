@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.13)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.14)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -409,3 +409,29 @@ On alpha.12, projects that were **definitely already saved** still showed Add in
 ### Validation status
 
 Regression and syntax checks are automated on the feature branch, including ID-first matching, unique-title ambiguity, stale context, safe add fallback, and absence of native `home.click()` calls. Real browser behavior remains pending user verification. Draft PR #6 stays unmerged; production `main` stays unchanged.
+
+## Alpha.14 — safer additional project-URL autofill (2026-11-12)
+
+User noticed that some project intake forms now prefill the name but not the project URL after the prior alpha.13 regression fix. This is an expected limitation of the safer design, **not a desired final UX**: alpha.13 eliminated automatic ChatGPT Project Home navigation because it could click through and unexpectedly change pages. Without a project link or identifier on the selected row, the URL cannot be reliably determined.
+
+### What this change does
+
+- During the **user-initiated click on the project's three-dot control only**, inspect the short clicked project row for a single explicit project ID in its native attributes: `data-project-id`, `data-projectid`, `data-project-uuid`, `data-item-id` or `data-entity-id`.
+- When precisely one well-formed `g-p-...` ID is present, safely construct the known ChatGPT project URL `/g/{ID}/project` and carry it through the existing intake flow. A native project anchor remains the first choice; the new metadata detection is only a fallback.
+- Do not scan the whole sidebar, infer IDs from project titles, call undocumented APIs, click native Project Home, or alter any native element. Ignore conflicting/multiple IDs and unrecognized metadata. No persistent storage changes.
+- If neither an anchor nor explicit ID is available, leave the URL field empty and editable. In that case the user can open Project Home **themselves** and use SwiftClick's **+ Add project** there, which pre-fills the current project's URL, or paste the link.
+- Existing saved project status logic, category assignments, local ordering and edit controls are unchanged.
+
+### Firefox/Tampermonkey acceptance
+
+1. Upgrade the existing script to **0.1.0-alpha.14**, keeping previous saved items intact, then reload ChatGPT.
+2. Open a project's native three-dot menu and click `＋ Add to SwiftClick Organizer`. For a row with an anchor or recognized explicit project ID, verify both **name and correct URL** are prefilled, without navigating away from the current ChatGPT page.
+3. For a saved project, confirm the `Already in Organizer` or cautious `Possible match — Review` status still works without duplicate intake.
+4. For a menu where the URL remains empty, do **not** assume the script is broken: that row may not expose a usable link/ID. Manually open Project Home, then use `+ Add project` inside the Organizer to prefill the displayed project's URL.
+5. Verify the selected project B's URL never incorrectly resolves to currently displayed project A.
+6. Confirm native menus, New Chat, sidebar toggle, category ordering and existing links remain unaffected.
+7. If metadata capture still does not work on a specific sidebar row, inspect the row's **non-sensitive structural markup** (element and attribute names, omitting personal project names or IDs). Use that evidence before adding further selectors.
+
+### Validation status
+
+Node tests exercise explicit metadata extraction and its safety guards. **A passing unit test does not establish that ChatGPT actually includes these attributes**: logged-in Firefox acceptance is still required. Keep PR #6 draft and main unchanged.

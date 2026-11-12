@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.12)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.13)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -370,3 +370,42 @@ After a user opens a project's three-dot menu in ChatGPT, the SwiftClick compani
 8. Confirm regular ChatGPT project actions, submenu hover controls, custom categories, and menu styling continue to behave normally.
 
 **Validation:** Node regression tests cover ID matching, expiration, fallback and routing. Logged-in Firefox/Tampermonkey behavior is pending user verification. Keep draft PR #6 unmerged until accepted.
+
+## Alpha.13 — fix incorrect saved status and accidental Project Home navigation (2026-11-12)
+
+### User-reported regression
+
+On alpha.12, projects that were **definitely already saved** still showed Add in ChatGPT's three-dot menu, and clicking the companion sometimes navigated to the project home unexpectedly, leading to unstable modal behavior.
+
+### Code-level diagnosis
+
+1. The project-menu status depended on capturing a project link from the native sidebar row. Not all current ChatGPT rows expose that link within the nearby DOM, so the ID could be absent even when the project existed in SwiftClick.
+2. The companion action was previously triggered on **pointerdown**, removing the button before the browser finished the click. This can allow the completed click to target an underlying native menu item, including **Project home**.
+3. For missing project IDs, the script invoked the native `Project home` control programmatically to learn the URL. That unexpectedly navigated the user away from their current context.
+
+### Alpha.13 behavior
+
+- **No navigation on companion click**: the action executes only on the completed click, and its identity snapshot is held through pointerup while the native menu can dismiss. The script NEVER invokes `home.click()`, never programmatically changes the ChatGPT route, and deletes the old pending-native-navigation workflow. A leftover tab-only navigation intent from alpha.12 is discarded.
+- **ID confirmed**: `✓ Already in Organizer`, clicking opens the saved project's SwiftClick category. This is the authoritative match.
+- **No ID, unique saved name match**: `? Possible match — Review`, clicking opens the candidate's category for user review. This is deliberately **not** asserted as an ID-confirmed match, because different projects can share a name.
+- **Verified ID, unsaved**: `＋ Add to SwiftClick Organizer`, clicking opens intake directly with the verified project URL and captured name—without navigating to Project Home.
+- **Unverifiable project ID**: `＋ Add to SwiftClick Organizer` opens the editable manual Add form with any captured name but no guessed URL. The user may open ChatGPT's native Project Home themselves, and use the normal `+ Add project` control there to have the current project's URL and title prefilled, or paste the project URL into the form.
+- Capture remains **user-triggered**: on a sidebar button interaction, inspect only the clicked row's local markup, with an explicit height boundary to avoid taking a neighboring project's ID. Never index projects/chats in the background. Stale row context is cleared on a new click.
+- No changes to persistent project/chat records, categories, drag order, or header launcher; no data reset needed.
+- Still mounts the menu-adjacent SwiftClick action only in its own Shadow DOM, without modifying ChatGPT's native menu or sidebar markup.
+
+### Manual Firefox/Tampermonkey acceptance
+
+1. Update the existing SwiftClick Organizer script to **0.1.0-alpha.13** (exactly one copy enabled), then refresh ChatGPT. Do not clear local categories or shortcuts.
+2. While viewing project A, open the three-dot menu for saved project B. Check for `✓ Already in Organizer`; click it. The organizer should open at B's saved category without navigating ChatGPT to B's Project Home, creating another shortcut, or flickering.
+3. If the native project row lacks an ID, a **unique-name** candidate may instead say `? Possible match — Review`. This is a verification prompt, not a duplicate. Clicking it should open the matched category without altering the saved project.
+4. Try a **different unsaved project**. If its native ID is discoverable, intake should open with its name and URL; otherwise it should open a manual form with a blank URL and no automatic ChatGPT navigation.
+5. For the latter fallback, close the intake, open that project's native **Project home** yourself, then use SwiftClick Organizer's **+ Add project** button. Its name and current URL should prefill. Save to a category and verify the project appears once.
+6. Repeat rapidly on two different project menus while a different project is open. Never accept the currently open project's ID as evidence for the clicked project.
+7. Confirm native three-dot menu, Project Home, New Chat, other sidebar actions and the SwiftClick header icon remain clickable. No unintended navigation, click-through, or repeated intake loop.
+8. Verify existing category assignments and drag order persist after refresh, and background indexing remains disabled.
+9. If the label still says Add for a project you know is saved, the project-row markup may not expose either an ID or a reliable title. A screenshot of that specific menu and nearby sidebar row, plus an optional minimal Firefox Inspector DOM snippet for the row (not conversation content), would help refine detection.
+
+### Validation status
+
+Regression and syntax checks are automated on the feature branch, including ID-first matching, unique-title ambiguity, stale context, safe add fallback, and absence of native `home.click()` calls. Real browser behavior remains pending user verification. Draft PR #6 stays unmerged; production `main` stays unchanged.

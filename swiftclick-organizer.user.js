@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.15
+// @version      0.1.0-alpha.16
 // @description  Manual-only local organizer for ChatGPT projects and chats. Nothing auto-indexed.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -158,6 +158,20 @@
     if (!title) return null;
     const item = parseItemLink(raw.href, title, origin);
     return item && item.type === 'chat' ? { ...item, manual: true } : null;
+  }
+
+  // Rename only a saved SwiftClick shortcut. Keep its canonical URL and key
+  // (and therefore its category assignment and custom sort position) intact.
+  function renameSavedShortcutModel(items, key, name, origin) {
+    const title = String(name || '').replace(/\s+/g, ' ').trim();
+    if (!title || title.length > 140 || !Array.isArray(items)) return null;
+    const prior = items.find((item) => item.key === key);
+    if (!prior || (prior.type !== 'project' && prior.type !== 'chat')) return null;
+    const updated = prior.type === 'project'
+      ? sanitizeManualProject({ href: prior.href, title }, origin)
+      : sanitizeSavedChat({ href: prior.href, title }, origin);
+    if (!updated || updated.key !== prior.key || updated.href !== prior.href) return null;
+    return items.map((item) => item.key === key ? updated : item);
   }
 
   // Pure geometry guard: leave room for ChatGPT's heading and avoid overlapping
@@ -373,6 +387,7 @@
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
+      renameSavedShortcutModel,
       cleanIntakeName, chooseProjectName, headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
       sanitizeCategoryDefinitions, createCategoryModel, renameCategoryModel,
       deleteCategoryModel, moveCategoryModel, deleteCategoryAssignments, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
@@ -594,6 +609,27 @@
     return true;
   }
 
+  function renameSavedShortcut(item, newName) {
+    const isProject = item.type === 'project';
+    const existing = isProject ? manualProjects : savedChats;
+    const updated = renameSavedShortcutModel(existing, item.key, newName, location.origin);
+    if (!updated) return false;
+    // Persist before modifying memory, so failed writes don't falsely show
+    // success or replace a good saved title for the rest of this session.
+    const storageKey = isProject ? MANUAL_PROJECTS_KEY : SAVED_CHATS_KEY;
+    try {
+      GM_setValue(storageKey, updated.map(({ href, title }) => ({ href, title })));
+    } catch (error) {
+      console.warn('[SwiftClick Organizer] Could not save edited shortcut name:', error);
+      return false;
+    }
+    if (isProject) manualProjects = updated;
+    else savedChats = updated;
+    const renamed = updated.find((entry) => entry.key === item.key);
+    seen.set(item.key, renamed);
+    return true;
+  }
+
   function saveAssignments() {
     try {
       GM_setValue(STORAGE_KEY, { version: 2, assignments });
@@ -693,6 +729,11 @@
     '.edit-panel{position:absolute;top:calc(100% + 5px);right:0;z-index:25;min-width:230px;width:min(320px,100%);display:grid;gap:11px;padding:14px;background:#24364c;border:1px solid #7691b0;border-radius:11px;box-shadow:0 13px 35px #0009;}',
     '.edit-panel.above{top:auto;bottom:calc(100% + 5px);}',
     '.edit-panel .edit-label{display:block;font-size:12px;font-weight:600;color:#e6efff;}',
+    '.edit-panel .edit-name{width:100%;min-width:0;background:#19283b;border:1px solid #70849d;border-radius:7px;color:#fff;padding:9px;font:inherit;font-size:13px;}',
+    '.edit-panel .edit-help{color:#a7b7cc;font-size:11px;line-height:1.4;}',
+    '.edit-panel .edit-error{color:#ffbdbd;font-size:12px;}',
+    '.edit-panel .edit-actions{flex-wrap:wrap;justify-content:flex-start;}',
+    '.edit-panel .edit-actions .remove-action{margin-left:auto;}',
     '.edit-panel select{width:100%;min-width:0;max-width:none;}',
     '.edit-actions{display:flex;justify-content:space-between;align-items:center;gap:8px;}',
     '.remove-action{color:#ffd2d2;border-color:#975c68;}',
@@ -1440,7 +1481,7 @@
       if (focused) focused.focus();
     });
     editButton.dataset.itemKey = item.key;
-    editButton.title = 'Edit category or remove shortcut';
+    editButton.title = 'Edit shortcut name, category, or remove it';
     editButton.setAttribute('aria-label', 'Edit ' + item.title);
     editButton.setAttribute('aria-expanded', String(editItemKey === item.key));
     editButton.setAttribute('aria-haspopup', 'true');
@@ -1450,6 +1491,17 @@
       const editor = el('div', 'edit-panel');
       editor.setAttribute('role', 'group');
       editor.setAttribute('aria-label', 'Edit shortcut for ' + item.title);
+      const nameLabel = el('label', 'edit-label', 'Display name');
+      const nameInput = el('input', 'edit-name');
+      nameInput.type = 'text';
+      nameInput.maxLength = 140;
+      nameInput.required = true;
+      nameInput.value = item.title;
+      nameInput.setAttribute('aria-label', 'SwiftClick display name for ' + item.title);
+      nameLabel.appendChild(nameInput);
+      editor.appendChild(nameLabel);
+      editor.appendChild(el('div', 'edit-help', 'Only the SwiftClick shortcut name changes, not the title in ChatGPT.'));
+
       const label = el('label', 'edit-label', 'Category');
       const selector = el('select');
       selector.setAttribute('aria-label', 'Place ' + item.title + ' in category');
@@ -1459,23 +1511,41 @@
         selector.appendChild(opt);
       }
       selector.value = categoryFor(item);
-      selector.addEventListener('change', () => {
-        if ((item.type === 'project' && !saveProjectShortcut(item)) ||
-            (item.type === 'chat' && !saveChatShortcut(item))) {
-          window.alert('SwiftClick could not save that shortcut. The category was not changed.');
-          return;
-        }
-        if (selector.value !== categoryFor(item)) forgetItemOrder(item.key);
-        if (selector.value === 'uncategorized') delete assignments[item.key];
-        else assignments[item.key] = selector.value;
-        saveAssignments();
-        editItemKey = null;
-        render();
-      });
       label.appendChild(selector);
       editor.appendChild(label);
 
+      const error = el('div', 'edit-error');
+      error.setAttribute('role', 'alert');
+      editor.appendChild(error);
+
+      const saveChanges = () => {
+        const title = nameInput.value.replace(/\\s+/g, ' ').trim();
+        if (!title || title.length > 140) {
+          error.textContent = 'Enter a name between 1 and 140 characters.';
+          nameInput.focus();
+          return;
+        }
+        if (title !== item.title && !renameSavedShortcut(item, title)) {
+          error.textContent = 'Could not save the shortcut name. Check Tampermonkey storage.';
+          return;
+        }
+        if (selector.value !== categoryFor(item)) {
+          forgetItemOrder(item.key);
+          if (selector.value === 'uncategorized') delete assignments[item.key];
+          else assignments[item.key] = selector.value;
+          saveAssignments();
+        }
+        editItemKey = null;
+        render();
+      };
+      nameInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          saveChanges();
+        }
+      });
       const actions = el('div', 'edit-actions');
+      actions.appendChild(button('Save changes', 'action', saveChanges));
       actions.appendChild(button('Close', 'action', () => {
         editItemKey = null;
         render();

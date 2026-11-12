@@ -103,6 +103,29 @@ test('Health opens its user-confirmed destination, Adobe is removed, and browser
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 
+test('category cards use the ChatGPT Tools icon size and explicit project/chat counts', () => {
+  assert.match(script, /\.tool-icon\{font-size:24px;line-height:1\.1;\}/);
+  assert.match(script, /\.card-icon\{display:block;font-size:24px;line-height:1\.1;\}/);
+  assert.match(script, /card\.appendChild\(el\('span', 'card-icon', category\.icon\)\)/);
+  assert.match(script, /formatCategoryItemCounts\(visibleItems\(category\.id\)\)/);
+  assert.match(script, /card\.appendChild\(el\('span', 'card-meta', summary\)\)/);
+  assert.doesNotMatch(script,/count \+ ' item'/);
+  assert.equal(hooks.formatCategoryItemCounts([]), '0 projects | 0 chats');
+  assert.equal(hooks.formatCategoryItemCounts([{type:'project'}]), '1 project | 0 chats');
+  assert.equal(hooks.formatCategoryItemCounts([{type:'chat'}]), '0 projects | 1 chat');
+  const mixed = [
+    {type:'project',key:'p1'}, {type:'project',key:'p2'},
+    {type:'project',key:'p3'}, {type:'project',key:'p4'},
+    {type:'chat',key:'c1'}, {type:'chat',key:'c2'}
+  ];
+  assert.equal(hooks.formatCategoryItemCounts(mixed), '4 projects | 2 chats');
+  assert.equal(hooks.formatCategoryItemCounts([{type:'project'},{type:'chat'}]),
+    '1 project | 1 chat');
+  // Ignore unexpected item types instead of inflating totals.
+  assert.equal(hooks.formatCategoryItemCounts([{type:'other'},...mixed]),
+    '4 projects | 2 chats');
+});
+
 test('ChatGPT Tools catalog, three tabs, and regular/temporary New Chat split action', () => {
   assert.equal(hooks.toolCatalog.length,15);
   assert.deepEqual(Array.from(hooks.toolGroups,(g)=>g.id),['features','specialized','account']);
@@ -896,7 +919,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.21/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.22/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

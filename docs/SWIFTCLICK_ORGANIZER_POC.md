@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.21)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.22)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -618,3 +618,15 @@ Management includes **Show/Hide**, **Edit icon**, **optional first-party URL ove
 **Regression tests:** source, tests and documentation updated together in one commit. Verify ordinary Home auto-opens, New regular chat remains unobstructed, New temporary chat banner stays visible, Health navigates correctly, Adobe is absent, tool preferences persist and all other tabs are unchanged.
 
 **Status:** alpha development branch, draft PR #6. No production merge before browser acceptance.
+
+## Alpha.22 — Category icons and project/chat counts (2026-11-12)
+
+Two UI-only refinements requested after successful browser review of alpha.21:
+
+- Category card icons now have explicit `24px` font size and `1.1` line height via `.card-icon`, matching the existing `.tool-icon` in ChatGPT Tools. The category title, card dimensions, editable category icons and other tabs remain unchanged.
+- Each category card now shows **X projects | Y chats** instead of a generic total. Singular values are grammatically correct (`1 project | 1 chat`); zeros remain visible (`0 projects | 2 chats`). The summary is calculated from the same `visibleItems(category.id)` collection used when opening that category and uses each item's `type`; it does not count Quick Links or ChatGPT Tools.
+- No Tampermonkey storage changes, migration, new permissions, new network activity or native ChatGPT UI modifications.
+
+**Acceptance:** After updating to alpha.22, open ChatGPT Categories and compare icon sizes with ChatGPT Tools. Confirm category card summaries match project/chat counts after adding, deleting or recategorizing an item. Refresh to confirm no saved items, categories, icons or orders changed.
+
+**Status:** feature development branch and draft PR #6; browser acceptance pending.

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.21
+// @version      0.1.0-alpha.22
 // @description  Organize ChatGPT projects, quick links, and ChatGPT tools in three tabs.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -668,6 +668,7 @@
   if (typeof globalThis !== 'undefined' && globalThis.__SC_ORGANIZER_TEST_HOOKS__) {
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, shouldAutoOpenHome, parseItemLink, sanitizeManualProject, validCategory,
+      formatCategoryItemCounts,
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
       renameSavedShortcutModel,
       cleanIntakeName, chooseProjectName, headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
@@ -1087,6 +1088,7 @@
     '.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;margin-top:22px;}',
     '.card{background:#1b2a3b;border:1px solid #3d5067;color:#f0f5ff;text-align:left;border-radius:13px;padding:20px;cursor:pointer;min-height:102px;}',
     '.card:hover,.card:focus-visible{background:#29435c;border-color:#8bc2ff;}',
+    '.card-icon{display:block;font-size:24px;line-height:1.1;}',
     '.card-title{display:block;font-weight:700;font-size:15px;margin:8px 0 4px;}',
     '.card-meta{color:#afc1d8;font-size:12px;}',
     '.category-manager{display:grid;gap:15px;max-width:850px;}',
@@ -2312,16 +2314,29 @@
     return wrapper;
   }
 
+  // Always show both types; zeros are useful for diagnosing empty categories.
+  // Counts use the same visible item inventory as category navigation.
+  function formatCategoryItemCounts(items) {
+    let projects = 0;
+    let chats = 0;
+    for (const item of items) {
+      if (item.type === 'project') projects++;
+      else if (item.type === 'chat') chats++;
+    }
+    return projects + ' project' + (projects === 1 ? '' : 's') +
+      ' | ' + chats + ' chat' + (chats === 1 ? '' : 's');
+  }
+
   function makeCategoryCard(category) {
-    const count = visibleItems(category.id).length;
+    const summary = formatCategoryItemCounts(visibleItems(category.id));
     const card = button('', 'card', () => {
       currentCategory = category.id;
       query = '';
       render();
     });
-    card.appendChild(el('span', '', category.icon));
+    card.appendChild(el('span', 'card-icon', category.icon));
     card.appendChild(el('span', 'card-title', category.label));
-    card.appendChild(el('span', 'card-meta', count + ' item' + (count === 1 ? '' : 's')));
+    card.appendChild(el('span', 'card-meta', summary));
     return card;
   }
 

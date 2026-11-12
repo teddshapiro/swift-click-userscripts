@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.16)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.17)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -505,3 +505,18 @@ The existing ✎ edit popover on each saved project/chat card already supports c
 ### Validation status
 
 GitHub Node syntax and unit tests for project/chat display-name updates, immutable URL/key and error handling passed. Logged-in Firefox acceptance is still required for the popover interaction. Keep draft PR #6 unmerged and `main` unchanged.
+
+## Alpha.17 — Set icon chooser for Manage Categories (2026-11-12)
+
+The user asked for **Set icon** beside each editable category, opening a visual library of icons.
+
+- Each category row now shows its current icon and a **Set icon** control.
+- Clicking Set icon expands a searchable palette directly beneath that row, with 74 bundled icons. Search by name (e.g. home, books, bank) and filter by People, Finances, Home, Technology, Creative, or General.
+- Clicking a choice immediately persists the icon and returns to the category list; Cancel or Escape dismisses without saving. The current icon is identified and focus is returned to the Set icon control.
+- All previously used glyphs remain available. The library is bundled inside the userscript: no external fonts, networks, APIs or HTML-string injection.
+- The existing local `categoryDefinitions.v1` schema is extended to store `icon` alongside `id` and `label`. Earlier records without icons load their original built-in defaults (or ▦ for user-created categories), so there is no reset or migration.
+- Changing icons never affects category IDs, project/chat assignments, per-category custom order, shortcut links or native ChatGPT.
+
+**Firefox acceptance:** Update to alpha.17 without clearing Tampermonkey data, open Manage categories, use Set icon for Home, search for house and select 🏡. Confirm the Home card updates and survives a full refresh. Test group filter, Cancel and Escape, create a custom category and assign its icon, then verify its icon survives rename and reorder. Existing projects/chats and category counts should be unchanged.
+
+Keep draft PR #6 unmerged pending browser acceptance.

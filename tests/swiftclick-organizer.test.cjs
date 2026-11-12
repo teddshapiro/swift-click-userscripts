@@ -145,6 +145,67 @@ test('custom categories preserve assignments and ordering across reload', () => 
     .migrated,true);
 });
 
+
+test('icon changes persist locally while category IDs and old icons remain valid', () => {
+  const defaults = hooks.sanitizeCategoryDefinitions(null);
+  assert.equal(defaults.find((c)=>c.id==='home').icon,'⌂');
+  const changed = hooks.changeCategoryIconModel(defaults,'home','🏡');
+  assert.ok(changed);
+  assert.equal(changed.find((c)=>c.id==='home').icon,'🏡');
+  assert.equal(defaults.find((c)=>c.id==='home').icon,'⌂');
+  const stored = hooks.sanitizeCategoryDefinitions({version:1,categories:Array.from(changed,
+    ({id,label,icon})=>({id,label,icon}))});
+  assert.equal(stored.find((c)=>c.id==='home').icon,'🏡');
+  assert.equal(stored.find((c)=>c.id==='home').id,'home');
+  assert.equal(hooks.renameCategoryModel(stored,'home','Renovations').find((c)=>c.id==='home').icon,'🏡');
+  assert.equal(hooks.moveCategoryModel(stored,'home',-1).find((c)=>c.id==='home').icon,'🏡');
+  assert.equal(hooks.changeCategoryIconModel(stored,'home','<svg>'),null);
+  assert.equal(hooks.changeCategoryIconModel(stored,'missing','🏡'),null);
+});
+
+test('legacy category definitions keep default icons; unknown icon values are rejected', () => {
+  const old = hooks.sanitizeCategoryDefinitions({version:1,categories:[
+    {id:'home',label:'Home'},
+    {id:'custom-garden',label:'Garden'},
+    {id:'uncategorized',label:'Uncategorized'}
+  ]});
+  assert.equal(old[0].icon,'⌂');
+  assert.equal(old[1].icon,'▦');
+  assert.equal(old[2].icon,'▤');
+  const edited = hooks.changeCategoryIconModel(old,'custom-garden','🌳');
+  assert.equal(hooks.sanitizeCategoryDefinitions({version:1,categories:Array.from(edited,
+    ({id,label,icon})=>({id,label,icon}))})[1].icon,'🌳');
+  const corrupt = hooks.sanitizeCategoryDefinitions({version:1,categories:[
+    {id:'home',label:'Home',icon:'javascript:alert(1)'}
+  ]});
+  assert.equal(corrupt[0].icon,'⌂');
+});
+
+test('icon library can be searched and includes existing category glyphs', () => {
+  assert.ok(hooks.iconLibrary.length >= 65);
+  for (const icon of ['👪','♡','＄','⌂','◈','✧','✿','▤','▦']) {
+    assert.equal(hooks.categoryIconAllowed(icon),true);
+  }
+  assert.equal(hooks.categoryIconAllowed('<img src=x>'),false);
+  assert.ok(hooks.filterCategoryIcons('home').some((v)=>v.icon==='🏡'));
+  assert.ok(hooks.filterCategoryIcons('bank','Finances').some((v)=>v.icon==='🏦'));
+  assert.equal(hooks.filterCategoryIcons('bank','Creative').length,0);
+  assert.equal(hooks.filterCategoryIcons('not-an-icon').length,0);
+  assert.equal(hooks.filterCategoryIcons('').length,hooks.iconLibrary.length);
+});
+
+test('Manage Categories contains an accessible offline icon picker', () => {
+  assert.match(script,/button\('Set icon', 'action'/);
+  assert.match(script,/const picker = el\('div', 'category-icon-picker'\)/);
+  assert.match(script,/search\.addEventListener\('input', filterIcons\)/);
+  assert.match(script,/groupFilter\.addEventListener\('change', filterIcons\)/);
+  assert.match(script,/changeCategoryIconModel\(CATEGORIES, category\.id, choice\.icon\)/);
+  assert.match(script,/option\.setAttribute\('aria-pressed'/);
+  assert.match(script,/button\('Cancel icon selection'/);
+  assert.match(script,/categories: CATEGORIES\.map\(\(\{ id, label, icon \}\) => \(\{ id, label, icon \}\)\)/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+});
+
 test('category editor is isolated from chat sidebar and keeps destructive reset in manager', () => {
   assert.match(script, /const CATEGORY_DEFS_KEY = APP_ID \+ '\.categoryDefinitions\.v1'/);
   assert.match(script, /CATEGORIES = sanitizeCategoryDefinitions\(GM_getValue\(CATEGORY_DEFS_KEY, null\)\)/);
@@ -641,7 +702,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.16/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.17/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

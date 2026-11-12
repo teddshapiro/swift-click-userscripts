@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.16
+// @version      0.1.0-alpha.17
 // @description  Manual-only local organizer for ChatGPT projects and chats. Nothing auto-indexed.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -38,6 +38,97 @@
   // Stable IDs are never renamed. User-facing labels/order are locally editable.
   let CATEGORIES = DEFAULT_CATEGORIES.map((category) => ({ ...category }));
 
+  // Built-in searchable icon library: no remote assets or font dependencies.
+  const CATEGORY_ICON_LIBRARY = [
+    {"icon":"👪","label":"Family","group":"People"},
+    {"icon":"👨‍👩‍👧‍👦","label":"Household","group":"People"},
+    {"icon":"👥","label":"Group","group":"People"},
+    {"icon":"👤","label":"Person","group":"People"},
+    {"icon":"🧑‍🤝‍🧑","label":"Friends","group":"People"},
+    {"icon":"❤️","label":"Heart","group":"People"},
+    {"icon":"♡","label":"Outline heart","group":"People"},
+    {"icon":"🩺","label":"Health","group":"People"},
+    {"icon":"💪","label":"Fitness","group":"People"},
+    {"icon":"👶","label":"Children","group":"People"},
+    {"icon":"🐾","label":"Pets","group":"People"},
+    {"icon":"💵","label":"Cash","group":"Finances"},
+    {"icon":"＄","label":"Dollar sign","group":"Finances"},
+    {"icon":"💰","label":"Money bag","group":"Finances"},
+    {"icon":"💳","label":"Payment card","group":"Finances"},
+    {"icon":"📈","label":"Investing","group":"Finances"},
+    {"icon":"📉","label":"Market trends","group":"Finances"},
+    {"icon":"🏦","label":"Bank","group":"Finances"},
+    {"icon":"🧾","label":"Receipts","group":"Finances"},
+    {"icon":"🪙","label":"Coin","group":"Finances"},
+    {"icon":"💼","label":"Business","group":"Finances"},
+    {"icon":"🏠","label":"House","group":"Home"},
+    {"icon":"⌂","label":"Outline house","group":"Home"},
+    {"icon":"🏡","label":"Home and garden","group":"Home"},
+    {"icon":"🏗️","label":"Construction","group":"Home"},
+    {"icon":"🧱","label":"Brick wall","group":"Home"},
+    {"icon":"🔨","label":"Hammer","group":"Home"},
+    {"icon":"🔧","label":"Wrench","group":"Home"},
+    {"icon":"🛠️","label":"Tools","group":"Home"},
+    {"icon":"🪴","label":"Plant","group":"Home"},
+    {"icon":"🌳","label":"Tree","group":"Home"},
+    {"icon":"🔑","label":"Keys","group":"Home"},
+    {"icon":"🧹","label":"Cleaning","group":"Home"},
+    {"icon":"🚗","label":"Car","group":"Home"},
+    {"icon":"💻","label":"Laptop","group":"Technology"},
+    {"icon":"🖥️","label":"Desktop computer","group":"Technology"},
+    {"icon":"⌨️","label":"Keyboard","group":"Technology"},
+    {"icon":"📱","label":"Phone","group":"Technology"},
+    {"icon":"🤖","label":"Robot","group":"Technology"},
+    {"icon":"🧠","label":"Brain","group":"Technology"},
+    {"icon":"🧪","label":"Experiments","group":"Technology"},
+    {"icon":"⚙️","label":"Settings","group":"Technology"},
+    {"icon":"◈","label":"Diamond","group":"Technology"},
+    {"icon":"✧","label":"Sparkle","group":"Technology"},
+    {"icon":"🚀","label":"Rocket","group":"Technology"},
+    {"icon":"🎨","label":"Art","group":"Creative"},
+    {"icon":"✿","label":"Flower","group":"Creative"},
+    {"icon":"🎬","label":"Movies","group":"Creative"},
+    {"icon":"📸","label":"Photography","group":"Creative"},
+    {"icon":"🎵","label":"Music","group":"Creative"},
+    {"icon":"🎮","label":"Games","group":"Creative"},
+    {"icon":"✏️","label":"Writing","group":"Creative"},
+    {"icon":"📖","label":"Books","group":"Creative"},
+    {"icon":"🖌️","label":"Painting","group":"Creative"},
+    {"icon":"📁","label":"Folder","group":"General"},
+    {"icon":"🗂️","label":"File organizer","group":"General"},
+    {"icon":"🗃️","label":"Archive","group":"General"},
+    {"icon":"▦","label":"Tiles","group":"General"},
+    {"icon":"▤","label":"Notes","group":"General"},
+    {"icon":"📚","label":"Library","group":"General"},
+    {"icon":"🧭","label":"Compass","group":"General"},
+    {"icon":"⭐","label":"Star","group":"General"},
+    {"icon":"🔖","label":"Bookmark","group":"General"},
+    {"icon":"📌","label":"Pin","group":"General"},
+    {"icon":"🎯","label":"Target","group":"General"},
+    {"icon":"📅","label":"Calendar","group":"General"},
+    {"icon":"💡","label":"Idea","group":"General"},
+    {"icon":"🔔","label":"Notifications","group":"General"},
+    {"icon":"🔒","label":"Security","group":"General"},
+    {"icon":"☀️","label":"Sun","group":"General"},
+    {"icon":"🌍","label":"World","group":"General"},
+    {"icon":"✈️","label":"Travel","group":"General"},
+    {"icon":"🏖️","label":"Vacation","group":"General"},
+    {"icon":"⛺","label":"Camping","group":"General"}
+  ];
+  function categoryIconAllowed(icon) {
+    return typeof icon === 'string' && CATEGORY_ICON_LIBRARY.some((choice) => choice.icon === icon);
+  }
+  function filterCategoryIcons(query, group = '') {
+    const search = String(query || '').trim().toLocaleLowerCase();
+    return CATEGORY_ICON_LIBRARY.filter((choice) =>
+      (!group || choice.group === group) &&
+      (!search || (choice.label + ' ' + choice.group).toLocaleLowerCase().includes(search)));
+  }
+  function changeCategoryIconModel(categories, categoryId, icon) {
+    if (!categoryIconAllowed(icon) || !categories.some((c) => c.id === categoryId)) return null;
+    return categories.map((c) => c.id === categoryId ? { ...c, icon } : { ...c });
+  }
+
   function categoryLabel(value) {
     return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 50);
   }
@@ -63,7 +154,9 @@
       if ((!known && !/^custom-[a-z0-9-]{3,80}$/.test(id)) || ids.has(id)) continue;
       const label = categoryLabel(entry.label);
       if (!label || categoryLabelTaken(cleaned, label)) continue;
-      cleaned.push({ id, label, icon: known ? known.icon : '▦' });
+      const fallbackIcon = known ? known.icon : '▦';
+      const icon = categoryIconAllowed(entry.icon) ? entry.icon : fallbackIcon;
+      cleaned.push({ id, label, icon });
       ids.add(id);
     }
     if (!ids.has('uncategorized')) {
@@ -390,6 +483,8 @@
       renameSavedShortcutModel,
       cleanIntakeName, chooseProjectName, headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
       sanitizeCategoryDefinitions, createCategoryModel, renameCategoryModel,
+      categoryIconAllowed, filterCategoryIcons, changeCategoryIconModel,
+      iconLibrary: CATEGORY_ICON_LIBRARY,
       deleteCategoryModel, moveCategoryModel, deleteCategoryAssignments, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
       categories: CATEGORIES.map((c) => c.id)
     });
@@ -422,6 +517,7 @@
   let refreshTimer = 0;
   let dragging = null; // Only local browser UI state; never drag ChatGPT links.
   let editItemKey = null; // One card-level editing popover at a time.
+  let iconPickerCategoryId = null;
   let managingCategories = false;
   let categoryManagerError = '';
 
@@ -429,7 +525,7 @@
     try {
       GM_setValue(CATEGORY_DEFS_KEY, {
         version: 1,
-        categories: CATEGORIES.map(({ id, label }) => ({ id, label }))
+        categories: CATEGORIES.map(({ id, label, icon }) => ({ id, label, icon }))
       });
       return true;
     } catch (error) {
@@ -716,6 +812,21 @@
     '.category-danger{border-top:1px solid #405066;padding-top:14px;display:grid;gap:8px;}',
     '.category-error{color:#ffc2c2;min-height:16px;font-size:13px;}',
     '.category-system{font-size:11px;color:#a7b7cc;flex:none;}',
+    '.category-icon-preview{flex:none;width:28px;text-align:center;font-size:21px;line-height:1.25;}',
+    '.category-manager-row.picking-icon{flex-wrap:wrap;border-color:#7794b5;}',
+    '.category-icon-picker{flex:0 0 100%;min-width:0;display:grid;gap:10px;border-top:1px solid #4b6581;padding:12px 2px 4px;}',
+    '.category-icon-picker .picker-title{font-size:13px;font-weight:700;}',
+    '.category-icon-filters{display:flex;gap:8px;flex-wrap:wrap;}',
+    '.category-icon-filters input{flex:2;min-width:150px;padding:9px 11px;}',
+    '.category-icon-filters select{flex:1;min-width:130px;max-width:220px;}',
+    '.category-icon-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(76px,1fr));gap:7px;max-height:240px;overflow-y:auto;padding:4px;}',
+    '.category-icon-option{display:grid;place-items:center;gap:5px;min-height:68px;padding:6px 3px;background:#182738;color:#dce9f7;border:1px solid #445b74;border-radius:9px;cursor:pointer;}',
+    '.category-icon-option:hover,.category-icon-option:focus-visible{background:#34516f;border-color:#9bc6ec;}',
+    '.category-icon-option[aria-pressed="true"]{border:2px solid #85c0f2;background:#26435c;}',
+    '.category-icon-glyph{font-size:24px;line-height:1.2;}',
+    '.category-icon-label{font-size:10px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;}',
+    '.category-icon-option[hidden]{display:none!important;}',
+
 
     '.toolbar{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-bottom:16px;}',
     '.title{font-size:20px;font-weight:750;margin:0 0 4px;}',
@@ -1248,6 +1359,10 @@
         reorderCategoryFromDrop(moved, category.id, after);
       });
       row.appendChild(handle);
+      const preview = el('span', 'category-icon-preview', category.icon);
+      preview.title = 'Current icon for ' + category.label;
+      preview.setAttribute('aria-label', 'Current icon for ' + category.label);
+      row.appendChild(preview);
       const name = el('input');
       name.type = 'text';
       name.maxLength = 50;
@@ -1268,6 +1383,16 @@
       const save = button('Save name', 'action', update);
       save.title = 'Save category name';
       actions.appendChild(save);
+      const chooseIcon = button('Set icon', 'action', () => {
+        iconPickerCategoryId = iconPickerCategoryId === category.id ? null : category.id;
+        render();
+        const search = panel.querySelector('.category-icon-search');
+        if (search) search.focus();
+      });
+      chooseIcon.dataset.categoryId = category.id;
+      chooseIcon.setAttribute('aria-expanded', String(iconPickerCategoryId === category.id));
+      chooseIcon.setAttribute('aria-label', 'Set icon for ' + category.label);
+      actions.appendChild(chooseIcon);
       name.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
@@ -1301,6 +1426,79 @@
         actions.appendChild(el('span', 'category-system', 'Inbox · cannot delete'));
       }
       row.appendChild(actions);
+      if (iconPickerCategoryId === category.id) {
+        row.classList.add('picking-icon');
+        const picker = el('div', 'category-icon-picker');
+        picker.appendChild(el('div', 'picker-title', 'Choose an icon for ' + category.label));
+        const controls = el('div', 'category-icon-filters');
+        const search = el('input', 'category-icon-search');
+        search.type = 'search';
+        search.placeholder = 'Search icons, e.g. home, books, money…';
+        search.setAttribute('aria-label', 'Search available category icons');
+        controls.appendChild(search);
+        const groupFilter = el('select');
+        groupFilter.setAttribute('aria-label', 'Filter icon library by group');
+        const all = el('option', '', 'All icons');
+        all.value = '';
+        groupFilter.appendChild(all);
+        for (const groupName of [...new Set(CATEGORY_ICON_LIBRARY.map((choice) => choice.group))]) {
+          const option = el('option', '', groupName);
+          option.value = groupName;
+          groupFilter.appendChild(option);
+        }
+        controls.appendChild(groupFilter);
+        picker.appendChild(controls);
+        const grid = el('div', 'category-icon-grid');
+        grid.setAttribute('role', 'group');
+        grid.setAttribute('aria-label', 'Available icons');
+        const empty = el('div', 'hint', 'No icons match that search.');
+        const available = [];
+        for (const choice of CATEGORY_ICON_LIBRARY) {
+          const option = button('', 'category-icon-option', () => {
+            const next = changeCategoryIconModel(CATEGORIES, category.id, choice.icon);
+            if (!next) return;
+            iconPickerCategoryId = null;
+            if (!applyCategoryDefinitions(next)) {
+              iconPickerCategoryId = category.id;
+              return;
+            }
+            const trigger = [...panel.querySelectorAll('.category-row-actions button')]
+              .find((btn) => btn.dataset.categoryId === category.id);
+            if (trigger) trigger.focus();
+          });
+          option.setAttribute('aria-label', choice.label + ' icon');
+          option.setAttribute('aria-pressed', String(category.icon === choice.icon));
+          option.title = choice.group + ' · ' + choice.label;
+          option.appendChild(el('span', 'category-icon-glyph', choice.icon));
+          option.appendChild(el('span', 'category-icon-label', choice.label));
+          grid.appendChild(option);
+          available.push({ option, choice });
+        }
+        const filterIcons = () => {
+          const matches = new Set(filterCategoryIcons(search.value, groupFilter.value)
+            .map((choice) => choice.icon));
+          let total = 0;
+          for (const { option, choice } of available) {
+            const shown = matches.has(choice.icon);
+            option.hidden = !shown;
+            if (shown) total++;
+          }
+          empty.hidden = total > 0;
+        };
+        search.addEventListener('input', filterIcons);
+        groupFilter.addEventListener('change', filterIcons);
+        picker.appendChild(grid);
+        picker.appendChild(empty);
+        filterIcons();
+        picker.appendChild(button('Cancel icon selection', 'action', () => {
+          iconPickerCategoryId = null;
+          render();
+          const trigger = [...panel.querySelectorAll('.category-row-actions button')]
+            .find((btn) => btn.dataset.categoryId === category.id);
+          if (trigger) trigger.focus();
+        }));
+        row.appendChild(picker);
+      }
       list.appendChild(row);
     }
     wrapper.appendChild(list);
@@ -1766,6 +1964,7 @@
         'Categories are stored locally in Tampermonkey. Saved projects and chats are never moved in native ChatGPT.'));
       footer.appendChild(button('← Back to categories', 'action', () => {
         managingCategories = false;
+        iconPickerCategoryId = null;
         categoryManagerError = '';
         currentCategory = null;
         query = '';
@@ -1885,6 +2084,7 @@
 
   function show(automatic = false) {
     editItemKey = null;
+    iconPickerCategoryId = null;
     managingCategories = false;
     categoryManagerError = '';
     open = true;
@@ -1913,6 +2113,7 @@
 
   function hide() {
     editItemKey = null;
+    iconPickerCategoryId = null;
     managingCategories = false;
     dragging = null;
     open = false;
@@ -1925,7 +2126,14 @@
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && open) {
       event.preventDefault();
-      if (managingCategories) {
+      if (managingCategories && iconPickerCategoryId) {
+        const selected = iconPickerCategoryId;
+        iconPickerCategoryId = null;
+        render();
+        const trigger = [...panel.querySelectorAll('.category-row-actions button')]
+          .find((btn) => btn.dataset.categoryId === selected);
+        if (trigger) trigger.focus();
+      } else if (managingCategories) {
         managingCategories = false;
         categoryManagerError = '';
         currentCategory = null;

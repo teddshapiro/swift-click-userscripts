@@ -659,9 +659,23 @@
     if (!project || project.type !== 'project') return false;
     const trigger = pending.trigger || null;
     const title = chooseProjectName(trigger, project.key,
-      manualProjects.find((p) => p.key === project.key)?.title, projectNameOnPage());
+      projectNameForExplicitIntake(project.key) ||
+        manualProjects.find((p) => p.key === project.key)?.title, projectNameOnPage());
     openProjectIntake({ ...project, title });
     return true;
+  }
+
+  function projectNameForExplicitIntake(key) {
+    // Targeted title lookup ONLY after the user invokes Add on a project.
+    // This scans no chat content and adds nothing to SwiftClick inventory.
+    for (const anchor of document.querySelectorAll('nav a[href], aside a[href], [data-testid*="sidebar"] a[href]')) {
+      const linked = parseItemLink(anchor.getAttribute('href'), '', location.origin);
+      if (!linked || linked.type !== 'project' || linked.key !== key) continue;
+      const name = cleanIntakeName(anchor.textContent ||
+        anchor.getAttribute('title') || anchor.getAttribute('aria-label'));
+      if (name) return name;
+    }
+    return '';
   }
 
   function projectNameOnPage() {
@@ -701,7 +715,8 @@
     if (project && project.type === 'project') {
       const trigger = pendingNativeProject.trigger || null;
       const name = chooseProjectName(trigger, project.key,
-        manualProjects.find((p) => p.key === project.key)?.title, projectNameOnPage());
+        projectNameForExplicitIntake(project.key) ||
+          manualProjects.find((p) => p.key === project.key)?.title, projectNameOnPage());
       openProjectIntake({ ...project, title: name });
     }
   }
@@ -721,7 +736,8 @@
     const parsed = nativeLink && parseItemLink(nativeLink.getAttribute('href'), '', location.origin);
     if (parsed && parsed.type === 'project') {
       const title = chooseProjectName(recentProjectTrigger, parsed.key,
-        manualProjects.find((p) => p.key === parsed.key)?.title, '');
+        projectNameForExplicitIntake(parsed.key) ||
+          manualProjects.find((p) => p.key === parsed.key)?.title, '');
       openProjectIntake({ ...parsed, title });
       return;
     }

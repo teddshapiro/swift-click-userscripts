@@ -64,6 +64,80 @@ test('normalize labels and omit URL query parameters from stored navigation link
   assert.equal(item.href, 'https://chatgpt.com/c/abc-42');
 });
 
+
+test('Quick Links start with YouTube and Google Drive only for uninitialized storage', () => {
+  const defaults = hooks.sanitizeQuickLinks(null);
+  assert.deepEqual(Array.from(defaults, (item) => item.title), ['YouTube', 'Google Drive']);
+  assert.equal(defaults[0].href, 'https://www.youtube.com/');
+  assert.equal(defaults[1].href, 'https://drive.google.com/');
+  assert.deepEqual(Array.from(hooks.sanitizeQuickLinks({version:1,links:[]})), []);
+  assert.deepEqual(Array.from(hooks.sanitizeQuickLinks({version:1,links:[]}), (i)=>i.id), []);
+  assert.equal(defaults[0].icon, '🎬');
+  assert.equal(defaults[1].icon, '📁');
+});
+
+test('Quick Links validate HTTP(S) destinations without changing deep links', () => {
+  const origin = hooks.sanitizeQuickLink({
+    id:'ql-test123', title:' Custom  Portal ',href:'https://example.com/app?x=123#section',icon:'💻'
+  });
+  assert.equal(origin.title, 'Custom Portal');
+  assert.equal(origin.href, 'https://example.com/app?x=123#section');
+  assert.equal(origin.icon, '💻');
+  assert.equal(hooks.sanitizeQuickLink({id:'ql-test123',title:'T',href:'http://localhost:8000/',icon:'📁'}).href, 'http://localhost:8000/');
+  for (const href of ['javascript:alert(1)', 'data:text/html,x', 'file:///etc/passwd',
+    'https://person:password@example.com/', 'not a link', 'ftp://example.com/']) {
+    assert.equal(hooks.sanitizeQuickLink({id:'ql-invalid',title:'Bad',href}),null,href);
+  }
+  assert.equal(hooks.sanitizeQuickLink({id:'ql-invalid',title:' ',href:'https://example.com/'}),null);
+  assert.equal(hooks.sanitizeQuickLink({id:'wrong-id',title:'Bad',href:'https://example.com/'}),null);
+  assert.equal(hooks.sanitizeQuickLink({id:'ql-anything',title:'Name',href:'https://example.com/',icon:'<script>'}).icon,'🔖');
+});
+
+test('Quick Links add, edit, remove and reorder are pure and preserve IDs', () => {
+  const original = hooks.sanitizeQuickLinks(null);
+  const added = hooks.saveQuickLinkModel(original, {
+    id:'ql-wiki123',title:'Wikipedia',href:'https://en.wikipedia.org/',icon:'📚'
+  });
+  assert.equal(added.length,3);
+  assert.equal(hooks.saveQuickLinkModel(added, added[0]),null);
+  assert.equal(original.length,2);
+  const edited = hooks.editQuickLinkModel(added, 'ql-wiki123', {
+    title:'Reference Wiki',href:'https://en.wikipedia.org/wiki/Main_Page'
+  });
+  assert.equal(edited[2].title,'Reference Wiki');
+  assert.equal(edited[2].id,'ql-wiki123');
+  assert.equal(edited[2].href,'https://en.wikipedia.org/wiki/Main_Page');
+  assert.equal(added[2].title,'Wikipedia');
+  assert.equal(hooks.editQuickLinkModel(added,'not-there',{title:'New'}),null);
+  const moved = hooks.reorderQuickLinksModel(edited,'ql-wiki123','youtube',false);
+  assert.deepEqual(Array.from(moved, (i)=>i.id),['ql-wiki123','youtube','google-drive']);
+  assert.equal(hooks.reorderQuickLinksModel(moved,'youtube','youtube',false),null);
+  const removed = hooks.deleteQuickLinkModel(moved,'youtube');
+  assert.deepEqual(Array.from(removed, (i)=>i.id),['ql-wiki123','google-drive']);
+  assert.equal(hooks.deleteQuickLinkModel(removed,'youtube'),null);
+});
+
+test('Quick Links opens real new-tab anchors and is isolated from ChatGPT inventory', () => {
+  assert.match(script,/const QUICK_LINKS_KEY = APP_ID \+ '\\.quickLinks\\.v1'/);
+  assert.match(script,/GM_getValue\(QUICK_LINKS_KEY, null\)/);
+  assert.match(script,/GM_setValue\(QUICK_LINKS_KEY, \{ version: 1/);
+  assert.match(script,/const DEFAULT_QUICK_LINKS = \[/);
+  assert.match(script,/card\.target = '_blank'/);
+  assert.match(script,/card\.rel = 'noopener noreferrer'/);
+  assert.match(script,/function makeQuickLinkCard\(link\)/);
+  assert.match(script,/function makeQuickLinkManager\(\)/);
+  assert.match(script,/tab\.title, 'section-tab'/);
+  assert.match(script,/activeTab = 'categories'/);
+  assert.match(script,/activeTab === 'quicklinks'/);
+  assert.match(script,/quickLinkEditingId = null/);
+  assert.match(script,/button\('⚙ Manage Quick Links', 'action'/);
+  assert.match(script,/reorderQuickLinksModel\(quickLinks, source, link\.id, after\)/);
+  assert.match(script,/button\('Delete', 'action remove-action'/);
+  assert.match(script,/name\.maxLength = 100/);
+  assert.match(script,/url\.maxLength = 2048/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+});
+
 test('category catalog defaults and persists custom names, order and deletion', () => {
   const defaults = hooks.sanitizeCategoryDefinitions(null);
   assert.deepEqual(Array.from(defaults, (c) => c.id), [
@@ -702,7 +776,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.17/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.18/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.17)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.18)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -520,3 +520,36 @@ The user asked for **Set icon** beside each editable category, opening a visual 
 **Firefox acceptance:** Update to alpha.17 without clearing Tampermonkey data, open Manage categories, use Set icon for Home, search for house and select 🏡. Confirm the Home card updates and survives a full refresh. Test group filter, Cancel and Escape, create a custom category and assign its icon, then verify its icon survives rename and reorder. Existing projects/chats and category counts should be unchanged.
 
 Keep draft PR #6 unmerged pending browser acceptance.
+
+## Alpha.18 — second front-door tab for customizable Quick Links (2026-11-12)
+
+### Product intent
+
+The existing SwiftClick Organizer front door becomes **two top-level tabs**: **ChatGPT Categories** (the original first/default tab, unchanged) and **Quick Links** (a user-managed launcher for unrelated websites). Quick Links are not ChatGPT projects or chats and do not participate in category assignments or category ordering.
+
+### Defaults, behavior and storage
+
+- On first access, Quick Links contains two starter links: **YouTube** → `https://www.youtube.com/` and **Google Drive** → `https://drive.google.com/`.
+- Clicking a Quick Link opens the configured destination using a real `<a>` element with `target="_blank"` and `rel="noopener noreferrer"`. The existing ChatGPT tab is not navigated away.
+- **⚙ Manage Quick Links** opens a management view to **add**, **edit** display name/destination URL/icon, **delete**, and **reorder** links. Reordering supports desktop drag handles and keyboard Up/Down controls. Add/Edit forms validate destinations and show errors for invalid input.
+- Use the existing built-in category icon library as the icon options; no external fonts/images. Default icon choices: YouTube 🎬 and Google Drive 📁.
+- Link validation allows only `http:` and `https:` (including local web apps) and rejects missing hostnames, embedded credentials, script/data/file schemes, empty names and overlong inputs. Users are responsible for the trustworthiness of their saved external destinations. Persist full paths, query strings and URL fragments because bookmarks may intentionally use them.
+- Quick Links has its own Tampermonkey key `swiftclick-organizer-poc.quickLinks.v1`, version 1, storing `[{id,title,href,icon}]` in display order. The starter links are seeded **only if this key is absent**. Once a link is removed—or even all links are deleted—it must remain deleted after refresh, never reset to the starters.
+- Saving writes storage first and updates the UI only on success. Maximum 100 Quick Links; name length 100 and URL length 2048.
+- The existing local categories and chat/project shortcut stores and their IDs/ordering remain untouched. The Organizer opens on **ChatGPT Categories** as before; switching tabs never imports/indexes external sites.
+
+### Browser acceptance
+
+1. Upgrade the single Tampermonkey installation to alpha.18 and reload ChatGPT. Confirm the two tabs and that existing category cards/counts remain unchanged.
+2. Click **Quick Links**. The starter YouTube and Google Drive buttons should appear. Click each; it should launch the correct site in a **new browser tab**, leaving the original ChatGPT tab usable.
+3. Click Manage Quick Links and add a link (e.g. another useful website). Verify name/URL/icon are displayed, and that clicking it opens exactly the entered address.
+4. Edit a link title/URL/icon, save, leave the manager and refresh ChatGPT. Changes should persist.
+5. Reorder by dragging and via keyboard Arrow Up/Down while the handle is focused. Confirm the order matches the visual grid and survives refresh.
+6. Delete a starter link and refresh. It must remain deleted; test adding it back manually if desired. Deleting all links should show an empty state, not silently restore starter links.
+7. Try a `javascript:` or `file:` URL: saving must be rejected. Confirm native ChatGPT project menu, category editing and icon pickers still work.
+
+### Implementation requirements
+
+Pure model helpers and Node regression tests cover starter seeding, blank-list persistence, URL restrictions, add/edit/delete/reorder behavior, no HTML injection, and safe new-tab links. All UI uses explicit `document.createElement` and Shadow DOM rather than `innerHTML`.
+
+**Status:** experimental feature branch, draft PR #6; keep `main` unchanged until Firefox acceptance.

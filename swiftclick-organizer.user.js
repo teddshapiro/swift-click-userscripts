@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.17
-// @description  Manual-only local organizer for ChatGPT projects and chats. Nothing auto-indexed.
+// @version      0.1.0-alpha.18
+// @description  Manual ChatGPT categories and customizable quick links in a local two-tab organizer.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
 // @match        https://www.chatgpt.com/*
@@ -23,6 +23,7 @@
   const SAVED_CHATS_KEY = APP_ID + '.savedChats.v1';
   const ORDER_KEY = APP_ID + '.categoryOrder.v1';
   const CATEGORY_DEFS_KEY = APP_ID + '.categoryDefinitions.v1';
+  const QUICK_LINKS_KEY = APP_ID + '.quickLinks.v1';
   const LEGACY_PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
   // Flat virtual categories only; do not introduce nested categories in this MVP.
   const DEFAULT_CATEGORIES = [
@@ -416,6 +417,79 @@
 
 
 
+
+  // Quick Links is independent of native ChatGPT projects and local categories.
+  // Seed only when no key exists. Once saved, an empty list stays empty.
+  const DEFAULT_QUICK_LINKS = [
+    { id: 'youtube', title: 'YouTube', href: 'https://www.youtube.com/', icon: '🎬' },
+    { id: 'google-drive', title: 'Google Drive', href: 'https://drive.google.com/', icon: '📁' }
+  ];
+
+  function sanitizeQuickLink(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const id = String(raw.id || '');
+    const title = String(raw.title || '').replace(/\s+/g, ' ').trim();
+    const href = String(raw.href || '').trim();
+    if (!/^(?:youtube|google-drive|ql-[a-z0-9-]{3,80})$/.test(id) ||
+        !title || title.length > 100 || !href || href.length > 2048) return null;
+    try {
+      const url = new URL(href);
+      if (!['http:', 'https:'].includes(url.protocol) ||
+          !url.hostname || url.username || url.password) return null;
+      // Normalize only via the URL parser; preserve paths, queries and hashes
+      // so user-authored deep links retain their exact destination.
+      return {
+        id, title, href: url.href,
+        icon: categoryIconAllowed(raw.icon) ? raw.icon : '🔖'
+      };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function sanitizeQuickLinks(raw) {
+    if (raw == null) return DEFAULT_QUICK_LINKS.map((entry) => ({ ...entry }));
+    if (!raw || raw.version !== 1 || !Array.isArray(raw.links)) return [];
+    const result = [];
+    const ids = new Set();
+    for (const value of raw.links.slice(0, 100)) {
+      const item = sanitizeQuickLink(value);
+      if (!item || ids.has(item.id)) continue;
+      result.push(item);
+      ids.add(item.id);
+    }
+    return result;
+  }
+
+  function saveQuickLinkModel(items, raw) {
+    if (!Array.isArray(items) || items.length >= 100) return null;
+    const item = sanitizeQuickLink(raw);
+    if (!item || items.some((entry) => entry.id === item.id)) return null;
+    return [...items, item];
+  }
+
+  function editQuickLinkModel(items, id, changes) {
+    if (!Array.isArray(items) || !items.some((item) => item.id === id)) return null;
+    const current = items.find((item) => item.id === id);
+    const updated = sanitizeQuickLink({ ...current, ...changes, id });
+    if (!updated) return null;
+    return items.map((item) => item.id === id ? updated : item);
+  }
+
+  function deleteQuickLinkModel(items, id) {
+    if (!Array.isArray(items) || !items.some((item) => item.id === id)) return null;
+    return items.filter((item) => item.id !== id);
+  }
+
+  function reorderQuickLinksModel(items, fromId, targetId, after = false) {
+    if (!Array.isArray(items)) return null;
+    const ids = items.map((item) => item.id);
+    const ordered = reorderKeys(ids, fromId, targetId, after);
+    if (ordered.every((id, index) => ids[index] === id)) return null;
+    const byId = new Map(items.map((item) => [item.id, item]));
+    return ordered.map((id) => byId.get(id));
+  }
+
   // Order is independent for each flat category. Keep known IDs even when a
   // lazily-loaded ChatGPT sidebar does not currently expose every item.
   function sanitizeCategoryOrders(raw, categories = CATEGORIES) {
@@ -485,6 +559,8 @@
       sanitizeCategoryDefinitions, createCategoryModel, renameCategoryModel,
       categoryIconAllowed, filterCategoryIcons, changeCategoryIconModel,
       iconLibrary: CATEGORY_ICON_LIBRARY,
+      defaultQuickLinks: DEFAULT_QUICK_LINKS, sanitizeQuickLink, sanitizeQuickLinks,
+      saveQuickLinkModel, editQuickLinkModel, deleteQuickLinkModel, reorderQuickLinksModel,
       deleteCategoryModel, moveCategoryModel, deleteCategoryAssignments, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
       categories: CATEGORIES.map((c) => c.id)
     });
@@ -503,6 +579,12 @@
   }
 
   const seen = new Map(); // Session-only inventory: no cross-account stored chat titles/links.
+  let activeTab = 'categories';
+  let managingQuickLinks = false;
+  let quickLinkEditingId = null;
+  let quickLinkAdding = false;
+  let quickLinkError = '';
+  let quickLinkDragged = null;
   let currentCategory = null;
   let query = '';
   let addingProject = false;
@@ -546,6 +628,49 @@
     categoryManagerError = '';
     render();
     return true;
+  }
+
+
+  function readQuickLinks() {
+    try {
+      return sanitizeQuickLinks(GM_getValue(QUICK_LINKS_KEY, null));
+    } catch (error) {
+      console.warn('[SwiftClick Organizer] Could not read Quick Links:', error);
+      return DEFAULT_QUICK_LINKS.map((entry) => ({ ...entry }));
+    }
+  }
+  let quickLinks = readQuickLinks();
+
+  function applyQuickLinks(next) {
+    if (!next) return false;
+    try {
+      GM_setValue(QUICK_LINKS_KEY, { version: 1,
+        links: next.map(({ id, title, href, icon }) => ({ id, title, href, icon }))
+      });
+    } catch (error) {
+      console.warn('[SwiftClick Organizer] Could not save Quick Links:', error);
+      quickLinkError = 'Could not save Quick Links. Check Tampermonkey storage.';
+      render();
+      return false;
+    }
+    quickLinks = next;
+    quickLinkError = '';
+    quickLinkAdding = false;
+    quickLinkEditingId = null;
+    render();
+    return true;
+  }
+
+  function moveQuickLink(id, direction) {
+    const at = quickLinks.findIndex((item) => item.id === id);
+    const target = quickLinks[at + direction];
+    if (at < 0 || !target) return;
+    const moved = reorderQuickLinksModel(quickLinks, id, target.id, direction > 0);
+    if (applyQuickLinks(moved)) {
+      const handle = [...panel.querySelectorAll('.quick-drag')]
+        .find((node) => node.dataset.linkId === id);
+      if (handle) handle.focus();
+    }
   }
 
   function readCategoryOrders() {
@@ -826,6 +951,42 @@
     '.category-icon-glyph{font-size:24px;line-height:1.2;}',
     '.category-icon-label{font-size:10px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:center;}',
     '.category-icon-option[hidden]{display:none!important;}',
+
+    '.section-tabs{display:flex;gap:8px;padding:0 20px;border-bottom:1px solid #304052;}',
+    '.section-tab{background:none;border:0;border-bottom:3px solid transparent;border-radius:0;padding:12px 16px;color:#a9bed5;font:600 14px system-ui;cursor:pointer;}',
+    '.section-tab:hover{color:#fff;background:#213248;}',
+    '.section-tab[aria-selected="true"]{border-bottom-color:#7bbcf0;color:#fff;}',
+    '.quick-header{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px;}',
+    '.quick-header h2{margin:0;font-size:20px;}',
+    '.quick-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:22px;align-content:start;}',
+    '.quick-card{display:grid;align-content:center;gap:8px;min-width:0;min-height:122px;padding:18px 20px;border:1px solid #3d5067;border-radius:13px;background:#1b2a3b;color:#eef5ff;text-decoration:none;}',
+    '.quick-card:hover,.quick-card:focus-visible{background:#29435c;border-color:#8bc2ff;}',
+    '.quick-card-icon{font-size:25px;line-height:1;}',
+    '.quick-card-title{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.quick-card-domain{font-size:11px;color:#a7b7cc;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}',
+    '.quick-manager{display:grid;gap:15px;max-width:920px;}',
+    '.quick-manager h2{margin:0;font-size:20px;}',
+    '.quick-rows{display:grid;gap:10px;}',
+    '.quick-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:11px;background:#1b2a3b;border:1px solid #3d5067;border-radius:10px;}',
+    '.quick-row.dragging{opacity:.48;}',
+    '.quick-row.drop-before{border-top:3px solid #8ac8ff;padding-top:9px;}',
+    '.quick-row.drop-after{border-bottom:3px solid #8ac8ff;padding-bottom:9px;}',
+    '.quick-drag{flex:none;background:transparent;color:#c8d8eb;border:0;border-radius:7px;cursor:grab;padding:8px;font:700 18px system-ui;}',
+    '.quick-drag:hover{background:#314660;}',
+    '.quick-row-symbol{font-size:23px;flex:none;}',
+    '.quick-row-text{flex:1;min-width:120px;display:grid;gap:4px;}',
+    '.quick-row-title{font-weight:700;font-size:14px;}',
+    '.quick-row-url{font-size:11px;color:#aebfd4;overflow-wrap:anywhere;}',
+    '.quick-row-actions{display:flex;gap:5px;flex-wrap:wrap;}',
+    '.quick-edit-form{display:grid;gap:12px;padding:15px;background:#1b2a3b;border:1px solid #5f7791;border-radius:10px;}',
+    '.quick-edit-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;}',
+    '.quick-edit-form label{display:grid;gap:5px;font-size:12px;color:#cdddf0;}',
+    '.quick-edit-form input,.quick-edit-form select{min-width:0;width:100%;padding:10px;border:1px solid #536981;border-radius:7px;background:#202e40;color:#f4f8ff;font:inherit;}',
+    '.quick-edit-form .quick-link-url{grid-column:1/-1;}',
+    '.quick-edit-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}',
+    '.quick-error{font-size:12px;color:#ffbdbd;}',
+    '@media(max-width:720px){.quick-edit-fields{grid-template-columns:1fr}.section-tabs{padding:0 12px}.section-tab{padding:11px 10px;font-size:12px;}}',
+
 
 
     '.toolbar{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-bottom:16px;}',
@@ -1546,6 +1707,199 @@
     return wrapper;
   }
 
+
+  function makeQuickLinkCard(link) {
+    const card = el('a', 'quick-card');
+    card.href = link.href;
+    card.target = '_blank';
+    card.rel = 'noopener noreferrer';
+    card.title = 'Open ' + link.title + ' in a new tab';
+    card.setAttribute('aria-label', 'Open ' + link.title + ' in a new tab');
+    card.appendChild(el('span', 'quick-card-icon', link.icon));
+    card.appendChild(el('span', 'quick-card-title', link.title));
+    card.appendChild(el('span', 'quick-card-domain', new URL(link.href).hostname));
+    return card;
+  }
+
+  function makeQuickLinkForm(link) {
+    const edit = Boolean(link);
+    const form = el('form', 'quick-edit-form');
+    form.appendChild(el('div', 'brand', edit ? 'Edit quick link' : 'Add quick link'));
+    const fields = el('div', 'quick-edit-fields');
+    const nameLabel = el('label', '', 'Display name');
+    const name = el('input');
+    name.type = 'text';
+    name.maxLength = 100;
+    name.required = true;
+    name.placeholder = 'e.g. My favorite website';
+    name.value = link ? link.title : '';
+    nameLabel.appendChild(name);
+    fields.appendChild(nameLabel);
+    const iconLabel = el('label', '', 'Icon');
+    const icon = el('select');
+    const allowed = CATEGORY_ICON_LIBRARY;
+    for (const choice of allowed) {
+      const option = el('option', '', choice.icon + '  ' + choice.label);
+      option.value = choice.icon;
+      icon.appendChild(option);
+    }
+    icon.value = link ? link.icon : '🔖';
+    iconLabel.appendChild(icon);
+    fields.appendChild(iconLabel);
+    const urlLabel = el('label', 'quick-link-url', 'Website URL');
+    const url = el('input');
+    url.type = 'url';
+    url.required = true;
+    url.maxLength = 2048;
+    url.placeholder = 'https://example.com/';
+    url.value = link ? link.href : '';
+    urlLabel.appendChild(url);
+    fields.appendChild(urlLabel);
+    form.appendChild(fields);
+    const error = el('div', 'quick-error');
+    error.setAttribute('role', 'alert');
+    form.appendChild(error);
+    const actions = el('div', 'quick-edit-actions');
+    const save = el('button', 'action', edit ? 'Save changes' : 'Add quick link');
+    save.type = 'submit';
+    actions.appendChild(save);
+    actions.appendChild(button('Cancel', 'action', () => {
+      quickLinkAdding = false;
+      quickLinkEditingId = null;
+      render();
+    }));
+    form.appendChild(actions);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const id = edit ? link.id
+        : 'ql-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 9);
+      const draft = { id, title: name.value, href: url.value, icon: icon.value };
+      const next = edit ? editQuickLinkModel(quickLinks, id, draft)
+        : saveQuickLinkModel(quickLinks, draft);
+      if (!next) {
+        error.textContent = 'Enter a name and a valid http:// or https:// URL (no embedded credentials).';
+        return;
+      }
+      applyQuickLinks(next);
+    });
+    return form;
+  }
+
+  function makeQuickLinkManager() {
+    const wrapper = el('div', 'quick-manager');
+    wrapper.appendChild(el('h2', '', 'Manage Quick Links'));
+    wrapper.appendChild(el('p', 'hint',
+      'Edit titles, destination URLs and icons. Drag ⠿ or use ↑ / ↓ to choose the launch order.'));
+    const addButton = button(quickLinkAdding ? '− Cancel adding' : '+ Add quick link', 'action', () => {
+      quickLinkAdding = !quickLinkAdding;
+      quickLinkEditingId = null;
+      render();
+      if (quickLinkAdding) {
+        const nameField = panel.querySelector('.quick-edit-form input');
+        if (nameField) nameField.focus();
+      }
+    });
+    wrapper.appendChild(addButton);
+    if (quickLinkAdding) wrapper.appendChild(makeQuickLinkForm(null));
+
+    const rows = el('div', 'quick-rows');
+    for (const [index, link] of quickLinks.entries()) {
+      const row = el('div', 'quick-row');
+      const grip = button('⠿', 'quick-drag', () => {});
+      grip.draggable = true;
+      grip.dataset.linkId = link.id;
+      grip.title = 'Drag or use ↑ / ↓ to reorder';
+      grip.setAttribute('aria-label', 'Reorder ' + link.title);
+      grip.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+        event.preventDefault();
+        moveQuickLink(link.id, event.key === 'ArrowUp' ? -1 : 1);
+      });
+      grip.addEventListener('dragstart', (event) => {
+        if (!event.dataTransfer) return;
+        quickLinkDragged = link.id;
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', 'SwiftClick Quick Link');
+        row.classList.add('dragging');
+      });
+      grip.addEventListener('dragend', () => {
+        quickLinkDragged = null;
+        for (const el of rows.querySelectorAll('.quick-row')) {
+          el.classList.remove('dragging', 'drop-before', 'drop-after');
+        }
+      });
+      row.addEventListener('dragover', (event) => {
+        if (!quickLinkDragged || quickLinkDragged === link.id || !event.dataTransfer) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        const rect = row.getBoundingClientRect();
+        const after = event.clientY >= rect.top + rect.height / 2;
+        row.classList.toggle('drop-before', !after);
+        row.classList.toggle('drop-after', after);
+      });
+      row.addEventListener('dragleave', (event) => {
+        if (!event.relatedTarget || !row.contains(event.relatedTarget))
+          row.classList.remove('drop-before', 'drop-after');
+      });
+      row.addEventListener('drop', (event) => {
+        if (!quickLinkDragged || quickLinkDragged === link.id) return;
+        event.preventDefault();
+        const rect = row.getBoundingClientRect();
+        const after = event.clientY >= rect.top + rect.height / 2;
+        const source = quickLinkDragged;
+        quickLinkDragged = null;
+        const next = reorderQuickLinksModel(quickLinks, source, link.id, after);
+        if (applyQuickLinks(next)) {
+          const handle = [...panel.querySelectorAll('.quick-drag')]
+            .find((node) => node.dataset.linkId === source);
+          if (handle) handle.focus();
+        }
+      });
+      row.appendChild(grip);
+      row.appendChild(el('span', 'quick-row-symbol', link.icon));
+      const text = el('div', 'quick-row-text');
+      text.appendChild(el('span', 'quick-row-title', link.title));
+      text.appendChild(el('span', 'quick-row-url', link.href));
+      row.appendChild(text);
+      const actions = el('div', 'quick-row-actions');
+      const edit = button('Edit', 'action', () => {
+        quickLinkAdding = false;
+        quickLinkEditingId = quickLinkEditingId === link.id ? null : link.id;
+        render();
+      });
+      edit.setAttribute('aria-label', 'Edit ' + link.title);
+      actions.appendChild(edit);
+      const up = button('↑', 'action', () => moveQuickLink(link.id, -1));
+      up.disabled = index === 0;
+      up.setAttribute('aria-label', 'Move ' + link.title + ' up');
+      actions.appendChild(up);
+      const down = button('↓', 'action', () => moveQuickLink(link.id, 1));
+      down.disabled = index === quickLinks.length - 1;
+      down.setAttribute('aria-label', 'Move ' + link.title + ' down');
+      actions.appendChild(down);
+      const remove = button('Delete', 'action remove-action', () => {
+        if (!window.confirm('Remove the Quick Link "' + link.title +
+            '" from SwiftClick? This will not change the destination website.')) return;
+        applyQuickLinks(deleteQuickLinkModel(quickLinks, link.id));
+      });
+      remove.setAttribute('aria-label', 'Delete quick link ' + link.title);
+      actions.appendChild(remove);
+      row.appendChild(actions);
+      rows.appendChild(row);
+      if (quickLinkEditingId === link.id) rows.appendChild(makeQuickLinkForm(link));
+    }
+    wrapper.appendChild(rows);
+    if (!quickLinks.length && !quickLinkAdding) {
+      wrapper.appendChild(el('p', 'empty', 'No Quick Links saved. Use + Add quick link to create one.'));
+    }
+    if (quickLinkError) {
+      const error = el('div', 'quick-error', quickLinkError);
+      error.setAttribute('role', 'alert');
+      wrapper.appendChild(error);
+    }
+    return wrapper;
+  }
+
   function makeCategoryCard(category) {
     const count = visibleItems(category.id).length;
     const card = button('', 'card', () => {
@@ -1955,7 +2309,71 @@
     header.appendChild(button('✕ Close', 'action', hide));
     panel.appendChild(header);
 
+    const tabs = el('div', 'section-tabs');
+    tabs.setAttribute('role', 'tablist');
+    for (const tab of [{ id: 'categories', title: 'ChatGPT Categories' },
+      { id: 'quicklinks', title: 'Quick Links' }]) {
+      const control = button(tab.title, 'section-tab', () => {
+        activeTab = tab.id;
+        managingQuickLinks = false;
+        quickLinkEditingId = null;
+        quickLinkAdding = false;
+        quickLinkError = '';
+        managingCategories = false;
+        iconPickerCategoryId = null;
+        editItemKey = null;
+        addingProject = false;
+        addingChat = false;
+        intakeProject = null;
+        intakeChat = null;
+        currentCategory = null;
+        query = '';
+        render();
+      });
+      control.setAttribute('role', 'tab');
+      control.setAttribute('aria-selected', String(activeTab === tab.id));
+      control.setAttribute('aria-label', tab.title);
+      tabs.appendChild(control);
+    }
+    panel.appendChild(tabs);
+
     const content = el('div', 'main');
+    if (activeTab === 'quicklinks') {
+      if (managingQuickLinks) {
+        content.appendChild(makeQuickLinkManager());
+        panel.appendChild(content);
+        const footer = el('div', 'foot');
+        footer.appendChild(el('span', 'hint', 'Quick Links are stored locally in Tampermonkey.'));
+        footer.appendChild(button('← Back to Quick Links', 'action', () => {
+          managingQuickLinks = false;
+          quickLinkEditingId = null;
+          quickLinkAdding = false;
+          render();
+        }));
+        panel.appendChild(footer);
+      } else {
+        const title = el('div', 'quick-header');
+        title.appendChild(el('h2', '', 'Quick Links'));
+        title.appendChild(el('span', 'hint', 'Open your favorite websites in a new browser tab.'));
+        content.appendChild(title);
+        const cards = el('div', 'quick-cards');
+        for (const link of quickLinks) cards.appendChild(makeQuickLinkCard(link));
+        if (!quickLinks.length) cards.appendChild(el('p', 'empty',
+          'No links saved yet. Choose Manage Quick Links to add your first website.'));
+        content.appendChild(cards);
+        panel.appendChild(content);
+        const footer = el('div', 'foot');
+        footer.appendChild(el('span', 'hint',
+          quickLinks.length + ' quick link' + (quickLinks.length === 1 ? '' : 's') + ' saved locally.'));
+        footer.appendChild(button('⚙ Manage Quick Links', 'action', () => {
+          managingQuickLinks = true;
+          quickLinkError = '';
+          render();
+        }));
+        panel.appendChild(footer);
+      }
+      return;
+    }
     if (managingCategories) {
       content.appendChild(makeCategoryManager());
       panel.appendChild(content);
@@ -2083,6 +2501,11 @@
   }
 
   function show(automatic = false) {
+    activeTab = 'categories';
+    managingQuickLinks = false;
+    quickLinkEditingId = null;
+    quickLinkAdding = false;
+    quickLinkError = '';
     editItemKey = null;
     iconPickerCategoryId = null;
     managingCategories = false;
@@ -2112,6 +2535,10 @@
   }
 
   function hide() {
+    managingQuickLinks = false;
+    quickLinkAdding = false;
+    quickLinkEditingId = null;
+    quickLinkDragged = null;
     editItemKey = null;
     iconPickerCategoryId = null;
     managingCategories = false;
@@ -2126,7 +2553,16 @@
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && open) {
       event.preventDefault();
-      if (managingCategories && iconPickerCategoryId) {
+      if (activeTab === 'quicklinks' && managingQuickLinks && quickLinkEditingId !== null) {
+        quickLinkEditingId = null;
+        render();
+      } else if (activeTab === 'quicklinks' && managingQuickLinks && quickLinkAdding) {
+        quickLinkAdding = false;
+        render();
+      } else if (activeTab === 'quicklinks' && managingQuickLinks) {
+        managingQuickLinks = false;
+        render();
+      } else if (managingCategories && iconPickerCategoryId) {
         const selected = iconPickerCategoryId;
         iconPickerCategoryId = null;
         render();

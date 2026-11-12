@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.8
+// @version      0.1.0-alpha.9
 // @description  Manual-only local organizer for ChatGPT projects and chats. Nothing auto-indexed.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -169,6 +169,12 @@
     return cleaned;
   }
 
+  function dropAfterGridTarget(clientX, rectLeft, rectWidth) {
+    return Number.isFinite(clientX) && Number.isFinite(rectLeft) &&
+      Number.isFinite(rectWidth) && rectWidth > 0 &&
+      clientX >= rectLeft + rectWidth / 2;
+  }
+
   function reorderKeys(keys, movingKey, targetKey, after = false) {
     const result = [...keys];
     if (movingKey === targetKey || !result.includes(movingKey) || !result.includes(targetKey)) return result;
@@ -207,7 +213,7 @@
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
-      cleanIntakeName, chooseProjectName, sanitizeCategoryOrders, reorderKeys, mergeVisibleOrder, orderItems,
+      cleanIntakeName, chooseProjectName, sanitizeCategoryOrders, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
       categories: CATEGORIES.map((c) => c.id)
     });
     return;
@@ -229,6 +235,7 @@
   let lastRoute = location.pathname;
   let refreshTimer = 0;
   let dragging = null; // Only local browser UI state; never drag ChatGPT links.
+  let editItemKey = null; // One card-level editing popover at a time.
 
   function readCategoryOrders() {
     try {
@@ -455,15 +462,25 @@
     '.title{font-size:20px;font-weight:750;margin:0 0 4px;}',
     '.action{background:#25384d;border:1px solid #526680;color:#eaf4ff;border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit;font-size:12px;}',
     '.action:hover{background:#35516c;}',
-    '.items{display:grid;gap:8px;margin-top:14px;}',
-    '.item{display:flex;align-items:center;gap:12px;background:#182739;border:1px solid #364a60;border-radius:10px;padding:11px;}',
-    '.drag-handle{background:transparent;color:#bdcfe2;border:1px solid transparent;border-radius:7px;min-width:30px;min-height:36px;padding:4px 6px;cursor:grab;font:700 19px/1 system-ui;touch-action:none;user-select:none;}',
+    '.items{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start;gap:10px;margin-top:14px;}',
+    '.item{display:flex;position:relative;min-width:0;align-items:center;gap:8px;min-height:62px;background:#182739;border:1px solid #364a60;border-radius:10px;padding:9px 11px;}',
+    '.item .pill{flex:none;white-space:nowrap;font-size:10px;}',
+    '.edit-toggle{display:flex;flex:none;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:transparent;color:#bcd0e5;border:1px solid #526981;border-radius:8px;cursor:pointer;font:600 17px/1 system-ui;}',
+    '.edit-toggle:hover,.edit-toggle[aria-expanded="true"]{background:#314862;border-color:#84acd0;color:#fff;}',
+    '.edit-panel{position:absolute;top:calc(100% + 5px);right:0;z-index:25;min-width:230px;width:min(320px,100%);display:grid;gap:11px;padding:14px;background:#24364c;border:1px solid #7691b0;border-radius:11px;box-shadow:0 13px 35px #0009;}',
+    '.edit-panel.above{top:auto;bottom:calc(100% + 5px);}',
+    '.edit-panel .edit-label{display:block;font-size:12px;font-weight:600;color:#e6efff;}',
+    '.edit-panel select{width:100%;min-width:0;max-width:none;}',
+    '.edit-actions{display:flex;justify-content:space-between;align-items:center;gap:8px;}',
+    '.remove-action{color:#ffd2d2;border-color:#975c68;}',
+    '.remove-action:hover{background:#673846;}',
+    '.drag-handle{flex:none;background:transparent;color:#bdcfe2;border:1px solid transparent;border-radius:7px;min-width:30px;min-height:36px;padding:4px 6px;cursor:grab;font:700 19px/1 system-ui;touch-action:none;user-select:none;}',
     '.drag-handle:hover,.drag-handle:focus-visible{background:#2d4560;border-color:#6686a4;}',
     '.drag-handle:active{cursor:grabbing;}',
-    '.item.drop-before{border-top:3px solid #8ac8ff;padding-top:9px;}',
-    '.item.drop-after{border-bottom:3px solid #8ac8ff;padding-bottom:9px;}',
+    '.item.drop-before{border-left:3px solid #8ac8ff;padding-left:9px;}',
+    '.item.drop-after{border-right:3px solid #8ac8ff;padding-right:9px;}',
     '.item.is-dragging{opacity:.45;}',
-    '.item-title{min-width:0;flex:1;color:#ecf4ff;font-size:14px;text-decoration:none;overflow-wrap:anywhere;}',
+    '.item-title{min-width:0;flex:1;color:#ecf4ff;font-size:14px;text-decoration:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}',
     '.item-title:hover{text-decoration:underline;}',
     '.add-form{border:1px solid #59728e;background:#1b2b40;padding:14px;border-radius:11px;display:grid;gap:10px;margin:10px 0 16px;}',
     '.field-label{display:grid;gap:5px;color:#ccd8ea;font-size:12px;font-weight:600;}',
@@ -475,7 +492,7 @@
     '.foot{padding:12px 20px;border-top:1px solid #304052;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}',
     '.hint{color:#b1c2d8;font-size:12px;line-height:1.55;}',
     '.empty{padding:24px 14px;border:1px dashed #526579;border-radius:12px;color:#b6c5d9;text-align:center;font-size:13px;}',
-    '@media(max-width:620px){.main{padding:14px}.head{padding:12px}.item{flex-wrap:wrap}select{max-width:none;width:100%}.cards{grid-template-columns:1fr 1fr}.card{padding:12px;min-height:90px}}'
+    '@media(max-width:720px){.items{grid-template-columns:minmax(0,1fr)}.main{padding:14px}.head{padding:12px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.card{padding:12px;min-height:90px}}'
   ].join('\n');
 
   const launcherHost = el('div');
@@ -779,6 +796,31 @@
     return card;
   }
 
+  // Keep the popover within the dialog scroll area if editing a bottom card.
+  function positionOpenEditor() {
+    if (!editItemKey) return;
+    const editor = panel.querySelector('.edit-panel');
+    const content = panel.querySelector('.main');
+    if (!editor || !content) return;
+    const editorRect = editor.getBoundingClientRect();
+    const contentRect = content.getBoundingClientRect();
+    editor.classList.toggle('above', editorRect.bottom > contentRect.bottom - 8 &&
+      editorRect.top - editorRect.height > contentRect.top + 8);
+  }
+
+  // Close an active editor without rebuilding the list when clicking away.
+  // This preserves link navigation and native drag gestures.
+  panel.addEventListener('pointerdown', (event) => {
+    if (!editItemKey) return;
+    const target = event.target;
+    if (target && target.closest && target.closest('.edit-panel, .edit-toggle')) return;
+    editItemKey = null;
+    const editor = panel.querySelector('.edit-panel');
+    if (editor) editor.remove();
+    const expanded = panel.querySelector('.edit-toggle[aria-expanded="true"]');
+    if (expanded) expanded.setAttribute('aria-expanded', 'false');
+  });
+
   function clearDragHighlights() {
     for (const row of panel.querySelectorAll('.item')) {
       row.classList.remove('drop-before', 'drop-after', 'is-dragging');
@@ -829,9 +871,12 @@
             dragging.key === item.key || !event.dataTransfer) return;
         event.preventDefault();
         event.dataTransfer.dropEffect = 'move';
-        row.classList.toggle('drop-before', event.clientY < row.getBoundingClientRect().top +
-          row.getBoundingClientRect().height / 2);
-        row.classList.toggle('drop-after', !row.classList.contains('drop-before'));
+        const rect = row.getBoundingClientRect();
+        // In a two-column grid, the left half inserts before this tile and
+        // the right half inserts after it, regardless of the source column.
+        const after = dropAfterGridTarget(event.clientX, rect.left, rect.width);
+        row.classList.toggle('drop-before', !after);
+        row.classList.toggle('drop-after', after);
       });
       row.addEventListener('dragleave', (event) => {
         if (!event.relatedTarget || !row.contains(event.relatedTarget)) {
@@ -842,8 +887,8 @@
         if (!dragging || dragging.category !== currentCategory) return;
         event.preventDefault();
         const key = dragging.key;
-        const after = event.clientY >= row.getBoundingClientRect().top +
-          row.getBoundingClientRect().height / 2;
+        const rect = row.getBoundingClientRect();
+        const after = dropAfterGridTarget(event.clientX, rect.left, rect.width);
         dragging = null;
         clearDragHighlights();
         moveCategoryItem(key, item.key, after);
@@ -853,54 +898,90 @@
     row.appendChild(el('span', 'pill', item.type === 'project' ? 'Project' : 'Chat'));
     const link = el('a', 'item-title', item.title);
     link.href = item.href;
+    link.title = item.title;
     link.addEventListener('click', (event) => {
       // Keep native link features, including middle-click and modifier clicks.
       if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
       hide();
     });
     row.appendChild(link);
-    const selector = el('select');
-    selector.setAttribute('aria-label', 'Place ' + item.title + ' in category');
-    for (const c of CATEGORIES) {
-      const opt = el('option', '', c.label);
-      opt.value = c.id;
-      selector.appendChild(opt);
-    }
-    selector.value = categoryFor(item);
-    selector.addEventListener('change', () => {
-      // Organizing an observed project also saves its link for future visits.
-      // Previously this wrote only a category ID, so the project vanished
-      // from SwiftClick after a reload if ChatGPT did not load its sidebar link.
-      if ((item.type === 'project' && !saveProjectShortcut(item)) ||
-          (item.type === 'chat' && !saveChatShortcut(item))) {
-        window.alert('SwiftClick could not save that shortcut. The category was not changed.');
-        return;
-      }
-      if (selector.value !== categoryFor(item)) forgetItemOrder(item.key);
-      if (selector.value === 'uncategorized') delete assignments[item.key];
-      else assignments[item.key] = selector.value;
-      saveAssignments();
+
+    // Editing is deliberately secondary to navigation. Nothing else is
+    // shown until the user clicks this small edit button on this card.
+    const editButton = button('✎', 'edit-toggle', () => {
+      editItemKey = editItemKey === item.key ? null : item.key;
       render();
+      const focused = [...panel.querySelectorAll('.edit-toggle')]
+        .find((node) => node.dataset.itemKey === item.key);
+      if (focused) focused.focus();
     });
-    row.appendChild(selector);
-    if (item.manual) {
-      const remove = button('Remove shortcut', 'action', () => {
-        if (!window.confirm('Remove this locally saved shortcut from SwiftClick Organizer? The original ChatGPT ' + item.type + ' will not change.')) return;
-        if (item.type === 'project') {
-          manualProjects = manualProjects.filter((p) => p.key !== item.key);
-          saveManualProjects();
-        } else {
-          savedChats = savedChats.filter((c) => c.key !== item.key);
-          saveSavedChats();
+    editButton.dataset.itemKey = item.key;
+    editButton.title = 'Edit category or remove shortcut';
+    editButton.setAttribute('aria-label', 'Edit ' + item.title);
+    editButton.setAttribute('aria-expanded', String(editItemKey === item.key));
+    editButton.setAttribute('aria-haspopup', 'true');
+    row.appendChild(editButton);
+
+    if (editItemKey === item.key) {
+      const editor = el('div', 'edit-panel');
+      editor.setAttribute('role', 'group');
+      editor.setAttribute('aria-label', 'Edit shortcut for ' + item.title);
+      const label = el('label', 'edit-label', 'Category');
+      const selector = el('select');
+      selector.setAttribute('aria-label', 'Place ' + item.title + ' in category');
+      for (const c of CATEGORIES) {
+        const opt = el('option', '', c.label);
+        opt.value = c.id;
+        selector.appendChild(opt);
+      }
+      selector.value = categoryFor(item);
+      selector.addEventListener('change', () => {
+        if ((item.type === 'project' && !saveProjectShortcut(item)) ||
+            (item.type === 'chat' && !saveChatShortcut(item))) {
+          window.alert('SwiftClick could not save that shortcut. The category was not changed.');
+          return;
         }
-        seen.delete(item.key);
-        delete assignments[item.key];
-        forgetItemOrder(item.key);
+        if (selector.value !== categoryFor(item)) forgetItemOrder(item.key);
+        if (selector.value === 'uncategorized') delete assignments[item.key];
+        else assignments[item.key] = selector.value;
         saveAssignments();
+        editItemKey = null;
         render();
       });
-      remove.setAttribute('aria-label', 'Remove saved ' + item.type + ' shortcut ' + item.title);
-      row.appendChild(remove);
+      label.appendChild(selector);
+      editor.appendChild(label);
+
+      const actions = el('div', 'edit-actions');
+      actions.appendChild(button('Close', 'action', () => {
+        editItemKey = null;
+        render();
+        const focused = [...panel.querySelectorAll('.edit-toggle')]
+          .find((node) => node.dataset.itemKey === item.key);
+        if (focused) focused.focus();
+      }));
+      if (item.manual) {
+        const remove = button('Remove shortcut', 'action remove-action', () => {
+          if (!window.confirm('Remove this saved shortcut from SwiftClick Organizer? The original ChatGPT ' +
+              item.type + ' will not change.')) return;
+          if (item.type === 'project') {
+            manualProjects = manualProjects.filter((p) => p.key !== item.key);
+            saveManualProjects();
+          } else {
+            savedChats = savedChats.filter((c) => c.key !== item.key);
+            saveSavedChats();
+          }
+          seen.delete(item.key);
+          delete assignments[item.key];
+          forgetItemOrder(item.key);
+          saveAssignments();
+          editItemKey = null;
+          render();
+        });
+        remove.setAttribute('aria-label', 'Remove saved ' + item.type + ' shortcut ' + item.title);
+        actions.appendChild(remove);
+      }
+      editor.appendChild(actions);
+      row.appendChild(editor);
     }
     return row;
   }
@@ -1169,6 +1250,7 @@
       content.appendChild(list);
     }
     panel.appendChild(content);
+    positionOpenEditor();
 
     const footer = el('div', 'foot');
     footer.appendChild(el('span', 'hint', manualProjects.length + ' projects and ' +
@@ -1185,6 +1267,7 @@
   }
 
   function show(automatic = false) {
+    editItemKey = null;
     open = true;
     currentCategory = null;
     addingProject = false;
@@ -1208,6 +1291,7 @@
   }
 
   function hide() {
+    editItemKey = null;
     dragging = null;
     open = false;
     overlayHost.hidden = true;
@@ -1217,7 +1301,16 @@
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && open) {
       event.preventDefault();
-      hide();
+      if (editItemKey !== null) {
+        const lastEditing = editItemKey;
+        editItemKey = null;
+        render();
+        const toggle = [...panel.querySelectorAll('.edit-toggle')]
+          .find((node) => node.dataset.itemKey === lastEditing);
+        if (toggle) toggle.focus();
+      } else {
+        hide();
+      }
     }
   }, true);
 

@@ -283,15 +283,57 @@ test('menu companion identifies saved projects strictly by native project ID', (
   assert.equal(hooks.resolveMenuProjectKey('https://untrusted.example/g/g-p-a/project', null, origin, 2000), null);
 });
 
-test('project menu shows Already in Organizer for saved ID and opens the existing category', () => {
-  assert.match(script, /menuActionButton\.textContent = saved \? '✓ Already in Organizer' : '＋ Add to SwiftClick Organizer'/);
-  assert.match(script, /const saved = savedProjectForMenu\(found\.home\)/);
-  assert.match(script, /const key = nativeProjectMenuKey\(home\)/);
-  assert.match(script, /manualProjects\.find\(\(item\) => item\.key === key\)/);
+test('menu status distinguishes ID-verified saved, unique-title possible, and unsaved', () => {
+  const saved = [
+    {key:'project:g-p-a', title:'Cinema Decoder', href:origin + '/g/g-p-a/project'},
+    {key:'project:g-p-b', title:'Home Structural Maintenance', href:origin + '/g/g-p-b/project'}
+  ];
+  const now = 5000;
+  const seen = hooks.classifyMenuProject('/g/g-p-b/project',
+    {at:now, key:'project:g-p-a', title:'Cinema Decoder'}, saved, origin, now);
+  assert.equal(seen.status,'saved');
+  assert.equal(seen.project.key,'project:g-p-b'); // explicit native link wins
+
+  const idOnly = hooks.classifyMenuProject(null,
+    {at:now, key:'project:g-p-a', title:''}, saved, origin, now);
+  assert.equal(idOnly.status,'saved');
+
+  const uniqueName = hooks.classifyMenuProject(null,
+    {at:now, key:null, title:'Cinema Decoder'}, saved, origin, now);
+  assert.equal(uniqueName.status,'possible');
+  assert.equal(uniqueName.project.key,'project:g-p-a');
+
+  const duplicateName = hooks.classifyMenuProject(null,
+    {at:now,key:null,title:'Cinema Decoder'}, [...saved,
+      {key:'project:g-p-c',title:'Cinema Decoder'}], origin, now);
+  assert.equal(duplicateName.status,'manual');
+  const differentIdSameName = hooks.classifyMenuProject('/g/g-p-new/project',
+    {at:now,key:null,title:'Cinema Decoder'}, saved, origin, now);
+  assert.equal(differentIdSameName.status,'add');
+  assert.equal(differentIdSameName.project.key,'project:g-p-new');
+
+  const stale = hooks.classifyMenuProject(null,
+    {at:1,key:'project:g-p-a',title:'Cinema Decoder'}, saved, origin, now+20000);
+  assert.equal(stale.status,'manual');
+
+  const notSaved = hooks.classifyMenuProject('/g/g-p-fresh/project',
+    {at:now,key:'project:g-p-fresh',title:'New Project'}, saved, origin, now);
+  assert.equal(notSaved.status,'add');
+  assert.equal(notSaved.project.href,origin + '/g/g-p-fresh/project');
+  assert.equal(hooks.classifyMenuProject(null,null,saved,origin,now).status,'manual');
+});
+
+test('project menu action is click-based, status-safe and never navigates natively', () => {
+  assert.match(script, /menuActionButton\.textContent = isSaved \? '✓ Already in Organizer'/);
+  assert.match(script, /isPossible \? '\? Possible match — Review'/);
+  assert.match(script, /const context = menuActionSnapshot \|\|/);
+  assert.match(script, /menuPressActive = true/);
+  assert.match(script, /menuActionSnapshot = menuContextFor\(activeNativeProjectHome\)/);
   assert.match(script, /function handleProjectMenuAction\(\)/);
-  assert.match(script, /if \(saved\) \{\s*openSavedProjectCategory\(saved\);\s*return;/);
+  assert.match(script, /if \(context\.status === 'saved' \|\| context\.status === 'possible'\)/);
+  assert.match(script, /openProjectManualIntake\(context\.title\)/);
   assert.match(script, /currentCategory = categoryFor\(project\)/);
-  assert.match(script, /if \(saved\) \{\s*pendingNativeProject = null;\s*clearPendingIntake\(\);\s*openSavedProjectCategory\(saved\);/);
+  assert.doesNotMatch(script, /home\.click\(\)|resolveNativeProjectIntake|pendingNativeProject/);
   assert.doesNotMatch(script, /menu\.appendChild\(menuActionHost\)|sidebar\.insertBefore/);
 });
 
@@ -316,9 +358,9 @@ test('manual project-menu intake captures selected project title, not current pa
   assert.match(script, /function captureProjectTrigger\(target\)/);
   assert.match(script, /document\.addEventListener\('pointerdown'/);
   assert.match(script, /recentProjectTrigger/);
-  assert.match(script, /trigger: recentProjectTrigger/);
-  assert.match(script, /chooseProjectName\(trigger, project\.key/);
-  assert.match(script, /sessionStorage\.setItem\(PENDING_INTAKE_KEY/);
+  assert.match(script, /function classifyMenuProject\(/);
+  assert.match(script, /function openProjectManualIntake\(title\)/);
+  assert.doesNotMatch(script, /home\.click\(\)/);
   assert.match(script, /if \(intakeProject\) name\.value = cleanIntakeName\(intakeProject\.title\)/);
 });
 
@@ -384,9 +426,10 @@ test('project-menu companion avoids mutations inside native menus and sidebar', 
   assert.match(script, /findNativeProjectMenu/);
   assert.match(script, /textContent\.replace\(\/\\s\+\/g, ' '\)\.trim\(\)\.toLowerCase\(\) === 'project home'/);
   assert.match(script, /nativeLink\.getAttribute\('href'\)/);
-  assert.match(script, /home\.click\(\)/);
-  assert.match(script, /resolveNativeProjectIntake/);
-  assert.match(script, /startNativeProjectIntake/);
+  assert.match(script, /classifyMenuProject\(href, recentProjectTrigger, manualProjects, location\.origin\)/);
+  assert.match(script, /menuActionButton\.addEventListener\('click'/);
+  assert.doesNotMatch(script, /home\.click\(\)/);
+  assert.doesNotMatch(script, /startNativeProjectIntake|resolveNativeProjectIntake/);
   assert.doesNotMatch(script, /menu\.appendChild\(menuActionHost\)|menu\.insertBefore\(menuActionHost|sidebar\.insertBefore/);
 });
 
@@ -395,7 +438,8 @@ test('project intake validates a project URL and keeps native data unchanged', (
   assert.match(script, /Confirm the detected project and choose where its shortcut should appear/);
   assert.match(script, /sanitizeManualProject\(\{ title: name\.value, href: url\.value \}/);
   assert.match(script, /GM_setValue\(MANUAL_PROJECTS_KEY/);
-  assert.match(script, /pendingNativeProject = \{ from: location\.href, at: Date\.now\(\),/);
+  assert.match(script, /function openProjectManualIntake\(title\)/);
+  assert.match(script, /intakeProject = \{ type: 'project', key: null, title: cleanIntakeName\(title\), href: '' \}/);
 });
 
 test('discovered project titles are normalized without affecting chat titles', () => {
@@ -407,14 +451,12 @@ test('discovered project titles are normalized without affecting chat titles', (
   assert.equal(chat.title, 'ChatGPT - Cinema Decoder - Project');
 });
 
-test('intake navigation is treated differently from ordinary route navigation', () => {
+test('native menu companion never navigates or restores an old automatic intake', () => {
   assert.match(script, /function openProjectIntake\(project\)/);
-  assert.match(script, /lastRoute = location\.pathname;\s*show\(\);/);
-  assert.match(script, /if \(pendingNativeProject\) \{\s*\/\/ First consume the project-home route/);
-  assert.match(script, /else if \(open\) \{\s*hide\(\);/);
-  assert.match(script, /sessionStorage\.setItem\(PENDING_INTAKE_KEY/);
-  assert.match(script, /sessionStorage\.removeItem\(PENDING_INTAKE_KEY/);
-  assert.match(script, /resumePendingIntake\(\);/);
+  assert.match(script, /function openProjectManualIntake\(title\)/);
+  assert.match(script, /window\.sessionStorage\.removeItem\(LEGACY_PENDING_INTAKE_KEY\)/);
+  assert.match(script, /if \(open\) hide\(\); \/\/ Ordinary navigation closes the organizer/);
+  assert.doesNotMatch(script, /sessionStorage\.setItem|home\.click\(\)|resumePendingIntake|pendingNativeProject/);
 });
 
 test('categorizing a discovered project preserves its shortcut across reloads', () => {
@@ -429,7 +471,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.12/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.13/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

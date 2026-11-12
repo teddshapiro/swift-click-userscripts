@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.10
+// @version      0.1.0-alpha.11
 // @description  Manual-only local organizer for ChatGPT projects and chats. Nothing auto-indexed.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -27,6 +27,8 @@
   const CATEGORIES = [
     { id: 'family', label: 'Family', icon: '👪' },
     { id: 'health', label: 'My Health', icon: '♡' },
+    { id: 'finances', label: 'Finances', icon: '＄' },
+    { id: 'home', label: 'Home', icon: '⌂' },
     { id: 'business', label: 'SwiftClick Business', icon: '◈' },
     { id: 'ai', label: 'Generative AI', icon: '✧' },
     { id: 'hobbies', label: 'Hobbies & Interests', icon: '✿' },

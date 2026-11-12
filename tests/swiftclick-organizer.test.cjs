@@ -132,15 +132,16 @@ test('organized chats save a validated local shortcut for later visits', () => {
   }, origin), null);
 });
 
-test('categorizing a chat persists its title and link and rediscovery backfills older assignments', () => {
+test('saved chats persist only via explicit actions, not background observation', () => {
   assert.match(script, /GM_getValue\(SAVED_CHATS_KEY, \[\]\)/);
   assert.match(script, /GM_setValue\(SAVED_CHATS_KEY/);
   assert.match(script, /function saveChatShortcut\(chat\)/);
-  assert.match(script, /item\.type === 'chat' && !saveChatShortcut\(item\)/);
-  assert.match(script, /item\.type === 'chat' && assignments\[item\.key\]/);
-  assert.match(script, /saveChatShortcut\(activeItem\)/);
-  assert.match(script, /savedChats\.some\(\(saved\) => saved\.key === item\.key\)/);
+  assert.match(script, /function makeAddChatForm\(/);
+  assert.match(script, /currentChatForManualIntake\(\)/);
+  assert.match(script, /Save chat shortcut/);
+  assert.match(script, /saveChatShortcut\(item\)/);
   assert.match(script, /savedChats\.filter\(\(c\) => c\.key !== item\.key\)/);
+  assert.doesNotMatch(script, /collectLoadedLinks|function indexAnchor\(/);
 });
 
 
@@ -207,6 +208,43 @@ test('drag handle changes virtual order only; search results stay non-draggable'
   assert.match(script, /forgetItemOrder\(item\.key\)/);
   assert.match(script, /event\.dataTransfer\.setData\('text\/plain', 'SwiftClick Organizer'\)/);
   assert.doesNotMatch(script, /row\.draggable = true/);
+});
+
+test('manual-only mode retains prior saved items without indexing the sidebar', () => {
+  assert.match(script, /let manualProjects = readManualProjects\(\)/);
+  assert.match(script, /let savedChats = readSavedChats\(\)/);
+  assert.match(script, /for \(const project of manualProjects\) seen\.set/);
+  assert.match(script, /for \(const chat of savedChats\) seen\.set/);
+  assert.doesNotMatch(script, /function indexAnchor|collectLoadedLinks/);
+  assert.doesNotMatch(script, /function show\(automatic = false\) \{\s*collect/);
+  assert.match(script, /Only items you explicitly add are listed/);
+  assert.match(script, /\+ Add project/);
+  assert.match(script, /\+ Add chat/);
+  assert.match(script, /Only the dedicated handle is draggable/);
+});
+
+test('manual project-menu intake captures selected project title, not current page', () => {
+  assert.equal(hooks.cleanIntakeName(' Unnamed project '), '');
+  assert.equal(hooks.cleanIntakeName('  ChatGPT - Cinema Decoder - Project '), 'Cinema Decoder');
+  assert.equal(hooks.cleanIntakeName('  AI Video Production '), 'AI Video Production');
+  const now = Date.now();
+  const selected = { key: 'project:g-p-222', title: 'Coding — Tampermonkey Scripts', at: now };
+  assert.equal(
+    hooks.chooseProjectName(selected, 'project:g-p-222', 'Old saved title', 'Other open project'),
+    'Coding — Tampermonkey Scripts'
+  );
+  assert.equal(
+    hooks.chooseProjectName(selected, 'project:g-p-wrong', 'Known real title', 'Other open project'),
+    'Known real title'
+  );
+  assert.equal(hooks.chooseProjectName(null, 'project:g-p-222', '', 'Unnamed project'), '');
+  assert.match(script, /function captureProjectTrigger\(target\)/);
+  assert.match(script, /document\.addEventListener\('pointerdown'/);
+  assert.match(script, /recentProjectTrigger/);
+  assert.match(script, /trigger: recentProjectTrigger/);
+  assert.match(script, /chooseProjectName\(trigger, project\.key/);
+  assert.match(script, /sessionStorage\.setItem\(PENDING_INTAKE_KEY/);
+  assert.match(script, /if \(intakeProject\) name\.value = cleanIntakeName\(intakeProject\.title\)/);
 });
 
 test('manual project shortcut validation accepts only ChatGPT projects', () => {
@@ -290,7 +328,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.7/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.8/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

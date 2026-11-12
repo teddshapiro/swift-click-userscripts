@@ -283,6 +283,22 @@ test('menu companion identifies saved projects strictly by native project ID', (
   assert.equal(hooks.resolveMenuProjectKey('https://untrusted.example/g/g-p-a/project', null, origin, 2000), null);
 });
 
+test('explicit project metadata can supply URL without navigation', () => {
+  assert.equal(hooks.projectIdFromMetadata({'data-project-id':'g-p-xyz123abc'}), 'g-p-xyz123abc');
+  assert.equal(hooks.projectIdFromMetadata({'data-item-id':'project:g-p-abc456xyz'}), 'g-p-abc456xyz');
+  assert.equal(hooks.projectIdFromMetadata({'data-entity-id':'g-p-789abc'}), 'g-p-789abc');
+  assert.equal(hooks.projectIdFromMetadata({'data-project-id':'chat:abc'}), null);
+  assert.equal(hooks.projectIdFromMetadata({'data-id':'g-p-123456'}), null);
+  assert.equal(hooks.projectIdFromMetadata({'data-project-id':'g-p-test abc'}), null);
+  assert.equal(hooks.projectIdFromMetadata({}), null);
+  assert.match(script, /function captureProjectTrigger\(target\)/);
+  assert.match(script, /projectIdFromMetadata\(attributes\)/);
+  assert.match(script, /ids\.size === 1/);
+  assert.match(script, /ids\.size > 1/);
+  assert.match(script, /parseItemLink\('\/g\/\' \+ id \+ '\/project'/);
+  assert.doesNotMatch(script, /home\.click\(\)/);
+});
+
 test('menu status distinguishes ID-verified saved, unique-title possible, and unsaved', () => {
   const saved = [
     {key:'project:g-p-a', title:'Cinema Decoder', href:origin + '/g/g-p-a/project'},
@@ -474,7 +490,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.13/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.14/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

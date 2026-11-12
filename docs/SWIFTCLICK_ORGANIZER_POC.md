@@ -571,3 +571,16 @@ Pure model helpers and Node regression tests cover starter seeding, blank-list p
 6. Confirm saved category cards, shortcuts, link editing, drag order and icons are preserved after refresh.
 
 **Status:** development feature branch; Firefox acceptance pending, PR #6 remains draft.
+
+## Planned export/restore privacy requirements (cross-project standard, 2026-11-12)
+
+The authoritative working draft is **“SwiftClick — Backup, Data Export, Import & Privacy Standard — Working Draft v0.1”**, stored privately in Google Drive → **Web App Development Standards / 04 - Operations and Migration**. Refer to that standard before implementing any data export, import, sync, or backup. Its private Google Drive URL is intentionally not embedded in this public repository.
+
+- Treat a full Organizer backup as **private personal data**: saved ChatGPT project/chat titles, category labels, custom ordering, Favorites (when implemented), and Quick Link URLs can reveal personal information even when they do not grant sign-in access.
+- Prefer **local, deliberate, export-only** first. No server calls, upload, telemetry, background distribution, or automatic cloud sync. Show item counts and a privacy warning before browser download. Do not export authentication cookies, OAuth sessions, API keys or unrelated page state.
+- Inspect stored URLs locally for potentially sensitive query/fragment/path components (token, api_key, signature, code, secret, etc.). Warn users without silently corrupting full-fidelity restore backups. Treat **sanitized sharing exports** as a separate, explicitly lossy feature.
+- Version the **backup format independently** of userscript version/internal Tampermonkey storage key suffixes. Record completeness and future compatibility rules. Backup scope should include editable categories/icons/order, manually saved projects/chats, assignments, per-category item ordering and Quick Links; add future Favorites when shipped.
+- **Defer full Import/Restore** until after near-term data changes such as Favorites. Future imports must validate untrusted files, detect old versions, preview changes, reject malicious URLs, distinguish Merge/Replace, create a protective pre-import backup, and handle partial write failure.
+- Acceptance checks: faithful local export; no missed stored sections, secret leakage or network upload; user warning; URL scan false-positive handling; explicit version and stable IDs; no Trusted Types-unsafe HTML sinks.
+
+**Current status:** documented requirements only. Neither exporter nor importer is implemented in alpha.19. Product features are not considered shipped merely because their requirements are documented.

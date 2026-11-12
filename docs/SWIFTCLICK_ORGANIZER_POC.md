@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.20)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.21)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -605,3 +605,16 @@ Management includes **Show/Hide**, **Edit icon**, **optional first-party URL ove
 6. Confirm no native ChatGPT sidebar changes or interception of private account data.
 
 **Status:** alpha feature branch, draft PR #6; browser acceptance pending.
+
+## Alpha.21 — New Chat launcher, Health link, neutral browser language, remove Adobe (2026-11-12)
+
+**Browser feedback addressed:**
+
+1. Clicking **New chat** previously navigated to ChatGPT Home where the original userscript automatic Home-opening rule brought the Organizer modal back. The new New Chat navigation writes a short-lived timestamp to *tab-scoped* `sessionStorage`, then closes the Organizer and navigates. On the next document load, the marker is consumed, suppressing automatic Home opening for that one navigation (fresh ordinary Home visits still open as usual). Temporary Chat is also exempt from automatic overlay opening when the URL contains `temporary-chat=true`, even if storage is unavailable.
+2. **Health** now opens the user-confirmed direct URL `https://chatgpt.com/health`. No medical records, credentials, or private data are accessed.
+3. User-visible **Check in Firefox** labels and Temporary Chat verification wording are browser-agnostic (`Check in your browser`). The underlying documented need to verify routes in a signed-in browser remains.
+4. **Adobe** removed from the hard-coded catalog entirely because there is no dependable direct URL. Existing tool preference records are sanitized on read and automatically drop the removed ID without wiping unrelated visibility/order/icon overrides.
+
+**Regression tests:** source, tests and documentation updated together in one commit. Verify ordinary Home auto-opens, New regular chat remains unobstructed, New temporary chat banner stays visible, Health navigates correctly, Adobe is absent, tool preferences persist and all other tabs are unchanged.
+
+**Status:** alpha development branch, draft PR #6. No production merge before browser acceptance.

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.20
-// @description  Manual ChatGPT categories and customizable quick links in a local two-tab organizer.
+// @version      0.1.0-alpha.21
+// @description  Organize ChatGPT projects, quick links, and ChatGPT tools in three tabs.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
 // @match        https://www.chatgpt.com/*
@@ -25,6 +25,7 @@
   const CATEGORY_DEFS_KEY = APP_ID + '.categoryDefinitions.v1';
   const QUICK_LINKS_KEY = APP_ID + '.quickLinks.v1';
   const CHATGPT_TOOLS_KEY = APP_ID + '.chatgptTools.v1';
+  const SUPPRESS_NEXT_HOME_AUTOOPEN_KEY = APP_ID + '.suppressNextHomeAutoOpen.v1';
   const LEGACY_PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
   // Flat virtual categories only; do not introduce nested categories in this MVP.
   const DEFAULT_CATEGORIES = [
@@ -346,6 +347,18 @@
     return pathname === '/' || pathname === '';
   }
 
+  // Skip the launcher's automatic Home-page opening once after New Chat.
+  // This does not change normal Home auto-opening for ordinary visits.
+  function shouldAutoOpenHome(pathname, search = '', marker = null, now = Date.now()) {
+    if (!isHomeRoute(pathname)) return false;
+    // A temporary conversation must not be covered by the organizer.
+    if (/(?:^\?|&)temporary-chat=true(?:&|$)/.test(String(search || ''))) return false;
+    const stored = String(marker || '');
+    const timestamp = Number(stored);
+    if (/^\d{13}$/.test(stored) && now >= timestamp && now - timestamp < 60000) return false;
+    return true;
+  }
+
   function validCategory(id, categories = CATEGORIES) {
     return categories.some((c) => c.id === id);
   }
@@ -507,8 +520,7 @@
     {"id":"images","title":"Images","group":"features","icon":"📸","href":"https://chatgpt.com/images/","status":"verified"},
     {"id":"gpts","title":"GPTs","group":"features","icon":"🤖","href":"https://chatgpt.com/gpts","status":"check"},
     {"id":"sites","title":"Sites","group":"features","icon":"🌍","href":"https://chatgpt.com/sites","status":"check"},
-    {"id":"adobe","title":"Adobe","group":"specialized","icon":"🎨","href":null,"status":"setup"},
-    {"id":"health","title":"Health","group":"specialized","icon":"🩺","href":null,"status":"setup"},
+    {"id":"health","title":"Health","group":"specialized","icon":"🩺","href":"https://chatgpt.com/health","status":"verified"},
     {"id":"finances","title":"Finances","group":"specialized","icon":"💵","href":"https://chatgpt.com/finances","status":"verified"},
     {"id":"find-workspaces","title":"Find Workspaces","group":"account","icon":"👥","href":null,"status":"setup"},
     {"id":"personalization","title":"Personalization","group":"account","icon":"✧","href":null,"status":"setup"},
@@ -655,7 +667,7 @@
   // Node regression tests opt in to helpers, bypassing browser initialization.
   if (typeof globalThis !== 'undefined' && globalThis.__SC_ORGANIZER_TEST_HOOKS__) {
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
-      isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
+      isHomeRoute, shouldAutoOpenHome, parseItemLink, sanitizeManualProject, validCategory,
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
       renameSavedShortcutModel,
       cleanIntakeName, chooseProjectName, headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
@@ -780,6 +792,11 @@
     }
   }
   function navigateTool(url) {
+    // Session-scoped and short-lived. It is consumed on the next page load.
+    // Do not use GM storage: that would affect other tabs or future visits.
+    try {
+      window.sessionStorage.setItem(SUPPRESS_NEXT_HOME_AUTOOPEN_KEY,String(Date.now()));
+    } catch (_) { /* Session storage may be unavailable; Temporary URL is still gated. */ }
     hide();
     window.location.assign(url);
   }
@@ -1921,7 +1938,7 @@
           ()=>navigateTool(TEMPORARY_CHAT_URL)));
         menu.appendChild(el('p','hint',
           'Confirm the Temporary banner and select personalization before sending. ' +
-          'Direct URL requires signed-in Firefox verification.'));
+          'Confirm that ChatGPT displays Temporary before sending your message.'));
         cell.appendChild(menu);
       }
       return cell;
@@ -1943,7 +1960,7 @@
     node.appendChild(el('span','tool-icon',icon));
     node.appendChild(el('span','tool-name',item.title));
     node.appendChild(el('span','tool-status',!href?'Needs a verified URL':
-      item.status==='check'&&!toolPrefs.urlOverrides[item.id]?'Check in Firefox':'Open tool'));
+      item.status==='check'&&!toolPrefs.urlOverrides[item.id]?'Check in your browser':'Open tool'));
     return node;
   }
 
@@ -2752,7 +2769,7 @@
         content.appendChild(makeToolsFront());
         panel.appendChild(content);
         const foot=el('div','foot');
-        foot.appendChild(el('span','hint','Unverified links may need adjustment in Firefox.'));
+        foot.appendChild(el('span','hint','Some destinations may need verification in your browser.'));
         foot.appendChild(button('⚙ Manage ChatGPT Tools','action',()=>{
           managingTools=true;newChatOptionsOpen=false;render();
         }));
@@ -3066,10 +3083,16 @@
   // auto-click mechanism; this version never resumes an automatic navigation.
   try { window.sessionStorage.removeItem(LEGACY_PENDING_INTAKE_KEY); } catch (_) { /* storage optional */ } // Full page navigation should not lose an intake.
 
-  // Only initial ChatGPT home entry auto-opens; direct links must remain unobstructed.
-  if (isHomeRoute(location.pathname)) {
+  // The ordinary home page auto-opens. New Chat navigations do not reopen
+  // the launcher, and Temporary Chat should remain unobstructed.
+  let autoOpenMarker = null;
+  try {
+    autoOpenMarker = window.sessionStorage.getItem(SUPPRESS_NEXT_HOME_AUTOOPEN_KEY);
+    window.sessionStorage.removeItem(SUPPRESS_NEXT_HOME_AUTOOPEN_KEY);
+  } catch (_) { /* Session storage is optional. */ }
+  if (shouldAutoOpenHome(location.pathname, location.search, autoOpenMarker)) {
     window.setTimeout(() => {
-      if (isHomeRoute(location.pathname) && !open) show(true);
+      if (shouldAutoOpenHome(location.pathname, location.search, autoOpenMarker) && !open) show(true);
     }, 750);
   }
 })();

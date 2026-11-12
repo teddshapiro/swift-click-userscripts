@@ -66,8 +66,45 @@ test('normalize labels and omit URL query parameters from stored navigation link
 
 
 
+
+test('New Chat suppresses one automatic Home opening without affecting ordinary visits', () => {
+  const now = 1794510000000;
+  assert.equal(hooks.shouldAutoOpenHome('/', '', null, now), true);
+  assert.equal(hooks.shouldAutoOpenHome('/', '', String(now), now), false);
+  assert.equal(hooks.shouldAutoOpenHome('/', '', String(now-30000), now), false);
+  assert.equal(hooks.shouldAutoOpenHome('/', '', String(now-61000), now), true);
+  assert.equal(hooks.shouldAutoOpenHome('/', '', String(now+30000), now), true);
+  assert.equal(hooks.shouldAutoOpenHome('/', '?temporary-chat=true', null, now), false);
+  assert.equal(hooks.shouldAutoOpenHome('/', '?x=y&temporary-chat=true', null, now), false);
+  assert.equal(hooks.shouldAutoOpenHome('/c/abc', '', null, now), false);
+  assert.match(script,/sessionStorage\.setItem\(SUPPRESS_NEXT_HOME_AUTOOPEN_KEY,String\(Date\.now\(\)\)\)/);
+  assert.match(script,/sessionStorage\.getItem\(SUPPRESS_NEXT_HOME_AUTOOPEN_KEY\)/);
+  assert.match(script,/sessionStorage\.removeItem\(SUPPRESS_NEXT_HOME_AUTOOPEN_KEY\)/);
+  assert.match(script,/shouldAutoOpenHome\(location\.pathname, location\.search, autoOpenMarker\)/);
+  assert.doesNotMatch(script,/GM_setValue\(SUPPRESS_NEXT_HOME_AUTOOPEN_KEY/);
+});
+
+test('Health opens its user-confirmed destination, Adobe is removed, and browser labels are generic', () => {
+  const catalog = hooks.toolCatalog;
+  assert.equal(catalog.length, 15);
+  assert.equal(catalog.find((tool)=>tool.id==='health').href,'https://chatgpt.com/health');
+  assert.equal(catalog.find((tool)=>tool.id==='health').status,'verified');
+  assert.equal(catalog.find((tool)=>tool.id==='adobe'),undefined);
+  const prefs=hooks.sanitizeToolPrefs({version:1,order:['adobe','health','finances'],
+     hidden:['adobe','health'],icons:{adobe:'🎨'},urlOverrides:{adobe:'https://chatgpt.com/test'}});
+  assert.equal(prefs.order.length,15);
+  assert.equal(prefs.order.includes('adobe'),false);
+  assert.equal(prefs.hidden.includes('adobe'),false);
+  assert.equal(prefs.hidden.includes('health'),true);
+  assert.equal(prefs.urlOverrides.adobe,undefined);
+  assert.match(script,/Check in your browser/);
+  assert.match(script,/Some destinations may need verification in your browser/);
+  assert.doesNotMatch(script,/Check in Firefox|signed-in Firefox verification|adjustment in Firefox/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+});
+
 test('ChatGPT Tools catalog, three tabs, and regular/temporary New Chat split action', () => {
-  assert.equal(hooks.toolCatalog.length,16);
+  assert.equal(hooks.toolCatalog.length,15);
   assert.deepEqual(Array.from(hooks.toolGroups,(g)=>g.id),['features','specialized','account']);
   assert.equal(hooks.toolCatalog.find((t)=>t.id==='new-chat').status,'action');
   assert.equal(hooks.temporaryChatUrl,'https://chatgpt.com/?temporary-chat=true');
@@ -79,7 +116,7 @@ test('ChatGPT Tools catalog, three tabs, and regular/temporary New Chat split ac
 });
 test('ChatGPT Tools preferences persist only user overrides and do not alter shortcut storage', () => {
   const p=hooks.sanitizeToolPrefs(null);
-  assert.equal(p.order.length,16);
+  assert.equal(p.order.length,15);
   assert.equal(p.hidden.length,0);
   assert.deepEqual(Object.keys(p.icons),[]);
   const changed=hooks.editToolPrefs(p,'images',{visible:false,icon:'📚'});
@@ -90,7 +127,7 @@ test('ChatGPT Tools preferences persist only user overrides and do not alter sho
     hidden:['images','images','fake'],icons:{images:'📚',plugins:'<img>'},
     urlOverrides:{gpts:'javascript:alert(1)'}});
   assert.equal(loaded.order[0],'settings');
-  assert.equal(loaded.order.length,16);
+  assert.equal(loaded.order.length,15);
   assert.deepEqual(Array.from(loaded.hidden),['images']);
   assert.equal(loaded.icons.plugins,undefined);
   assert.equal(loaded.urlOverrides.gpts,undefined);
@@ -859,7 +896,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.20/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.21/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

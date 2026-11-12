@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.15)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.16)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -473,3 +473,35 @@ The screenshot of the organizer's category-first front door showed the top row o
 - Automated Node tests verify data models, migration, persistence constraints and static UI invariants. Interactive drag/drop, real-browser rendering and storage persistence still require logged-in Firefox acceptance.
 
 **Status:** experimental feature branch, draft PR #6; do not merge into main before Firefox verification.
+
+## Alpha.16 — editable local names for saved project/chat shortcuts (2026-11-12)
+
+### User request
+
+The existing ✎ edit popover on each saved project/chat card already supports category reassignment and Remove shortcut. The user also wants to rename the **label shown in SwiftClick**, independently of the actual ChatGPT project or conversation title.
+
+### Implementation
+
+- Add a **Display name** text input prefilled with the saved shortcut name to the per-item ✎ popover, above the existing category dropdown.
+- **Save changes** now commits the edited display name and category selection together; the category dropdown no longer closes the popover immediately on selection. The user can rename, recategorize, or do both in one interaction. **Close** dismisses without saving either change. Pressing Enter within the name input also saves.
+- The optional name is not empty: it must contain 1–140 characters after trimming and normalizing whitespace. Invalid names display an inline error without dismissing the editor.
+- For a changed name, the script validates the existing URL/key with the same project/chat sanitizers, then updates **only that saved shortcut's local title** in the existing Tampermonkey `manualProjects.v1` or `savedChats.v1` key. It does not rename anything in ChatGPT and does not alter the shortcut URL or canonical key.
+- Persist before updating the in-memory title so a storage error doesn't misleadingly show a successful change. Other saved links are preserved.
+- Category assignments are still keyed by canonical project/chat ID, not title. A name-only edit leaves the existing category and custom drag-and-drop order unchanged. A category change retains the previous behavior of clearing the old category's sort position.
+- The edit panel's **Remove shortcut** action and confirmation remain available separately. The main two-column card layout and manual-only indexing remain unchanged.
+- Everything uses explicit DOM construction and textContent, not Trusted Types-incompatible HTML string injection.
+
+### Firefox/Tampermonkey acceptance
+
+1. Upgrade to **0.1.0-alpha.16** over the existing script and reload ChatGPT; retain all saved data.
+2. Open an existing project card's ✎ editor and change **Display name** (e.g., `Cinema Decoder` → `Film analysis`), without changing Category. Click **Save changes**.
+3. Verify the card immediately displays the new name and opens the original ChatGPT project URL. Refresh ChatGPT and reopen SwiftClick: the name must persist and remain in the same category and drag order.
+4. Repeat with a saved **chat** shortcut. Confirm that both types persist locally and the original chat or project title in ChatGPT itself does not change.
+5. Open the editor again, change the name and category together, then Save changes; confirm both changes apply.
+6. Change a name but click **Close** instead of saving; confirm that the previous saved name remains. Try blank/whitespace-only names and verify inline validation blocks saving.
+7. Confirm Remove shortcut still asks for confirmation and retains its former behavior; use a disposable shortcut for an actual removal test.
+8. Check cards, search result titles, category manager, drag ordering, native ChatGPT sidebar and project-menu intake for regressions.
+
+### Validation status
+
+GitHub Node syntax and unit tests for project/chat display-name updates, immutable URL/key and error handling passed. Logged-in Firefox acceptance is still required for the popover interaction. Keep draft PR #6 unmerged and `main` unchanged.

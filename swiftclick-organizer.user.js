@@ -434,7 +434,7 @@
     '.action:hover{background:#35516c;}',
     '.items{display:grid;gap:8px;margin-top:14px;}',
     '.item{display:flex;align-items:center;gap:12px;background:#182739;border:1px solid #364a60;border-radius:10px;padding:11px;}',
-    '.drag-handle{background:transparent;color:#bdcfe2;border:1px solid transparent;border-radius:7px;min-width:30px;min-height:36px;padding:4px 6px;cursor:grab;font:700 19px/1 system-ui;touch-action:none;}',
+    '.drag-handle{background:transparent;color:#bdcfe2;border:1px solid transparent;border-radius:7px;min-width:30px;min-height:36px;padding:4px 6px;cursor:grab;font:700 19px/1 system-ui;touch-action:none;user-select:none;}',
     '.drag-handle:hover,.drag-handle:focus-visible{background:#2d4560;border-color:#6686a4;}',
     '.drag-handle:active{cursor:grabbing;}',
     '.item.drop-before{border-top:3px solid #8ac8ff;padding-top:9px;}',
@@ -724,7 +724,8 @@
         changed = true;
       }
     }
-    if (changed && open) render();
+    // Do not rebuild the list in the middle of a native drag operation.
+    if (changed && open && !dragging) render();
   }
 
   function makeCategoryCard(category) {

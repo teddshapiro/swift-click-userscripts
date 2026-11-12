@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.11
+// @version      0.1.0-alpha.12
 // @description  Manual-only local organizer for ChatGPT projects and chats. Nothing auto-indexed.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -90,6 +90,20 @@
         rect.left > Math.min(520, viewportWidth * 0.65) ||
         x < 120 || y < 4 || x + size > viewportWidth - 12) return null;
     return { x, y, size };
+  }
+
+  // Resolve only a real project identifier. Never assume projects with the
+  // same title are the same or use the currently open page as evidence.
+  function resolveMenuProjectKey(nativeHref, trigger, origin, now = Date.now()) {
+    const direct = nativeHref && parseItemLink(nativeHref, '', origin);
+    if (direct && direct.type === 'project') return direct.key;
+    if (trigger && typeof trigger.key === 'string' &&
+        Number.isFinite(trigger.at) && now - trigger.at >= 0 &&
+        now - trigger.at <= 8000 &&
+        /^project:g-p-[a-zA-Z0-9-]+$/.test(trigger.key)) {
+      return trigger.key;
+    }
+    return null;
   }
 
   function isHomeRoute(pathname) {
@@ -232,7 +246,7 @@
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
-      cleanIntakeName, chooseProjectName, headerLauncherGeometry, sanitizeCategoryOrders, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
+      cleanIntakeName, chooseProjectName, headerLauncherGeometry, resolveMenuProjectKey, sanitizeCategoryOrders, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
       categories: CATEGORIES.map((c) => c.id)
     });
     return;
@@ -625,14 +639,14 @@
     'button:hover{background:#284561;}',
     'button:focus-visible{outline:3px solid #69b6ff;outline-offset:2px;}'
   ].join('\n'));
-  const menuActionButton = button('＋ Add to SwiftClick Organizer', '', () => startNativeProjectIntake());
+  const menuActionButton = button('＋ Add to SwiftClick Organizer', '', () => handleProjectMenuAction());
   menuActionButton.setAttribute('aria-label', 'Add this ChatGPT project to SwiftClick Organizer');
   menuActionButton.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
     // Prevent the native outside-pointer handler from closing its menu first.
     event.preventDefault();
     event.stopPropagation();
-    startNativeProjectIntake();
+    handleProjectMenuAction();
   });
   menuActionRoot.appendChild(menuActionButton);
   document.body.appendChild(menuActionHost);
@@ -661,7 +675,7 @@
         match.anchor.textContent || match.anchor.getAttribute('title') ||
         match.anchor.getAttribute('aria-label')
       );
-      if (!title) continue;
+      // Project ID is useful even if the native row has no readable label.
       return { at: Date.now(), title, key: match.project.key, href: match.project.href };
     }
     return null;
@@ -691,6 +705,43 @@
     return null;
   }
 
+  function nativeProjectMenuKey(home) {
+    if (!home) return null;
+    const nativeLink = home.matches('a[href]') ? home : home.querySelector('a[href]');
+    const href = nativeLink && nativeLink.getAttribute('href');
+    return resolveMenuProjectKey(href, recentProjectTrigger, location.origin);
+  }
+
+  function savedProjectForMenu(home) {
+    const key = nativeProjectMenuKey(home);
+    return key ? manualProjects.find((item) => item.key === key) || null : null;
+  }
+
+  function openSavedProjectCategory(project) {
+    if (!project) return;
+    menuActionHost.hidden = true;
+    show();
+    currentCategory = categoryFor(project);
+    query = '';
+    render();
+  }
+
+  function handleProjectMenuAction() {
+    if (open || pendingNativeProject) return;
+    const home = activeNativeProjectHome;
+    const found = findNativeProjectMenu();
+    if (!home || !home.isConnected || !found || found.home !== home) {
+      menuActionHost.hidden = true;
+      return;
+    }
+    const saved = savedProjectForMenu(home);
+    if (saved) {
+      openSavedProjectCategory(saved);
+      return;
+    }
+    startNativeProjectIntake();
+  }
+
   function positionProjectMenuAction() {
     if (open || pendingNativeProject) {
       menuActionHost.hidden = true;
@@ -704,6 +755,14 @@
       return;
     }
     activeNativeProjectHome = found.home;
+    const saved = savedProjectForMenu(found.home);
+    menuActionButton.textContent = saved ? '✓ Already in Organizer' : '＋ Add to SwiftClick Organizer';
+    menuActionButton.setAttribute('aria-label', saved
+      ? 'Already in SwiftClick Organizer. Open its category.'
+      : 'Add this ChatGPT project to SwiftClick Organizer');
+    menuActionButton.title = saved
+      ? 'Already saved under ' + labelFor(categoryFor(saved)) + '. Click to view.'
+      : 'Add this project to SwiftClick Organizer';
     const rect = found.menu.getBoundingClientRect();
     if (!rect.width || !rect.height) {
       menuActionHost.hidden = true;
@@ -795,6 +854,15 @@
 
   function openProjectIntake(project) {
     if (!project || project.type !== 'project') return;
+    // Navigation may have completed before the companion badge resolved:
+    // never reopen Add intake for an already saved project.
+    const saved = manualProjects.find((item) => item.key === project.key);
+    if (saved) {
+      pendingNativeProject = null;
+      clearPendingIntake();
+      openSavedProjectCategory(saved);
+      return;
+    }
     pendingNativeProject = null;
     clearPendingIntake();
     menuActionHost.hidden = true;

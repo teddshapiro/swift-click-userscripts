@@ -884,6 +884,15 @@
     return '';
   }
 
+  function currentProjectForManualIntake() {
+    // Explicitly requested by + Add project, not background discovery.
+    const current = parseItemLink(location.href, '', location.origin);
+    if (!current || current.type !== 'project') return null;
+    const title = cleanIntakeName(projectNameOnPage()) ||
+      projectNameForExplicitIntake(current.key);
+    return { ...current, title };
+  }
+
   function projectNameOnPage() {
     const main = document.querySelector('main');
     const title = main && main.querySelector('h1, [data-testid="project-title"]');
@@ -1326,7 +1335,7 @@
       addingProject = !addingProject;
       addingChat = false;
       intakeChat = null;
-      intakeProject = null;
+      intakeProject = addingProject ? currentProjectForManualIntake() : null;
       render();
     }));
     addActions.appendChild(button(addingChat ? '− Cancel chat' : '+ Add chat', 'action', () => {

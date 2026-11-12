@@ -294,7 +294,7 @@ test('project intake validates a project URL and keeps native data unchanged', (
   assert.match(script, /Confirm the detected project and choose where its shortcut should appear/);
   assert.match(script, /sanitizeManualProject\(\{ title: name\.value, href: url\.value \}/);
   assert.match(script, /GM_setValue\(MANUAL_PROJECTS_KEY/);
-  assert.match(script, /pendingNativeProject = \{ from: location\.href, at: Date\.now\(\) \}/);
+  assert.match(script, /pendingNativeProject = \{ from: location\.href, at: Date\.now\(\),/);
 });
 
 test('discovered project titles are normalized without affecting chat titles', () => {

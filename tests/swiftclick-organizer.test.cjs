@@ -145,6 +145,39 @@ test('saved chats persist only via explicit actions, not background observation'
 });
 
 
+
+test('two-column grid offers compact cards with edit-only secondary actions', () => {
+  assert.match(script, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(script, /@media\(max-width:720px\).*grid-template-columns:minmax\(0,1fr\)/);
+  assert.match(script, /const editButton = button\('✎', 'edit-toggle'/);
+  assert.match(script, /editButton\.setAttribute\('aria-expanded'/);
+  assert.match(script, /const editor = el\('div', 'edit-panel'\)/);
+  assert.match(script, /label\.appendChild\(selector\)/);
+  assert.match(script, /editor\.appendChild\(actions\)/);
+  assert.match(script, /actions\.appendChild\(remove\)/);
+  assert.match(script, /row\.appendChild\(editButton\)/);
+  assert.doesNotMatch(script, /row\.appendChild\(selector\)/);
+  assert.doesNotMatch(script, /row\.appendChild\(remove\)/);
+  assert.match(script, /item\.drop-before\{border-left:/);
+  assert.match(script, /item\.drop-after\{border-right:/);
+  assert.match(script, /positionOpenEditor\(\)/);
+  assert.match(script, /if \(editItemKey !== null\)/);
+});
+
+test('grid reordering can target another column by left/right half of card', () => {
+  assert.equal(hooks.dropAfterGridTarget(109, 100, 200), false);
+  assert.equal(hooks.dropAfterGridTarget(200, 100, 200), true);
+  assert.equal(hooks.dropAfterGridTarget(299, 100, 200), true);
+  assert.equal(hooks.dropAfterGridTarget(NaN, 100, 200), false);
+  assert.equal(hooks.dropAfterGridTarget(200, 100, 0), false);
+
+  const initial = ['project:cinema', 'project:image', 'project:politics', 'chat:note'];
+  const draggedToOtherColumn = hooks.reorderKeys(initial, 'project:cinema', 'project:image', true);
+  assert.deepEqual(Array.from(draggedToOtherColumn), ['project:image', 'project:cinema', 'project:politics', 'chat:note']);
+  assert.match(script, /dropAfterGridTarget\(event\.clientX, rect\.left, rect\.width\)/);
+  assert.doesNotMatch(script, /event\.clientY >= row\.getBoundingClientRect\(\)\.top/);
+});
+
 test('manual ordering supports moving mixed chat/project rows before or after targets', () => {
   const initial = ['project:ai', 'chat:note', 'project:cinema'];
   assert.deepEqual(Array.from(hooks.reorderKeys(initial, 'project:cinema', 'project:ai')), [
@@ -331,7 +364,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.8/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.9/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

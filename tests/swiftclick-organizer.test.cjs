@@ -227,6 +227,9 @@ test('manual project-menu intake captures selected project title, not current pa
   assert.equal(hooks.cleanIntakeName(' Unnamed project '), '');
   assert.equal(hooks.cleanIntakeName('  ChatGPT - Cinema Decoder - Project '), 'Cinema Decoder');
   assert.equal(hooks.cleanIntakeName('  AI Video Production '), 'AI Video Production');
+  assert.equal(hooks.cleanIntakeName('Transcript Content Warning | ChatGPT'), 'Transcript Content Warning');
+  assert.equal(hooks.cleanIntakeName('ChatGPT - ChatGPT'), '');
+  assert.equal(hooks.cleanIntakeName('ChatGPT - Project'), '');
   const now = Date.now();
   const selected = { key: 'project:g-p-222', title: 'Coding — Tampermonkey Scripts', at: now };
   assert.equal(

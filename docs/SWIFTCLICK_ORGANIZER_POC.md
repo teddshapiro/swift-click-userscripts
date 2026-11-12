@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.9)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.10)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -39,7 +39,7 @@ This is *not* yet an account-wide conversation database or final visual design.
 ## Manual Firefox + Tampermonkey test procedure
 
 1. Visit [the branch's raw script](https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/feat/swiftclick-organizer-poc-20261111/swiftclick-organizer.user.js). Install it in Tampermonkey, or create a new userscript and paste the full source. **Do not replace an existing production userscript.**
-2. Confirm Tampermonkey displays **SwiftClick Organizer (Technical PoC)** version `0.1.0-alpha.9`. The development script deliberately has **no** production `@updateURL` or `@downloadURL`; reinstall from this branch for new PoC revisions.
+2. Confirm Tampermonkey displays **SwiftClick Organizer (Technical PoC)** version `0.1.0-alpha.10`. The development script deliberately has **no** production `@updateURL` or `@downloadURL`; reinstall from this branch for new PoC revisions.
 3. Open `https://chatgpt.com/` in a **fresh tab**. Verify the front door appears automatically, is styled, and shows the expected category cards.
 4. Click Family. It should show projects/chats directly and a **← Categories** button; there should be no Henry/Bradley folder tiles. Return to Categories; enter Hobbies & Interests. **Cinema Decoder** should appear as a project row—not as a subcategory card.
 5. Expand/collapse native ChatGPT sidebar sections and reopen SwiftClick. **Nothing new should appear** unless you explicitly saved it; only previously saved shortcuts are listed.
@@ -287,3 +287,30 @@ The previous category list showed one full-width row per project/chat, with the 
 - The organizer is still **manual-only**; this revision does not reinstate passive discovery.
 
 **Keep PR #6 as a draft, and do not merge into `main` until browser acceptance.**
+
+## Alpha.10 — compact header icon launcher, visually before Search (2026-11-12)
+
+### User request
+Place a small SwiftClick Organizer toggle icon immediately to the left of ChatGPT's Search and Sidebar Toggle icons in the upper-left page header, instead of the conspicuous vertical floating text launcher.
+
+### Design & implementation
+- The old large side-floating launcher has been replaced with a **32×32 icon button** displaying a 2×2 tile/grid SVG, created with `document.createElementNS`.
+- Clicking toggles the Organizer open or closed; `aria-expanded`, accessible label, tooltip, focus outline and Escape behavior reflect the current state.
+- The launcher **looks embedded** in ChatGPT's header. To avoid repeating previous regressions, it is not inserted into the React-owned sidebar/header DOM. It remains inside a top-level Shadow DOM host under `document.body` and is **positioned geometrically 8px to the left of the native Search control**, matching that control's height and computed foreground color.
+- Native Search is identified by its visible, labeled button/link metadata; the script does not use hidden APIs or read conversation text. Geometric guards refuse placements too close to the ChatGPT heading, too far into the page, or outside the viewport. A hit test prevents covering another native button/link.
+- If the native Search control cannot be identified or there is insufficient space (collapsed sidebar, narrow viewport, changed UI), the icon **falls back to a discreet fixed right-edge position**. This is intentional fail-safe behavior, not a failed UI injection.
+- The position is refreshed on ChatGPT DOM changes, resize, scroll and existing periodic checks. It neither mutates nor reorders ChatGPT's header, navigation, or search controls.
+- Existing manual-only project/chat collection, categories, order, intake, card edit popovers and local storage remain unchanged.
+
+### Firefox/Tampermonkey acceptance
+1. Install `0.1.0-alpha.10` over the existing Tampermonkey script, ensure only one version is enabled, then reload `https://chatgpt.com/`.
+2. Check the upper-left **ChatGPT header**: a small tile/grid icon should appear **immediately left of Search**, and Search and Sidebar Toggle must remain clickable, hoverable and visually unchanged.
+3. Click the new SwiftClick icon to open the category-first organizer. Close the dialog and reopen using the same icon; verify tooltip/focus behavior and no duplicate icons.
+4. Collapse and expand ChatGPT's native sidebar; the icon should adapt to the available header space, or show as a small right-edge fallback if no safe header slot exists. It must not overlap the ChatGPT title, Search, or sidebar toggle.
+5. Test a narrow window and ChatGPT light and dark themes; verify legibility and no covered native controls.
+6. Open native project menus, use Add to SwiftClick Organizer intake, navigate saved projects/chats and drag items in category cards; no regressions.
+7. If the icon remains at the right edge rather than relocating to the header, capture the upper-left header screenshot and, if possible, the Search button's `aria-label`, `title` or `data-testid` from Firefox Inspector. The selector may need adaptation to the current ChatGPT interface.
+
+### Validation status
+- Node syntax and pure geometry/regression tests passed on the feature branch; live header DOM placement is **not yet confirmed** on the user's logged-in Firefox session.
+- Keep draft PR #6 **unmerged** pending verification. No changes were made to production `main`.

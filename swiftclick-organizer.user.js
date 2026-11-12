@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.7
-// @description  Local category-first front door for loaded ChatGPT projects and chats. Experimental: incomplete inventory.
+// @version      0.1.0-alpha.8
+// @description  Manual-only local organizer for ChatGPT projects and chats. Nothing auto-indexed.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
 // @match        https://www.chatgpt.com/*
@@ -32,6 +32,25 @@
     { id: 'hobbies', label: 'Hobbies & Interests', icon: '✿' },
     { id: 'uncategorized', label: 'Uncategorized', icon: '▤' }
   ];
+
+  function cleanIntakeName(value) {
+    const title = String(value || '').replace(/\s+/g, ' ').trim().slice(0, 140);
+    if (!title || /^(?:unnamed project|untitled chat|chatgpt|project home|project|chat)$/i.test(title)) {
+      return '';
+    }
+    return title.replace(/^ChatGPT\s*[-–|]\s*/i, '').replace(/\s*[-–|]\s*Project$/i, '').trim();
+  }
+
+  // Prefer the title on the clicked sidebar project row over the title of the
+  // project currently open elsewhere on the page.
+  function chooseProjectName(trigger, targetKey, savedName, destinationTitle) {
+    if (trigger && Date.now() - trigger.at <= 12000 &&
+        (!trigger.key || trigger.key === targetKey)) {
+      const fromRow = cleanIntakeName(trigger.title);
+      if (fromRow) return fromRow;
+    }
+    return cleanIntakeName(savedName) || cleanIntakeName(destinationTitle);
+  }
 
   // One-time compatibility mapping for assignments saved by alpha.1–5.
   // Convert virtual subcategories into their parent WITHOUT losing linked chats.
@@ -187,7 +206,7 @@
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
-      sanitizeCategoryOrders, reorderKeys, mergeVisibleOrder, orderItems,
+      cleanIntakeName, chooseProjectName, sanitizeCategoryOrders, reorderKeys, mergeVisibleOrder, orderItems,
       categories: CATEGORIES.map((c) => c.id)
     });
     return;
@@ -200,8 +219,11 @@
   let currentCategory = null;
   let query = '';
   let addingProject = false;
+  let addingChat = false;
   let intakeProject = null;
+  let intakeChat = null;
   let pendingNativeProject = null;
+  let recentProjectTrigger = null;
   let open = false;
   let lastRoute = location.pathname;
   let refreshTimer = 0;
@@ -510,6 +532,43 @@
   document.body.appendChild(menuActionHost);
   let activeNativeProjectHome = null;
 
+  // Capture the native project row immediately when its three-dot button is
+  // clicked, before React portals the menu elsewhere in document.body.
+  // This is a one-off user-initiated lookup, NOT background discovery.
+  function captureProjectTrigger(target) {
+    const buttonNode = target && target.closest && target.closest('button, [role="button"]');
+    if (!buttonNode || launcherHost.contains(buttonNode) ||
+        overlayHost.contains(buttonNode) || menuActionHost.contains(buttonNode)) return null;
+    let node = buttonNode;
+    for (let depth = 0; node && depth < 7; depth++, node = node.parentElement) {
+      if (!node.querySelectorAll) continue;
+      const matches = [];
+      for (const anchor of node.querySelectorAll('a[href]')) {
+        const project = parseItemLink(anchor.getAttribute('href'), '', location.origin);
+        if (project && project.type === 'project') matches.push({ anchor, project });
+      }
+      // A project row has one native project link. Higher containers with
+      // multiple unrelated project links are intentionally rejected.
+      if (matches.length !== 1) continue;
+      const match = matches[0];
+      const title = cleanIntakeName(
+        match.anchor.textContent || match.anchor.getAttribute('title') ||
+        match.anchor.getAttribute('aria-label')
+      );
+      if (!title) continue;
+      return { at: Date.now(), title, key: match.project.key, href: match.project.href };
+    }
+    return null;
+  }
+
+  document.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || open) return;
+    const captured = captureProjectTrigger(event.target);
+    if (captured) recentProjectTrigger = captured;
+  }, true);
+
+
+
   function findNativeProjectMenu() {
     // Only project menus with the explicit native "Project home" action qualify.
     // Never infer the project from the CURRENT page: a different project may
@@ -596,9 +655,12 @@
       return false;
     }
     if (location.href === pending.from) return false;
-    const project = parseItemLink(location.href, projectNameOnPage(), location.origin);
+    const project = parseItemLink(location.href, '', location.origin);
     if (!project || project.type !== 'project') return false;
-    openProjectIntake(project);
+    const trigger = pending.trigger || null;
+    const title = chooseProjectName(trigger, project.key,
+      manualProjects.find((p) => p.key === project.key)?.title, projectNameOnPage());
+    openProjectIntake({ ...project, title });
     return true;
   }
 
@@ -635,9 +697,12 @@
       return;
     }
     if (location.href === pendingNativeProject.from) return;
-    const project = parseItemLink(location.href, projectNameOnPage(), location.origin);
+    const project = parseItemLink(location.href, '', location.origin);
     if (project && project.type === 'project') {
-      openProjectIntake(project);
+      const trigger = pendingNativeProject.trigger || null;
+      const name = chooseProjectName(trigger, project.key,
+        manualProjects.find((p) => p.key === project.key)?.title, projectNameOnPage());
+      openProjectIntake({ ...project, title: name });
     }
   }
 
@@ -655,12 +720,15 @@
     const nativeLink = home.matches('a[href]') ? home : home.querySelector('a[href]');
     const parsed = nativeLink && parseItemLink(nativeLink.getAttribute('href'), '', location.origin);
     if (parsed && parsed.type === 'project') {
-      const known = seen.get(parsed.key);
-      openProjectIntake({ ...parsed, title: known && known.title !== 'Unnamed project' ? known.title : '' });
+      const title = chooseProjectName(recentProjectTrigger, parsed.key,
+        manualProjects.find((p) => p.key === parsed.key)?.title, '');
+      openProjectIntake({ ...parsed, title });
       return;
     }
 
-    pendingNativeProject = { from: location.href, at: Date.now() };
+    pendingNativeProject = { from: location.href, at: Date.now(),
+      trigger: recentProjectTrigger && Date.now() - recentProjectTrigger.at <= 12000
+        ? recentProjectTrigger : null };
     stashPendingIntake();
     menuActionHost.hidden = true;
     home.click();
@@ -679,53 +747,6 @@
 
   function visibleItems(categoryId) {
     return [...seen.values()].filter((item) => itemInCategory(categoryFor(item), categoryId));
-  }
-
-  function indexAnchor(anchor) {
-    const title = anchor.getAttribute('aria-label') || anchor.textContent || '';
-    const item = parseItemLink(anchor.getAttribute('href'), title, location.origin);
-    if (!item) return false;
-    const existing = seen.get(item.key);
-    if (manualProjects.some((saved) => saved.key === item.key) ||
-        savedChats.some((saved) => saved.key === item.key)) return false;
-    // Upgrade older category-only chat assignments as their links are
-    // rediscovered, without indexing unassigned chat content.
-    if (item.type === 'chat' && assignments[item.key]) {
-      return saveChatShortcut(item);
-    }
-    if (existing && existing.title.length > item.title.length && item.title.startsWith('Unnamed')) return false;
-    if (existing && existing.title === item.title && existing.href === item.href) return false;
-    seen.set(item.key, item);
-    return true;
-  }
-
-  function collectLoadedLinks() {
-    let changed = false;
-    const containers = document.querySelectorAll('nav, aside, [data-testid*="sidebar"], [data-sidebar]');
-    for (const container of containers) {
-      if (launcherHost.contains(container) || overlayHost.contains(container)) continue;
-      for (const anchor of container.querySelectorAll('a[href]')) {
-        if (indexAnchor(anchor)) changed = true;
-      }
-    }
-    // The current route is useful even if the native sidebar is collapsed.
-    const pageTitle = (document.title || '').replace(/\s*[-|]\s*ChatGPT\s*$/i, '');
-    const activeItem = parseItemLink(location.href, pageTitle, location.origin);
-    if (activeItem) {
-      if (activeItem.type === 'chat' && assignments[activeItem.key] &&
-          !savedChats.some((saved) => saved.key === activeItem.key)) {
-        if (saveChatShortcut(activeItem)) changed = true;
-      }
-      const prior = seen.get(activeItem.key);
-      const savedLocally = manualProjects.some((p) => p.key === activeItem.key) ||
-        savedChats.some((c) => c.key === activeItem.key);
-      if (!savedLocally && (!prior || prior.title !== activeItem.title)) {
-        seen.set(activeItem.key, activeItem);
-        changed = true;
-      }
-    }
-    // Do not rebuild the list in the middle of a native drag operation.
-    if (changed && open && !dragging) render();
   }
 
   function makeCategoryCard(category) {
@@ -877,7 +898,7 @@
     name.placeholder = 'e.g. Coding — Tampermonkey Scripts';
     name.maxLength = 140;
     name.required = true;
-    if (intakeProject) name.value = intakeProject.title;
+    if (intakeProject) name.value = cleanIntakeName(intakeProject.title);
     nameLabel.appendChild(name);
     form.appendChild(nameLabel);
     const urlLabel = el('label', 'field-label', 'ChatGPT project URL');
@@ -974,8 +995,8 @@
 
     const search = el('input', 'search');
     search.type = 'search';
-    search.placeholder = 'Search indexed projects and chats...';
-    search.setAttribute('aria-label', 'Search indexed projects and chats');
+    search.placeholder = 'Search saved projects and chats...';
+    search.setAttribute('aria-label', 'Search saved projects and chats');
     search.value = query;
     search.addEventListener('input', () => {
       query = search.value;
@@ -1004,7 +1025,7 @@
     const ordered = orderItems(filtered, hasSearch ? 'uncategorized' : currentCategory, categoryOrders);
     if (!hasSearch && currentCategory === null) {
       // The default front door is categories, not a wall of chat links.
-      content.appendChild(el('p', 'hint', 'Choose a category or search above. Uncategorized is the inbox for links not yet assigned.'));
+      content.appendChild(el('p', 'hint', 'Choose a category or search your saved items. Add projects and chats explicitly; nothing is collected automatically.'));
     } else {
       content.appendChild(el('p', 'hint', hasSearch
         ? filtered.length + ' search result' + (filtered.length === 1 ? '' : 's')
@@ -1022,13 +1043,14 @@
       ordered.slice(0, 250).forEach((item) => list.appendChild(makeItemRow(item, canReorder)));
       if (!filtered.length) list.appendChild(el('div', 'empty',
         hasSearch ? 'No matches among currently indexed projects and chats.'
-          : 'No projects or chats assigned here yet. Add an existing project, or assign a visible chat from Uncategorized.'));
+          : 'Nothing saved here yet. Use Add project or Add chat to choose what belongs in this category.'));
       content.appendChild(list);
     }
     panel.appendChild(content);
 
     const footer = el('div', 'foot');
-    footer.appendChild(el('span', 'hint', seen.size + ' indexed items · ' + manualProjects.length + ' projects and ' + savedChats.length + ' chats retained locally. Auto-discovery is incomplete.'));
+    footer.appendChild(el('span', 'hint', manualProjects.length + ' projects and ' +
+      savedChats.length + ' chats saved locally. Items appear only when you add them.'));
     const reset = button('Clear local category labels', 'action', () => {
       if (window.confirm('Clear all locally saved SwiftClick Organizer category assignments? This will not change ChatGPT.')) {
         assignments = {};
@@ -1041,7 +1063,6 @@
   }
 
   function show(automatic = false) {
-    collectLoadedLinks();
     open = true;
     currentCategory = null;
     addingProject = false;
@@ -1080,7 +1101,6 @@
     if (refreshTimer) window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(() => {
       refreshTimer = 0;
-      collectLoadedLinks();
       positionProjectMenuAction();
       resolveNativeProjectIntake();
     }, 150);
@@ -1111,7 +1131,6 @@
     GM_registerMenuCommand('Open SwiftClick Organizer', show);
   }
 
-  collectLoadedLinks();
   positionProjectMenuAction();
   resumePendingIntake(); // Full page navigation should not lose an intake.
 

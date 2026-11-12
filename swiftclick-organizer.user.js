@@ -1244,7 +1244,7 @@
       if (category.id !== 'uncategorized') {
         const remove = button('Delete', 'action remove-action', () => {
           const items = visibleItems(category.id).length;
-          if (!window.confirm('Delete the category "' + category.label + '"?\\n\\n' +
+          if (!window.confirm('Delete the category "' + category.label + '"?\n\n' +
               items + ' saved item(s) will move to ' + labelFor('uncategorized') +
               '. No original ChatGPT projects/chats or SwiftClick shortcuts will be deleted.')) return;
           const next = deleteCategoryModel(CATEGORIES, category.id);
@@ -1297,7 +1297,7 @@
       'Advanced: clear saved category assignments only. Projects and chats stay in SwiftClick, under the inbox category.'));
     danger.appendChild(button('Clear all category assignments', 'action remove-action', () => {
       if (!window.confirm('Move EVERY saved project and chat to ' +
-          labelFor('uncategorized') + '?\\n\\nThis will remove all category assignments. Your saved shortcuts are not deleted.')) return;
+          labelFor('uncategorized') + '?\n\nThis will remove all category assignments. Your saved shortcuts are not deleted.')) return;
       assignments = {};
       saveAssignments();
       categoryManagerError = '';

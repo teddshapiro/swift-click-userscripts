@@ -1519,7 +1519,7 @@
       editor.appendChild(error);
 
       const saveChanges = () => {
-        const title = nameInput.value.replace(/\\s+/g, ' ').trim();
+        const title = nameInput.value.replace(/\s+/g, ' ').trim();
         if (!title || title.length > 140) {
           error.textContent = 'Enter a name between 1 and 140 characters.';
           nameInput.focus();

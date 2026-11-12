@@ -2,12 +2,12 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.14)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.15)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
 
-Provide a category-first **front door** to ChatGPT, not a permanent replacement sidebar. On an initial visit to the ChatGPT home route, the organizer opens. After choosing a native project or chat link it gets out of the way. On direct/deep links to a chat or project, it does **not** auto-open. A compact launcher, positioned near the right edge of the viewport and mounted as a direct child of the document body, reopens it. The script never inserts its launcher into the native ChatGPT sidebar.
+Provide a category-first **front door** to ChatGPT, not a permanent replacement sidebar. On an initial visit to the ChatGPT home route, the organizer opens. After choosing a native project or chat link it gets out of the way. On direct/deep links to a chat or project, it does **not** auto-open. A compact header-adjacent launcher (with a safe right-edge fallback) reopens it; the launcher remains outside ChatGPT's React-managed header and sidebar.
 
 This is *not* yet an account-wide conversation database or final visual design.
 
@@ -21,7 +21,7 @@ This is *not* yet an account-wide conversation database or final visual design.
 - **Add project** manual shortcut form: enter a project name, paste its existing ChatGPT project URL, choose a virtual category. Saved manual project shortcuts reappear after refresh even when ChatGPT has not loaded them into its sidebar.
 - Saved project shortcuts can be removed from SwiftClick without affecting ChatGPT.
 - Saved **Project** and **Chat** rows are the only inventory. Any link explicitly saved in an earlier alpha version remains; links that were only transiently observed in old versions are no longer shown until added manually.
-- Category pickers offer only the six top-level categories; the nested options no longer exist.
+- Category pickers offer the locally configured flat top-level categories; the nested options no longer exist. Category names, display order, creation, and deletion are user-managed in **Manage categories**.
 - Native ChatGPT links remain intact; regular click closes the organizer, modified/middle clicks preserve their browser behavior.
 - Close button, Escape, click-outside dismissal, Tampermonkey menu command, and a fixed floating launcher outside ChatGPT-owned navigation.
 - Shadow DOM, constructed stylesheets with fallback, explicit DOM element creation; broken-CSS detection closes the overlay.
@@ -31,7 +31,7 @@ This is *not* yet an account-wide conversation database or final visual design.
 1. **A curated inventory, not an account-wide inventory.** SwiftClick intentionally lists only projects and chats explicitly saved through its controls. Opening or expanding ChatGPT's sidebar by itself does not add anything.
 2. Existing **saved** project/chat shortcuts, categories, and manually arranged order survive this update. Old **category-only** chat assignments without a stored URL/title are retained as metadata but cannot appear until the user manually adds that chat. Account/workspace isolation is still absent: use one ChatGPT account per browser profile. Only explicitly saved titles and URLs—not message bodies—are stored in Tampermonkey.
 3. The PoC does not infer that a chat belongs to a project, so project assignment **does not automatically assign its conversations** yet. The hierarchy is virtual.
-4. Top-level category names/order are seeded and not yet editable. **Items inside each category can be reordered by drag-and-drop** and keyboard.
+4. Top-level categories can be **created, renamed, deleted, and reordered** using Manage categories; their internal IDs remain stable on rename. Saved projects and chats can be reordered by drag-and-drop and keyboard in each category. The Uncategorized inbox is always retained.
 5. During a **user-triggered project intake**, SwiftClick tries to read the selected sidebar project title before ChatGPT navigates, or finds the selected project's link by ID. If it cannot verify a title, the input remains editable and may be blank; no other open project's title should be substituted. No hidden ChatGPT APIs or message-body scraping.
 6. Does not move, delete or rename ChatGPT content, alter project instructions, call external APIs, or use AI.
 7. Earlier versions have been visually checked in a logged-in Firefox session; **alpha.8's manual-only behavior and project-name autofill still require user acceptance** before release.
@@ -435,3 +435,41 @@ User noticed that some project intake forms now prefill the name but not the pro
 ### Validation status
 
 Node tests exercise explicit metadata extraction and its safety guards. **A passing unit test does not establish that ChatGPT actually includes these attributes**: logged-in Firefox acceptance is still required. Keep PR #6 draft and main unchanged.
+
+## Alpha.15 — category management and main-screen spacing (2026-11-12)
+
+### User request
+
+The screenshot of the organizer's category-first front door showed the top row of cards immediately touching the bottom of the search input. The user also requested replacing the **Clear local category labels** footer button with an interface to **create, rename, delete, and reorder** top-level categories, retaining the clearing action inside that interface.
+
+### Implementation
+
+- Add **22px of vertical margin** above the category card grid, separating the first row from the search input.
+- Replace the footer button with **⚙ Manage categories**. It opens a dedicated manager inside the existing organizer overlay; the manager can be closed using its Back button or Escape.
+- Each category has an editable name (Save name or Enter), a drag handle, and Up/Down reorder buttons. Reordering determines how the cards appear on the organizer's front page and how category options are ordered in other pickers.
+- **+ Create category** adds a new top-level category (no subcategories) before the Uncategorized inbox. Each new category has an automatically generated stable `custom-...` ID, generic ▦ icon, and an editable label. Names are unique ignoring case, 1–50 characters; maximum 40 categories.
+- **Delete** is confirmed with the number of saved items affected. Deleting a category reassigns its projects/chats into **Uncategorized** without deleting their saved links or modifying native ChatGPT projects/chats. Its obsolete per-category ordering is cleared. **Uncategorized cannot be deleted** because it is the fallback inbox. Renaming Uncategorized is allowed.
+- The former footer reset is now an **Advanced: Clear all category assignments** operation inside the manager, with explicit confirmation. It reclassifies saved shortcuts to Uncategorized but does not delete shortcuts or categories.
+- All user category definitions and display order persist locally under `swiftclick-organizer-poc.categoryDefinitions.v1` as `{version:1,categories:[{id,label},...]}`. This is an independent key: existing assignments, saved projects/chats and per-category item ordering are retained. Existing installations with no category definitions key load the eight prior default categories in their prior order.
+- Renaming a category changes **only its display label**, not its ID. Thus existing assignments are preserved. A deliberately deleted default category stays deleted after reload; the script does not reconstruct it.
+- All injected UI uses createElement, textContent, appendChild, and isolated Shadow DOM. No string-based HTML injection, no native ChatGPT DOM mutation, no automatic inventory discovery.
+
+### Firefox / Tampermonkey acceptance
+
+1. Install **0.1.0-alpha.15** over the previous userscript (one enabled installation); reload ChatGPT. Do not clear existing local data.
+2. On the category-first home screen, verify visible breathing room between the search input and top row of cards.
+3. Confirm existing eight categories and their saved project/chat counts remain intact; click **⚙ Manage categories** in the footer.
+4. Rename **Hobbies & Interests** temporarily (e.g. **Interests**) and Save; return to the front page and verify the label changes but the same saved projects remain inside. Rename it back afterward if desired.
+5. Use the arrow buttons or drag handles to move **Home** ahead of Finances; exit, reopen, and reload ChatGPT to confirm its new position persists. Verify intake category pickers reflect the new order.
+6. Create a disposable test category; verify it appears on the front page, in Add project/chat forms and item edit pickers. Assign one disposable shortcut to it, then delete the category. Confirm that shortcut appears under Uncategorized, without being deleted from SwiftClick or ChatGPT.
+7. Confirm the manager refuses duplicate/empty category names and does not allow deleting the Uncategorized inbox; confirm no items disappear after deleting a category.
+8. The **Advanced** reset should be tested only if you intentionally want to clear all assignments. It is not necessary for ordinary acceptance testing.
+9. Confirm native project-menu actions, header launcher, manual-only intake and category item drag/reordering continue to work.
+
+### Limitations
+
+- Categories are stored per Tampermonkey/browser profile, not synchronized between browsers, devices or ChatGPT accounts.
+- Custom categories use a generic icon; editable icons or nested categories are future options, not part of alpha.15.
+- Automated Node tests verify data models, migration, persistence constraints and static UI invariants. Interactive drag/drop, real-browser rendering and storage persistence still require logged-in Firefox acceptance.
+
+**Status:** experimental feature branch, draft PR #6; do not merge into main before Firefox verification.

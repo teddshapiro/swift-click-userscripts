@@ -22,7 +22,7 @@
   const MANUAL_PROJECTS_KEY = APP_ID + '.manualProjects.v1';
   const SAVED_CHATS_KEY = APP_ID + '.savedChats.v1';
   const ORDER_KEY = APP_ID + '.categoryOrder.v1';
-  const PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
+  const LEGACY_PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
   // Flat virtual categories only; do not introduce nested categories in this MVP.
   const CATEGORIES = [
     { id: 'family', label: 'Family', icon: '👪' },
@@ -104,6 +104,33 @@
       return trigger.key;
     }
     return null;
+  }
+
+  // Status can be definitive only with a project ID. When the current
+  // ChatGPT menu exposes no ID, a unique name match is advisory ("Review"),
+  // never an assertion that two same-named projects are identical.
+  function classifyMenuProject(nativeHref, trigger, savedProjects, origin, now = Date.now()) {
+    const recent = trigger && Number.isFinite(trigger.at) && now >= trigger.at &&
+      now - trigger.at <= 8000 ? trigger : null;
+    const parsed = nativeHref ? parseItemLink(nativeHref, '', origin) : null;
+    const key = resolveMenuProjectKey(nativeHref, recent, origin, now);
+    const title = recent ? cleanIntakeName(recent.title) : '';
+    if (key) {
+      const saved = savedProjects.find((item) => item.key === key);
+      if (saved) return { status: 'saved', project: saved, key, title: saved.title };
+      const href = parsed && parsed.type === 'project' && parsed.key === key
+        ? parsed.href : origin + '/g/' + key.slice('project:'.length) + '/project';
+      const project = parseItemLink(href, title, origin);
+      return { status: 'add', project, key, title };
+    }
+    if (title) {
+      const matches = savedProjects.filter((item) =>
+        cleanIntakeName(item.title).toLocaleLowerCase() === title.toLocaleLowerCase());
+      if (matches.length === 1) {
+        return { status: 'possible', project: matches[0], key: null, title };
+      }
+    }
+    return { status: 'manual', project: null, key: null, title };
   }
 
   function isHomeRoute(pathname) {
@@ -246,7 +273,7 @@
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
-      cleanIntakeName, chooseProjectName, headerLauncherGeometry, resolveMenuProjectKey, sanitizeCategoryOrders, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
+      cleanIntakeName, chooseProjectName, headerLauncherGeometry, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
       categories: CATEGORIES.map((c) => c.id)
     });
     return;
@@ -262,8 +289,9 @@
   let addingChat = false;
   let intakeProject = null;
   let intakeChat = null;
-  let pendingNativeProject = null;
   let recentProjectTrigger = null;
+  let menuPressActive = false;
+  let menuActionSnapshot = null;
   let open = false;
   let lastRoute = location.pathname;
   let refreshTimer = 0;
@@ -648,10 +676,24 @@
     if (event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
-    // DO NOT navigate, hide the button or modify the menu on pointerdown.
+    menuPressActive = true;
+    // Capture from the last visible native menu BEFORE React potentially
+    // dismisses it; keep this button mounted until the click completes.
+    menuActionSnapshot = menuContextFor(activeNativeProjectHome);
   });
   menuActionButton.addEventListener('pointerup', (event) => {
     event.stopPropagation();
+    window.setTimeout(() => {
+      if (!menuPressActive) return;
+      menuPressActive = false;
+      menuActionSnapshot = null;
+      positionProjectMenuAction();
+    }, 400);
+  });
+  menuActionButton.addEventListener('pointercancel', () => {
+    menuPressActive = false;
+    menuActionSnapshot = null;
+    positionProjectMenuAction();
   });
   menuActionButton.addEventListener('click', (event) => {
     event.preventDefault();
@@ -668,35 +710,55 @@
     const buttonNode = target && target.closest && target.closest('button, [role="button"]');
     if (!buttonNode || launcherHost.contains(buttonNode) ||
         overlayHost.contains(buttonNode) || menuActionHost.contains(buttonNode)) return null;
+
+    let possibleTitle = '';
     let node = buttonNode;
     for (let depth = 0; node && depth < 7; depth++, node = node.parentElement) {
       if (!node.querySelectorAll) continue;
-      const matches = [];
+      const links = [];
       for (const anchor of node.querySelectorAll('a[href]')) {
         const project = parseItemLink(anchor.getAttribute('href'), '', location.origin);
-        if (project && project.type === 'project') matches.push({ anchor, project });
+        if (project && project.type === 'project' &&
+            !links.some((entry) => entry.project.key === project.key)) {
+          links.push({ anchor, project });
+        }
       }
-      // A project row has one native project link. Higher containers with
-      // multiple unrelated project links are intentionally rejected.
-      if (matches.length !== 1) continue;
-      const match = matches[0];
-      const title = cleanIntakeName(
-        match.anchor.textContent || match.anchor.getAttribute('title') ||
-        match.anchor.getAttribute('aria-label')
-      );
-      // Project ID is useful even if the native row has no readable label.
-      return { at: Date.now(), title, key: match.project.key, href: match.project.href };
+      if (links.length === 1) {
+        const match = links[0];
+        const title = cleanIntakeName(
+          match.anchor.textContent || match.anchor.getAttribute('title') ||
+          match.anchor.getAttribute('aria-label') || possibleTitle
+        );
+        return { at: Date.now(), title, key: match.project.key, href: match.project.href };
+      }
+      // A broader ancestor with several different project links is not
+      // identifying evidence for the clicked project's ID.
+      if (links.length > 1) break;
+
+      // Some ChatGPT sidebar rows don't contain an anchor, only buttons.
+      // Capture a short nearby label for a conservative, unique-name hint.
+      if (!possibleTitle && depth > 0 && depth < 5) {
+        const raw = String(node.textContent || '').replace(/\s+/g, ' ').trim();
+        const title = cleanIntakeName(raw);
+        if (title && title.length >= 3 && title.length < 95 &&
+            !/^(more|options|menu|new chat|share|rename|project settings)$/i.test(title)) {
+          possibleTitle = title;
+        }
+      }
     }
-    return null;
+    return possibleTitle ? { at: Date.now(), key: null, title: possibleTitle, href: null } : null;
   }
 
   document.addEventListener('pointerdown', (event) => {
     if (event.button !== 0 || open) return;
-    const captured = captureProjectTrigger(event.target);
-    if (captured) recentProjectTrigger = captured;
+    const node = event.target && event.target.closest &&
+      event.target.closest('button, [role="button"]');
+    if (!node || !node.closest ||
+        !node.closest('nav, aside, [data-testid*="sidebar"]')) return;
+    // Clear stale context on every sidebar button interaction. An unrelated
+    // project from several seconds ago must never be called "already saved".
+    recentProjectTrigger = captureProjectTrigger(event.target);
   }, true);
-
-
 
   function findNativeProjectMenu() {
     // Only project menus with the explicit native "Project home" action qualify.
@@ -714,16 +776,11 @@
     return null;
   }
 
-  function nativeProjectMenuKey(home) {
+  function menuContextFor(home) {
     if (!home) return null;
     const nativeLink = home.matches('a[href]') ? home : home.querySelector('a[href]');
     const href = nativeLink && nativeLink.getAttribute('href');
-    return resolveMenuProjectKey(href, recentProjectTrigger, location.origin);
-  }
-
-  function savedProjectForMenu(home) {
-    const key = nativeProjectMenuKey(home);
-    return key ? manualProjects.find((item) => item.key === key) || null : null;
+    return classifyMenuProject(href, recentProjectTrigger, manualProjects, location.origin);
   }
 
   function openSavedProjectCategory(project) {
@@ -736,23 +793,30 @@
   }
 
   function handleProjectMenuAction() {
-    if (open || pendingNativeProject) return;
-    const home = activeNativeProjectHome;
-    const found = findNativeProjectMenu();
-    if (!home || !home.isConnected || !found || found.home !== home) {
+    if (open) return;
+    // Pointer-down captured this context while the native menu was visible.
+    // A React dismissal on pointer-down must not cause us to use stale state
+    // or invoke a native Project Home click.
+    const context = menuActionSnapshot || (!menuActionHost.hidden &&
+      menuContextFor(activeNativeProjectHome));
+    menuPressActive = false;
+    menuActionSnapshot = null;
+    if (!context) {
       menuActionHost.hidden = true;
       return;
     }
-    const saved = savedProjectForMenu(home);
-    if (saved) {
-      openSavedProjectCategory(saved);
-      return;
+    if (context.status === 'saved' || context.status === 'possible') {
+      openSavedProjectCategory(context.project);
+    } else if (context.status === 'add' && context.project) {
+      openProjectIntake(context.project);
+    } else {
+      openProjectManualIntake(context.title);
     }
-    startNativeProjectIntake();
   }
 
   function positionProjectMenuAction() {
-    if (open || pendingNativeProject) {
+    if (menuPressActive) return; // Hold the button through pointerup/click.
+    if (open) {
       menuActionHost.hidden = true;
       activeNativeProjectHome = null;
       return;
@@ -764,13 +828,19 @@
       return;
     }
     activeNativeProjectHome = found.home;
-    const saved = savedProjectForMenu(found.home);
-    menuActionButton.textContent = saved ? '✓ Already in Organizer' : '＋ Add to SwiftClick Organizer';
-    menuActionButton.setAttribute('aria-label', saved
+    const context = menuContextFor(found.home);
+    const isSaved = context && context.status === 'saved';
+    const isPossible = context && context.status === 'possible';
+    menuActionButton.textContent = isSaved ? '✓ Already in Organizer'
+      : isPossible ? '? Possible match — Review'
+        : '＋ Add to SwiftClick Organizer';
+    menuActionButton.setAttribute('aria-label', isSaved
       ? 'Already in SwiftClick Organizer. Open its category.'
-      : 'Add this ChatGPT project to SwiftClick Organizer');
-    menuActionButton.title = saved
-      ? 'Already saved under ' + labelFor(categoryFor(saved)) + '. Click to view.'
+      : isPossible ? 'Project name matches a saved shortcut. Review its category.'
+        : 'Add this ChatGPT project to SwiftClick Organizer');
+    menuActionButton.title = (isSaved || isPossible)
+      ? (isSaved ? 'Saved in ' : 'Name matches a project in ') +
+        labelFor(categoryFor(context.project)) + '. Click to review.'
       : 'Add this project to SwiftClick Organizer';
     const rect = found.menu.getBoundingClientRect();
     if (!rect.width || !rect.height) {
@@ -800,45 +870,6 @@
     menuActionHost.hidden = false;
   }
 
-  function stashPendingIntake() {
-    if (!pendingNativeProject) return;
-    try {
-      // Short-lived tab-only navigation intent; not a persistent conversation index.
-      window.sessionStorage.setItem(PENDING_INTAKE_KEY, JSON.stringify(pendingNativeProject));
-    } catch (error) {
-      console.warn('[SwiftClick Organizer] Cannot retain intake across a full page load:', error);
-    }
-  }
-
-  function clearPendingIntake() {
-    try { window.sessionStorage.removeItem(PENDING_INTAKE_KEY); } catch (_) { /* optional */ }
-  }
-
-  function resumePendingIntake() {
-    let pending;
-    try {
-      const raw = window.sessionStorage.getItem(PENDING_INTAKE_KEY);
-      if (raw) pending = JSON.parse(raw);
-    } catch (_) { clearPendingIntake(); return false; }
-    if (!pending || typeof pending.from !== 'string' || !Number.isFinite(pending.at)) {
-      clearPendingIntake();
-      return false;
-    }
-    if (Date.now() - pending.at > 7000) {
-      clearPendingIntake();
-      return false;
-    }
-    if (location.href === pending.from) return false;
-    const project = parseItemLink(location.href, '', location.origin);
-    if (!project || project.type !== 'project') return false;
-    const trigger = pending.trigger || null;
-    const title = chooseProjectName(trigger, project.key,
-      projectNameForExplicitIntake(project.key) ||
-        manualProjects.find((p) => p.key === project.key)?.title, projectNameOnPage());
-    openProjectIntake({ ...project, title });
-    return true;
-  }
-
   function projectNameForExplicitIntake(key) {
     // Targeted title lookup ONLY after the user invokes Add on a project.
     // This scans no chat content and adds nothing to SwiftClick inventory.
@@ -861,75 +892,28 @@
     return fallback && fallback.toLowerCase() !== 'chatgpt' ? fallback.slice(0, 140) : 'Unnamed project';
   }
 
-  function openProjectIntake(project) {
-    if (!project || project.type !== 'project') return;
-    // Navigation may have completed before the companion badge resolved:
-    // never reopen Add intake for an already saved project.
-    const saved = manualProjects.find((item) => item.key === project.key);
-    if (saved) {
-      pendingNativeProject = null;
-      clearPendingIntake();
-      openSavedProjectCategory(saved);
-      return;
-    }
-    pendingNativeProject = null;
-    clearPendingIntake();
+  function openProjectManualIntake(title) {
+    // The project menu had no verifiable URL. Open the user's Add form with
+    // any readable title, and let them paste the URL; never navigate for them.
     menuActionHost.hidden = true;
-    // An intake intentionally causes native project navigation. A normal
-    // route watcher must not immediately dismiss the just-opened intake.
-    lastRoute = location.pathname;
     show();
-    intakeProject = project;
+    intakeProject = { type: 'project', key: null, title: cleanIntakeName(title), href: '' };
     addingProject = true;
     render();
   }
 
-  function resolveNativeProjectIntake() {
-    if (!pendingNativeProject) return;
-    if (Date.now() - pendingNativeProject.at > 7000) {
-      pendingNativeProject = null;
-      clearPendingIntake();
-      console.warn('[SwiftClick Organizer] Project home did not yield a verifiable project URL.');
-      window.alert('SwiftClick could not identify that project automatically. You can still open Project home and use + Add project with its URL.');
+  function openProjectIntake(project) {
+    if (!project || project.type !== 'project' || !project.key) return;
+    const saved = manualProjects.find((item) => item.key === project.key);
+    if (saved) {
+      openSavedProjectCategory(saved);
       return;
     }
-    if (location.href === pendingNativeProject.from) return;
-    const project = parseItemLink(location.href, '', location.origin);
-    if (project && project.type === 'project') {
-      const trigger = pendingNativeProject.trigger || null;
-      const name = chooseProjectName(trigger, project.key,
-        projectNameForExplicitIntake(project.key) ||
-          manualProjects.find((p) => p.key === project.key)?.title, projectNameOnPage());
-      openProjectIntake({ ...project, title: name });
-    }
-  }
-
-  function startNativeProjectIntake() {
-    if (open || pendingNativeProject) return;
-    const home = activeNativeProjectHome;
-    const stillOpen = findNativeProjectMenu();
-    if (!home || !home.isConnected || !stillOpen || stillOpen.home !== home) {
-      menuActionHost.hidden = true;
-      return;
-    }
-    // Where the native menu contains an actual project link, use its
-    // verified href directly. Otherwise invoke the site's own Project home
-    // action, then wait to observe a NEW project route; never guess an ID.
-    const nativeLink = home.matches('a[href]') ? home : home.querySelector('a[href]');
-    const parsed = nativeLink && parseItemLink(nativeLink.getAttribute('href'), '', location.origin);
-    if (parsed && parsed.type === 'project') {
-      const title = chooseProjectName(recentProjectTrigger, parsed.key,
-        projectNameForExplicitIntake(parsed.key) ||
-          manualProjects.find((p) => p.key === parsed.key)?.title, '');
-      openProjectIntake({ ...parsed, title });
-      return;
-    }
-
-    // No verified project URL: never invoke ChatGPT's Project Home on
-    // the user's behalf. Offer the explicit manual form instead.
-    const fromRow = recentProjectTrigger && Date.now() - recentProjectTrigger.at <= 8000
-      ? recentProjectTrigger : null;
-    openProjectManualIntake(fromRow && fromRow.title ? fromRow.title : '');
+    menuActionHost.hidden = true;
+    show();
+    intakeProject = project;
+    addingProject = true;
+    render();
   }
 
   function labelFor(id) {
@@ -1485,7 +1469,6 @@
       refreshTimer = 0;
       positionLauncher();
       positionProjectMenuAction();
-      resolveNativeProjectIntake();
     }, 150);
   }
 
@@ -1498,15 +1481,9 @@
   window.setInterval(() => {
     if (lastRoute !== location.pathname) {
       lastRoute = location.pathname;
-      if (pendingNativeProject) {
-        // First consume the project-home route; it opens a new intake dialog.
-        resolveNativeProjectIntake();
-      } else if (open) {
-        hide(); // Ordinary non-intake navigation still closes the organizer.
-      }
+      if (open) hide(); // Ordinary navigation closes the organizer.
       scheduleRefresh();
     }
-    resolveNativeProjectIntake();
     positionLauncher();
     positionProjectMenuAction();
   }, 1000);
@@ -1519,7 +1496,9 @@
   window.addEventListener('resize', scheduleRefresh, { passive: true });
   window.addEventListener('scroll', scheduleRefresh, { passive: true, capture: true });
   positionProjectMenuAction();
-  resumePendingIntake(); // Full page navigation should not lose an intake.
+  // Clear any orphaned navigation intent left by alpha.12's Project Home
+  // auto-click mechanism; this version never resumes an automatic navigation.
+  try { window.sessionStorage.removeItem(LEGACY_PENDING_INTAKE_KEY); } catch (_) { /* storage optional */ } // Full page navigation should not lose an intake.
 
   // Only initial ChatGPT home entry auto-opens; direct links must remain unobstructed.
   if (isHomeRoute(location.pathname)) {

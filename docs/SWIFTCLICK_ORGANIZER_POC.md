@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.11)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.12)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -339,3 +339,34 @@ The new cards appear after My Health and before SwiftClick Business. Both are or
 6. Confirm preexisting categories and items remain, the native ChatGPT header/sidebar controls still work, and no passive discovery resumes.
 
 **Status:** code and Node tests are in the development branch, draft PR #6 remains unmerged pending Firefox acceptance.
+
+## Alpha.12 — existing-project status in native three-dot menu companion (2026-11-12)
+
+### Desired behavior
+
+After a user opens a project's three-dot menu in ChatGPT, the SwiftClick companion action should know whether that exact project has **already been explicitly saved** in SwiftClick. The action now has two modes:
+
+- **Unsaved**: `＋ Add to SwiftClick Organizer` — previous category intake workflow, including selected-project name/URL.
+- **Saved**: `✓ Already in Organizer` — visually confirms membership and, when clicked, opens the **saved project's assigned category** inside SwiftClick rather than opening Add intake or creating another shortcut. This remains useful as a navigation action rather than a disabled dead end.
+
+### Identification and safety
+
+- Project recognition uses the **native project ID** parsed from the selected Project Home menu link, when available. Otherwise, it uses a recent (within 8 seconds) ChatGPT project-row link captured when the three-dot button was clicked.
+- The script compares this project ID only with entries in its existing **manually saved projects** list; a matching title by itself is never evidence of membership.
+- When the selected project cannot be identified reliably, SwiftClick retains the **Add** label rather than guessing. It does not assume the currently open page is the selected sidebar project.
+- As a defensive final check, if Project Home navigation resolves to a project already in SwiftClick, the intake handler routes to the saved category instead of showing another Add form.
+- No additional scanning or automatic inventory collection. No native ChatGPT sidebar/menu insertion, no project mutations, and no changes to the saved data schema.
+- Existing saved project/chat shortcuts, eight flat categories, header icon launcher, drag ordering and edit controls remain intact.
+
+### Firefox acceptance checklist
+
+1. Update to **0.1.0-alpha.12**, retaining the same Tampermonkey installation and existing local data.
+2. Open the three-dot menu for a **project already saved** in SwiftClick (e.g., Home Structural Maintenance if you've saved it). The adjacent action should read **✓ Already in Organizer**, not Add.
+3. Click the status action. SwiftClick should open directly to that project's saved category (e.g., Home), without presenting an intake form or duplicating the project.
+4. Open the three-dot menu of an **unsaved** project. It should say **＋ Add to SwiftClick Organizer**, lead to the usual name/URL/category intake, then save.
+5. Reopen that newly saved project's menu. It should now say **✓ Already in Organizer**.
+6. Test when project A is open in the main area but project B's three-dot menu is selected: status must reflect **B**, never A.
+7. Test saved projects with similar names. The membership check should rely on the ID, not title.
+8. Confirm regular ChatGPT project actions, submenu hover controls, custom categories, and menu styling continue to behave normally.
+
+**Validation:** Node regression tests cover ID matching, expiration, fallback and routing. Logged-in Firefox/Tampermonkey behavior is pending user verification. Keep draft PR #6 unmerged until accepted.

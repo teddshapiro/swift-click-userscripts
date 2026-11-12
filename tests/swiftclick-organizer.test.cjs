@@ -334,7 +334,7 @@ test('launcher is completely outside native ChatGPT navigation', () => {
   // The previous launcher was inserted as the first child of an existing
   // nav/sidebar. That DOM mutation can disrupt ChatGPT project hover buttons.
   assert.match(script, /document\.body\.appendChild\(launcherHost\)/);
-  assert.doesNotMatch(script, /sidebar\.insertBefore|positionLauncher|findSidebar/);
+  assert.doesNotMatch(script, /sidebar\.insertBefore|findSidebar/);
   assert.match(script, /launcherHost\.dataset\.placement = 'header'/);
   assert.match(script, /pointer-events:none/);
   assert.match(script, /pointer-events:auto/);

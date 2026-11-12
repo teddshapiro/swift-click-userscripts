@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.6
+// @version      0.1.0-alpha.7
 // @description  Local category-first front door for loaded ChatGPT projects and chats. Experimental: incomplete inventory.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -21,6 +21,7 @@
   const STORAGE_KEY = APP_ID + '.assignments.v1';
   const MANUAL_PROJECTS_KEY = APP_ID + '.manualProjects.v1';
   const SAVED_CHATS_KEY = APP_ID + '.savedChats.v1';
+  const ORDER_KEY = APP_ID + '.categoryOrder.v1';
   const PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
   // Flat virtual categories only; do not introduce nested categories in this MVP.
   const CATEGORIES = [
@@ -128,11 +129,65 @@
 
 
 
+  // Order is independent for each flat category. Keep known IDs even when a
+  // lazily-loaded ChatGPT sidebar does not currently expose every item.
+  function sanitizeCategoryOrders(raw) {
+    const source = raw && typeof raw === 'object' && !Array.isArray(raw)
+      ? raw.categories : null;
+    const cleaned = {};
+    for (const category of CATEGORIES) {
+      const entries = source && source[category.id];
+      if (!Array.isArray(entries)) continue;
+      const unique = new Set();
+      for (const key of entries.slice(0, 1000)) {
+        if (typeof key === 'string' && /^(chat|project):[a-zA-Z0-9-]{1,160}$/.test(key)) {
+          unique.add(key);
+        }
+      }
+      if (unique.size) cleaned[category.id] = [...unique];
+    }
+    return cleaned;
+  }
+
+  function reorderKeys(keys, movingKey, targetKey, after = false) {
+    const result = [...keys];
+    if (movingKey === targetKey || !result.includes(movingKey) || !result.includes(targetKey)) return result;
+    result.splice(result.indexOf(movingKey), 1);
+    const targetIndex = result.indexOf(targetKey);
+    result.splice(targetIndex + (after ? 1 : 0), 0, movingKey);
+    return result;
+  }
+
+  // Preserve not-currently-visible IDs in their previous positions when the
+  // user reorders the visible portion of the category.
+  function mergeVisibleOrder(storedKeys, reorderedVisibleKeys) {
+    const visibleSet = new Set(reorderedVisibleKeys);
+    let next = 0;
+    const result = [];
+    for (const key of storedKeys) {
+      if (visibleSet.has(key)) result.push(reorderedVisibleKeys[next++]);
+      else result.push(key);
+    }
+    result.push(...reorderedVisibleKeys.slice(next));
+    return [...new Set(result)];
+  }
+
+  function orderItems(items, categoryId, categoryOrders) {
+    const saved = categoryOrders[categoryId] || [];
+    const indices = new Map(saved.map((key, index) => [key, index]));
+    return [...items].sort((a, b) => {
+      const aIndex = indices.has(a.key) ? indices.get(a.key) : Infinity;
+      const bIndex = indices.has(b.key) ? indices.get(b.key) : Infinity;
+      return aIndex - bIndex || a.type.localeCompare(b.type) || a.title.localeCompare(b.title);
+    });
+  }
+
   // Node regression tests opt in to helpers, bypassing browser initialization.
   if (typeof globalThis !== 'undefined' && globalThis.__SC_ORGANIZER_TEST_HOOKS__) {
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, parseItemLink, sanitizeManualProject, validCategory,
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
+      sanitizeCategoryOrders, reorderKeys, mergeVisibleOrder, orderItems,
       categories: CATEGORIES.map((c) => c.id)
     });
     return;
@@ -150,6 +205,63 @@
   let open = false;
   let lastRoute = location.pathname;
   let refreshTimer = 0;
+  let dragging = null; // Only local browser UI state; never drag ChatGPT links.
+
+  function readCategoryOrders() {
+    try {
+      return sanitizeCategoryOrders(GM_getValue(ORDER_KEY, { version: 1, categories: {} }));
+    } catch (error) {
+      console.warn('[SwiftClick Organizer] Could not read local item order:', error);
+      return {};
+    }
+  }
+  let categoryOrders = readCategoryOrders();
+
+  function persistCategoryOrders() {
+    try {
+      GM_setValue(ORDER_KEY, { version: 1, categories: categoryOrders });
+    } catch (error) {
+      console.warn('[SwiftClick Organizer] Could not save local item order:', error);
+    }
+  }
+
+  function forgetItemOrder(key) {
+    let modified = false;
+    for (const [categoryId, keys] of Object.entries(categoryOrders)) {
+      if (keys.includes(key)) {
+        const remaining = keys.filter((entry) => entry !== key);
+        if (remaining.length) categoryOrders[categoryId] = remaining;
+        else delete categoryOrders[categoryId];
+        modified = true;
+      }
+    }
+    if (modified) persistCategoryOrders();
+  }
+
+  function moveCategoryItem(movingKey, targetKey, after) {
+    const categoryId = currentCategory;
+    if (!categoryId || query.trim() || movingKey === targetKey) return false;
+    const currentItems = orderItems(visibleItems(categoryId), categoryId, categoryOrders);
+    const keys = currentItems.map((item) => item.key);
+    if (!keys.includes(movingKey) || !keys.includes(targetKey)) return false;
+    const reordered = reorderKeys(keys, movingKey, targetKey, after);
+    if (reordered.every((key, index) => key === keys[index])) return false;
+    categoryOrders[categoryId] = mergeVisibleOrder(categoryOrders[categoryId] || [], reordered).slice(0, 1000);
+    persistCategoryOrders();
+    render();
+    const handle = [...panel.querySelectorAll('.drag-handle')]
+      .find((node) => node.dataset.itemKey === movingKey);
+    if (handle) handle.focus();
+    return true;
+  }
+
+  function resetCategoryOrder() {
+    if (currentCategory && categoryOrders[currentCategory]) {
+      delete categoryOrders[currentCategory];
+      persistCategoryOrders();
+      render();
+    }
+  }
 
   function readAssignments() {
     try {
@@ -322,6 +434,12 @@
     '.action:hover{background:#35516c;}',
     '.items{display:grid;gap:8px;margin-top:14px;}',
     '.item{display:flex;align-items:center;gap:12px;background:#182739;border:1px solid #364a60;border-radius:10px;padding:11px;}',
+    '.drag-handle{background:transparent;color:#bdcfe2;border:1px solid transparent;border-radius:7px;min-width:30px;min-height:36px;padding:4px 6px;cursor:grab;font:700 19px/1 system-ui;touch-action:none;}',
+    '.drag-handle:hover,.drag-handle:focus-visible{background:#2d4560;border-color:#6686a4;}',
+    '.drag-handle:active{cursor:grabbing;}',
+    '.item.drop-before{border-top:3px solid #8ac8ff;padding-top:9px;}',
+    '.item.drop-after{border-bottom:3px solid #8ac8ff;padding-bottom:9px;}',
+    '.item.is-dragging{opacity:.45;}',
     '.item-title{min-width:0;flex:1;color:#ecf4ff;font-size:14px;text-decoration:none;overflow-wrap:anywhere;}',
     '.item-title:hover{text-decoration:underline;}',
     '.add-form{border:1px solid #59728e;background:#1b2b40;padding:14px;border-radius:11px;display:grid;gap:10px;margin:10px 0 16px;}',
@@ -622,8 +740,77 @@
     return card;
   }
 
-  function makeItemRow(item) {
+  function clearDragHighlights() {
+    for (const row of panel.querySelectorAll('.item')) {
+      row.classList.remove('drop-before', 'drop-after', 'is-dragging');
+    }
+  }
+
+  function keyboardReorder(item, direction) {
+    if (!currentCategory || query.trim()) return;
+    const items = orderItems(visibleItems(currentCategory), currentCategory, categoryOrders);
+    const at = items.findIndex((entry) => entry.key === item.key);
+    const target = items[at + direction];
+    if (at < 0 || !target) return;
+    moveCategoryItem(item.key, target.key, direction > 0);
+  }
+
+  function makeItemRow(item, canReorder = false) {
     const row = el('div', 'item');
+    if (canReorder) {
+      // Only the dedicated handle is draggable, never the native chat link.
+      const handle = button('⠿', 'drag-handle', () => {});
+      handle.title = 'Drag to reorder; or press Arrow Up / Arrow Down';
+      handle.setAttribute('aria-label', 'Reorder ' + item.title + '. Drag or use Arrow Up and Arrow Down.');
+      handle.dataset.itemKey = item.key;
+      handle.draggable = true;
+      handle.addEventListener('keydown', (event) => {
+        if (event.altKey || event.ctrlKey || event.metaKey ||
+            (event.key !== 'ArrowUp' && event.key !== 'ArrowDown')) return;
+        event.preventDefault();
+        keyboardReorder(item, event.key === 'ArrowUp' ? -1 : 1);
+      });
+      handle.addEventListener('dragstart', (event) => {
+        if (!event.dataTransfer || !currentCategory || query.trim()) {
+          event.preventDefault();
+          return;
+        }
+        dragging = { key: item.key, category: currentCategory };
+        event.dataTransfer.effectAllowed = 'move';
+        // Firefox requires nonempty drag data; never expose a URL or chat title.
+        event.dataTransfer.setData('text/plain', 'SwiftClick Organizer');
+        row.classList.add('is-dragging');
+      });
+      handle.addEventListener('dragend', () => {
+        dragging = null;
+        clearDragHighlights();
+      });
+      row.addEventListener('dragover', (event) => {
+        if (!dragging || dragging.category !== currentCategory ||
+            dragging.key === item.key || !event.dataTransfer) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        row.classList.toggle('drop-before', event.clientY < row.getBoundingClientRect().top +
+          row.getBoundingClientRect().height / 2);
+        row.classList.toggle('drop-after', !row.classList.contains('drop-before'));
+      });
+      row.addEventListener('dragleave', (event) => {
+        if (!event.relatedTarget || !row.contains(event.relatedTarget)) {
+          row.classList.remove('drop-before', 'drop-after');
+        }
+      });
+      row.addEventListener('drop', (event) => {
+        if (!dragging || dragging.category !== currentCategory) return;
+        event.preventDefault();
+        const key = dragging.key;
+        const after = event.clientY >= row.getBoundingClientRect().top +
+          row.getBoundingClientRect().height / 2;
+        dragging = null;
+        clearDragHighlights();
+        moveCategoryItem(key, item.key, after);
+      });
+      row.appendChild(handle);
+    }
     row.appendChild(el('span', 'pill', item.type === 'project' ? 'Project' : 'Chat'));
     const link = el('a', 'item-title', item.title);
     link.href = item.href;
@@ -650,6 +837,7 @@
         window.alert('SwiftClick could not save that shortcut. The category was not changed.');
         return;
       }
+      if (selector.value !== categoryFor(item)) forgetItemOrder(item.key);
       if (selector.value === 'uncategorized') delete assignments[item.key];
       else assignments[item.key] = selector.value;
       saveAssignments();
@@ -668,6 +856,7 @@
         }
         seen.delete(item.key);
         delete assignments[item.key];
+        forgetItemOrder(item.key);
         saveAssignments();
         render();
       });
@@ -810,7 +999,8 @@
     const filtered = visibleItems(hasSearch ? null : currentCategory).filter((item) => {
       const q = query.toLocaleLowerCase().trim();
       return !q || (item.title + ' ' + item.type + ' ' + labelFor(categoryFor(item))).toLocaleLowerCase().includes(q);
-    }).sort((a, b) => a.type.localeCompare(b.type) || a.title.localeCompare(b.title));
+    });
+    const ordered = orderItems(filtered, hasSearch ? 'uncategorized' : currentCategory, categoryOrders);
     if (!hasSearch && currentCategory === null) {
       // The default front door is categories, not a wall of chat links.
       content.appendChild(el('p', 'hint', 'Choose a category or search above. Uncategorized is the inbox for links not yet assigned.'));
@@ -818,8 +1008,17 @@
       content.appendChild(el('p', 'hint', hasSearch
         ? filtered.length + ' search result' + (filtered.length === 1 ? '' : 's')
         : filtered.length + ' project' + (filtered.length === 1 ? ' or chat' : 's or chats') + ' in ' + labelFor(currentCategory)));
+      const canReorder = !hasSearch && currentCategory !== null && ordered.length <= 250;
+      if (canReorder && ordered.length > 1) {
+        const instructions = el('div', 'toolbar');
+        instructions.appendChild(el('span', 'hint', 'Drag ⠿ to reorder items, or use ↑ / ↓ on a handle. Order is saved for this category.'));
+        if (categoryOrders[currentCategory]?.length) {
+          instructions.appendChild(button('Reset order', 'action', resetCategoryOrder));
+        }
+        content.appendChild(instructions);
+      }
       const list = el('div', 'items');
-      filtered.slice(0, 250).forEach((item) => list.appendChild(makeItemRow(item)));
+      ordered.slice(0, 250).forEach((item) => list.appendChild(makeItemRow(item, canReorder)));
       if (!filtered.length) list.appendChild(el('div', 'empty',
         hasSearch ? 'No matches among currently indexed projects and chats.'
           : 'No projects or chats assigned here yet. Add an existing project, or assign a visible chat from Uncategorized.'));
@@ -863,6 +1062,7 @@
   }
 
   function hide() {
+    dragging = null;
     open = false;
     overlayHost.hidden = true;
     launcherButton.focus();

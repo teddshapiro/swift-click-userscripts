@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.26)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.27)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -683,3 +683,19 @@ Two UI-only refinements requested after successful browser review of alpha.21:
 **Privacy/compatibility:** All elements are created via explicit DOM APIs, no HTML string injection. No additional permissions, storage, network requests or data model changes. Legacy select change handlers remain authoritative. Requires browser testing of keyboard behavior, open-popup placement, focus, native label interaction and overflow near the bottom of the dialog.
 
 **Status:** experimental branch; draft PR #6 remains unmerged pending browser acceptance.
+
+## Alpha.27 — Public starter categories, existing-user preservation (2026-11-13)
+
+**Goal:** A new SwiftClick Organizer installation must never inherit the developer's personal category set; an existing user's customized categories, projects, chats, ordering and Quick Links must survive all script updates.
+
+- **New first-install starters:** Work & Projects, Personal, Learning & Research, Ideas & Interests, Uncategorized. No projects or chat links are seeded. All user-facing categories remain editable.
+- **Saved category definitions are authoritative:** `categoryDefinitions.v1` is read first; if it exists, it is not replaced or supplemented with a newer default set. Deleted starter categories remain deleted.
+- **Legacy compatibility:** Historical built-in IDs (family, health, finances, home, business, ai, hobbies, uncategorized) and their fallback icons remain in an immutable compatibility catalog, separate from new public starters. This prevents saved category definitions from disappearing after updating.
+- **Legacy installation with no definitions key:** If any established Organizer storage key exists (assignments, saved projects/chats, category order, Quick Links v1/v2, or ChatGPT Tools preferences), initialize the historical categories. Otherwise initialize the public starter set. This inference is unavoidable because older versions had no explicit setup marker; a completely unused old installation with no stored data is indistinguishable from a fresh installation.
+- **Persist on first initialization:** When the definitions key is missing, save the selected `version:1` category snapshot, then write `categorySetup.v1` with a setup version, seed designation and category schema version. Future releases must never use an updated starter catalog as a data migration. Existing category-definitions snapshots are not rewritten during initialization.
+- **Recovery caveat:** A malformed existing definitions record must not be silently overwritten. The in-memory sanitizer may show fallback categories if the saved version/structure is unrecognized; we should add a warning/recovery UI before introducing a newer category schema.
+- **No extra network access or personal content:** User data remains in Tampermonkey storage. No changes to existing Quick Links/Tools/Prompt Builder keys or project/chat URLs.
+
+**Tests:** Regression checks cover generic first installation, legacy bootstrap, saved custom category titles/icons, assignments, ordering and intentional deletion. Browser acceptance should verify upgrading with real existing Tampermonkey data and a fresh isolated browser profile; code-only tests cannot replace these checks.
+
+**Release:** Remains on the alpha development branch with draft PR #6, without production update/download URLs or merge to `main`.

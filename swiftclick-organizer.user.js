@@ -3254,7 +3254,12 @@
         }
         // Keep the list visible above the control when room below is tight.
         const rect=trigger.getBoundingClientRect();
-        list.classList.toggle('above',window.innerHeight-rect.bottom<190 && rect.top>240);
+        const viewport=trigger.closest('.main');
+        const bounds=viewport?viewport.getBoundingClientRect():
+          {top:0,bottom:window.innerHeight};
+        const below=bounds.bottom-rect.bottom;
+        const above=rect.top-bounds.top;
+        list.classList.toggle('above',below<220 && above>below);
         list.hidden=false;
         trigger.setAttribute('aria-expanded','true');
         index=Math.max(0,select.selectedIndex);

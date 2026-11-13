@@ -312,6 +312,8 @@ test('Custom shared combobox renders legible highlighted options without relying
   assert.match(script,/highlight\(index\+\(event\.key==='ArrowDown'\?1:-1\)\)/);
   assert.match(script,/event\.key==='Escape' && !list\.hidden/);
   assert.match(script,/event\.key==='Tab'/);
+  assert.match(script,/const viewport=trigger\.closest\('\.main'\)/);
+  assert.match(script,/list\.classList\.toggle\('above',below<220 && above>below\)/);
   assert.match(script,/\.sc-select-option:hover,\.sc-select-option\[data-active="true"\],\.sc-select-option:focus-visible\{background:#f0f4fa!important;color:#111827!important;/);
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });

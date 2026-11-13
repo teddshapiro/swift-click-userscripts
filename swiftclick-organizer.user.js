@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.26
+// @version      0.1.0-alpha.27
 // @description  Organize ChatGPT projects, quick links, and ChatGPT tools in four tabs.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -23,13 +23,25 @@
   const SAVED_CHATS_KEY = APP_ID + '.savedChats.v1';
   const ORDER_KEY = APP_ID + '.categoryOrder.v1';
   const CATEGORY_DEFS_KEY = APP_ID + '.categoryDefinitions.v1';
+  const CATEGORY_SETUP_KEY = APP_ID + '.categorySetup.v1';
   const QUICK_LINKS_KEY = APP_ID + '.quickLinks.v1';
   const QUICK_LINKS_V2_KEY = APP_ID + '.quickLinks.v2';
   const CHATGPT_TOOLS_KEY = APP_ID + '.chatgptTools.v1';
   const SUPPRESS_NEXT_HOME_AUTOOPEN_KEY = APP_ID + '.suppressNextHomeAutoOpen.v1';
   const LEGACY_PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
   // Flat virtual categories only; do not introduce nested categories in this MVP.
+  // Only first-time installations receive these public, non-personal starters.
+  // Changing this catalog must never rewrite a stored user's category list.
   const DEFAULT_CATEGORIES = [
+    { id: 'work', label: 'Work & Projects', icon: '💼' },
+    { id: 'personal', label: 'Personal', icon: '🏠' },
+    { id: 'learning', label: 'Learning & Research', icon: '📖' },
+    { id: 'interests', label: 'Ideas & Interests', icon: '💡' },
+    { id: 'uncategorized', label: 'Uncategorized', icon: '▤' }
+  ];
+  // Historical built-in IDs stay valid forever so upgrades cannot discard
+  // customized categories, saved assignments or per-category ordering.
+  const LEGACY_CATEGORY_DEFINITIONS_V1 = [
     { id: 'family', label: 'Family', icon: '👪' },
     { id: 'health', label: 'My Health', icon: '♡' },
     { id: 'finances', label: 'Finances', icon: '＄' },
@@ -39,7 +51,10 @@
     { id: 'hobbies', label: 'Hobbies & Interests', icon: '✿' },
     { id: 'uncategorized', label: 'Uncategorized', icon: '▤' }
   ];
-  // Stable IDs are never renamed. User-facing labels/order are locally editable.
+  const KNOWN_CATEGORY_DEFINITIONS = [...LEGACY_CATEGORY_DEFINITIONS_V1,
+    ...DEFAULT_CATEGORIES.filter((c) =>
+      !LEGACY_CATEGORY_DEFINITIONS_V1.some((old) => old.id === c.id))];
+  // Runtime categories are selected once from saved data, or seeded on first load.
   let CATEGORIES = DEFAULT_CATEGORIES.map((category) => ({ ...category }));
 
   // Built-in searchable icon library: no remote assets or font dependencies.
@@ -154,7 +169,7 @@
     for (const entry of raw.categories.slice(0, 40)) {
       if (!entry || typeof entry !== 'object') continue;
       const id = String(entry.id || '');
-      const known = DEFAULT_CATEGORIES.find((c) => c.id === id);
+      const known = KNOWN_CATEGORY_DEFINITIONS.find((c) => c.id === id);
       if ((!known && !/^custom-[a-z0-9-]{3,80}$/.test(id)) || ids.has(id)) continue;
       const label = categoryLabel(entry.label);
       if (!label || categoryLabelTaken(cleaned, label)) continue;
@@ -172,6 +187,20 @@
       } else cleaned.push({ ...fallback });
     }
     return cleaned;
+  }
+
+  // No definitions key on an older installation does not mean a fresh user:
+  // preserve that installation's original catalog if any other Organizer
+  // state exists. Persist the choice once, never reseed on future updates.
+  function chooseInitialCategoryDefinitions(stored, hasPriorState) {
+    if (stored !== null && stored !== undefined) {
+      return { categories: sanitizeCategoryDefinitions(stored),
+        seed: 'saved', shouldPersist: false };
+    }
+    const seed = hasPriorState ? 'legacy-v1' : 'starter-v1';
+    const source = hasPriorState ? LEGACY_CATEGORY_DEFINITIONS_V1 : DEFAULT_CATEGORIES;
+    return { categories: source.map((c) => ({ ...c })),
+      seed, shouldPersist: true };
   }
 
   function createCategoryModel(categories, label, id) {
@@ -759,7 +788,10 @@
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
       renameSavedShortcutModel,
       cleanIntakeName, chooseProjectName, headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
-      sanitizeCategoryDefinitions, createCategoryModel, renameCategoryModel,
+      sanitizeCategoryDefinitions, chooseInitialCategoryDefinitions,
+      legacyCategoryDefinitions: LEGACY_CATEGORY_DEFINITIONS_V1,
+      starterCategoryDefinitions: DEFAULT_CATEGORIES,
+      createCategoryModel, renameCategoryModel,
       categoryIconAllowed, filterCategoryIcons, changeCategoryIconModel,
       iconLibrary: CATEGORY_ICON_LIBRARY,
       defaultQuickLinks: DEFAULT_QUICK_LINKS, sanitizeQuickLink, sanitizeQuickLinks,
@@ -781,9 +813,25 @@
   // Initialize category definitions before the existing assignment and order
   // stores read category IDs; old installations have no definitions key.
   try {
-    CATEGORIES = sanitizeCategoryDefinitions(GM_getValue(CATEGORY_DEFS_KEY, null));
+    const existing = GM_getValue(CATEGORY_DEFS_KEY, null);
+    const otherKeys = [STORAGE_KEY, MANUAL_PROJECTS_KEY, SAVED_CHATS_KEY,
+      ORDER_KEY, QUICK_LINKS_KEY, QUICK_LINKS_V2_KEY, CHATGPT_TOOLS_KEY];
+    const hasPriorState = otherKeys.some((key) => GM_getValue(key, null) !== null);
+    const chosen = chooseInitialCategoryDefinitions(existing, hasPriorState);
+    CATEGORIES = chosen.categories;
+    if (chosen.shouldPersist) {
+      // Write the definitions before the setup marker. If saving fails, do not
+      // mark initialization complete and do not mutate any previous records.
+      GM_setValue(CATEGORY_DEFS_KEY, {
+        version: 1, categories: CATEGORIES.map(({ id, label, icon }) =>
+          ({ id, label, icon }))
+      });
+      GM_setValue(CATEGORY_SETUP_KEY, {
+        version: 1, seed: chosen.seed, categorySchemaVersion: 1
+      });
+    }
   } catch (error) {
-    console.warn('[SwiftClick Organizer] Could not load categories; defaults retained:', error);
+    console.warn('[SwiftClick Organizer] Could not initialize categories; saved data was not reset:', error);
   }
 
   const seen = new Map(); // Session-only inventory: no cross-account stored chat titles/links.

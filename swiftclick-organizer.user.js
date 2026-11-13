@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.25
+// @version      0.1.0-alpha.26
 // @description  Organize ChatGPT projects, quick links, and ChatGPT tools in four tabs.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1224,6 +1224,23 @@
 
     '.section-tabs{display:flex;gap:8px;padding:0 20px;border-bottom:1px solid #304052;}',
 
+
+    // The Firefox native popup ignores option hover colors. Render our own
+    // accessible listbox while retaining its underlying select for app logic.
+    '.sc-select-original{position:absolute!important;width:1px!important;height:1px!important;opacity:0!important;pointer-events:none!important;margin:0!important;padding:0!important;border:0!important;}',
+    '.sc-select-wrap{position:relative;display:block;width:100%;min-width:0;}',
+    '.sc-select-trigger{width:100%;min-width:0;display:flex;align-items:center;justify-content:space-between;gap:9px;padding:10px 12px;border:1px solid #536981;border-radius:8px;background:#223449;color:#f4f8ff;font:inherit;font-size:13px;text-align:left;cursor:pointer;white-space:nowrap;}',
+    '.sc-select-trigger:hover{background:#30455e;}',
+    '.sc-select-trigger:focus-visible{outline:3px solid #f4fbff;outline-offset:2px;border-color:#99daff;}',
+    '.sc-select-trigger:disabled{opacity:.55;cursor:not-allowed;}',
+    '.sc-select-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}',
+    '.sc-select-chevron{flex:none;font-size:12px;color:#e4f1ff;}',
+    '.sc-select-list{position:absolute;z-index:30;top:calc(100% + 4px);left:0;right:0;min-width:100%;max-height:260px;overflow-y:auto;padding:4px;background:#fff;color:#111827;border:1px solid #a2b3c6;border-radius:8px;box-shadow:0 12px 28px #0009;}',
+    '.sc-select-list.above{top:auto;bottom:calc(100% + 4px);}',
+    '.sc-select-option{display:block;width:100%;padding:9px 10px;border:0;border-radius:5px;background:#fff;color:#111827;font:inherit;font-size:13px;text-align:left;cursor:pointer;white-space:normal;}',
+    '.sc-select-option:hover,.sc-select-option[data-active="true"],.sc-select-option:focus-visible{background:#f0f4fa!important;color:#111827!important;outline:2px solid #2d618f;outline-offset:-2px;}',
+    '.sc-select-option[aria-selected="true"]{font-weight:750;}',
+    '.sc-select-option:disabled{opacity:.55;cursor:not-allowed;}',
     '.section-tabs{flex-wrap:wrap;}',
     '.section-tab{flex:1 1 auto;white-space:nowrap;}',
     '.prompt-builder{display:grid;gap:15px;max-width:1000px;}',
@@ -3145,8 +3162,161 @@
     updateReadiness();
     return root;
   }
+
+  // Firefox currently delegates classic select popups to native platform UI,
+  // which can render an unreadable highlighted option despite our CSS.
+  // This reusable combobox draws the options in our own Shadow DOM, retaining
+  // the select's value/change event contract for existing code.
+  function enhanceSelects(root) {
+    for (const select of root.querySelectorAll('select:not([data-sc-enhanced])')) {
+      if (select.multiple || select.size > 1) continue;
+      select.dataset.scEnhanced='true';
+      const wrapper=el('span','sc-select-wrap');
+      const trigger=button('','sc-select-trigger',()=>toggle());
+      trigger.setAttribute('role','combobox');
+      trigger.setAttribute('aria-haspopup','listbox');
+      trigger.setAttribute('aria-expanded','false');
+      trigger.setAttribute('aria-label',select.getAttribute('aria-label') ||
+        (select.closest('label') && select.closest('label').textContent.trim()) || 'Choose an option');
+      const name=el('span','sc-select-text');
+      const arrow=el('span','sc-select-chevron','▾');
+      arrow.setAttribute('aria-hidden','true');
+      trigger.append(name,arrow);
+      const list=el('div','sc-select-list');
+      list.setAttribute('role','listbox');
+      const listId=APP_ID+'-list-'+Math.random().toString(36).slice(2,11);
+      list.id=listId;
+      trigger.setAttribute('aria-controls',listId);
+      list.hidden=true;
+      let index=-1,optionButtons=[];
+      function sync() {
+        const chosen=select.selectedOptions[0];
+        name.textContent=chosen ? chosen.textContent : 'Choose…';
+        trigger.disabled=select.disabled;
+        optionButtons.forEach((btn,i)=>{
+          const original=select.options[i];
+          btn.setAttribute('aria-selected',String(Boolean(original && original.selected)));
+        });
+      }
+      function close(restoreFocus=false) {
+        list.hidden=true;
+        trigger.setAttribute('aria-expanded','false');
+        if (restoreFocus) trigger.focus();
+      }
+      function highlight(next) {
+        if (!optionButtons.length) return;
+        const count=optionButtons.length;
+        for (let n=0;n<count;n++) {
+          const target=(next+n+count)%count;
+          if (!optionButtons[target].disabled) {index=target;break;}
+        }
+        optionButtons.forEach((btn,i)=>{
+          const active=i===index;
+          btn.dataset.active=String(active);
+          if (active) {
+            trigger.setAttribute('aria-activedescendant',btn.id);
+            btn.scrollIntoView({block:'nearest'});
+          }
+        });
+      }
+      function choose(i) {
+        const original=select.options[i];
+        if (!original || original.disabled) return;
+        // Preserve all existing native-select change handlers and state.
+        select.selectedIndex=i;
+        sync();
+        close(true);
+        select.dispatchEvent(new Event('change',{bubbles:true,composed:true}));
+      }
+      function openList() {
+        if (select.disabled) return;
+        // Close any other open dropdown inside the Organizer.
+        for (const other of root.querySelectorAll('.sc-select-list:not([hidden])')) {
+          if (other!==list) {
+            other.hidden=true;
+            const button=other.parentElement.querySelector('.sc-select-trigger');
+            if (button) button.setAttribute('aria-expanded','false');
+          }
+        }
+        list.replaceChildren();
+        optionButtons=[];
+        for (let i=0;i<select.options.length;i++) {
+          const option=select.options[i];
+          const item=button(option.textContent,'sc-select-option',()=>choose(i));
+          item.type='button';
+          item.id=listId+'-option-'+i;
+          item.setAttribute('role','option');
+          item.setAttribute('aria-selected',String(option.selected));
+          item.disabled=option.disabled;
+          item.setAttribute('tabindex','-1');
+          list.appendChild(item);
+          optionButtons.push(item);
+        }
+        // Keep the list visible above the control when room below is tight.
+        const rect=trigger.getBoundingClientRect();
+        list.classList.toggle('above',window.innerHeight-rect.bottom<190 && rect.top>240);
+        list.hidden=false;
+        trigger.setAttribute('aria-expanded','true');
+        index=Math.max(0,select.selectedIndex);
+        highlight(index);
+      }
+      function toggle() {if (list.hidden) openList();else close();}
+      trigger.addEventListener('keydown',(event)=>{
+        if (['ArrowDown','ArrowUp','Home','End'].includes(event.key)) {
+          event.preventDefault();
+          if (list.hidden) openList();
+          if (event.key==='Home') highlight(0);
+          else if (event.key==='End') highlight(optionButtons.length-1);
+          else highlight(index+(event.key==='ArrowDown'?1:-1));
+        } else if (event.key==='Enter' || event.key===' ') {
+          event.preventDefault();
+          if (list.hidden) openList();else choose(index);
+        } else if (event.key==='Escape' && !list.hidden) {
+          event.preventDefault();
+          event.stopPropagation();
+          close(true);
+        } else if (event.key==='Tab') {
+          close();
+        } else if (event.key.length===1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+          const needle=event.key.toLocaleLowerCase();
+          if (list.hidden) openList();
+          const found=select.options.length &&
+            [...select.options].findIndex((opt,i)=>i>index && !opt.disabled &&
+              opt.textContent.toLocaleLowerCase().startsWith(needle));
+          const fromStart=[...select.options].findIndex(opt=>!opt.disabled &&
+            opt.textContent.toLocaleLowerCase().startsWith(needle));
+          if (found>=0) highlight(found);
+          else if(fromStart>=0) highlight(fromStart);
+        }
+      });
+      const parent=select.parentNode;
+      parent.insertBefore(wrapper,select);
+      wrapper.appendChild(select);
+      wrapper.appendChild(trigger);
+      wrapper.appendChild(list);
+      select.classList.add('sc-select-original');
+      select.tabIndex=-1;
+      select.setAttribute('aria-hidden','true');
+      select.addEventListener('change',sync);
+      // Clicks on the current label should focus the visible combobox.
+      const label=wrapper.closest('label');
+      if (label) label.addEventListener('click',(event)=>{
+        if (event.target===label) {event.preventDefault();trigger.focus();}
+      });
+      wrapper.addEventListener('focusout',(event)=>{
+        if (!wrapper.contains(event.relatedTarget)) close();
+      });
+      overlayRoot.addEventListener('pointerdown',(event)=>{
+        if (!wrapper.contains(event.target)) close();
+      });
+      sync();
+    }
+  }
+
   function render() {
     panel.replaceChildren();
+    // Upgrade every select after this synchronous render has completed.
+    queueMicrotask(()=>enhanceSelects(panel));
     const header = el('div', 'head');
     const brand = el('div');
     brand.appendChild(el('div', 'brand', '▦  SwiftClick Organizer'));

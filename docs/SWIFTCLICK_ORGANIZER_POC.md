@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.25)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.26)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -673,3 +673,13 @@ Two UI-only refinements requested after successful browser review of alpha.21:
 **Privacy:** Prompt inputs remain page-memory only. No new Tampermonkey storage, permissions, network calls, composer access or auto-send. Tab/overlay closing clears the prompt draft as before.
 
 **Browser acceptance:** Test category-first selection, initialize gating, initial empty state, category/template changes with existing values and both Confirm/Cancel branches, active heading style, mobile/narrow layout, native dropdown option hover/selected contrast across Categories/Tools/Quick Links/Prompts, keyboard caret contrast, and preservation of the previous three tabs' saved state. Alpha code remains in draft PR #6 pending approval.
+
+## Alpha.26 — Shared accessible custom dropdowns for Firefox (2026-11-12)
+
+**Reason:** Browser screenshot after alpha.25 showed native Firefox select highlighted option drawn dark-on-dark, despite option background/foreground CSS. Firefox does not support `appearance:base-select` in the normal stable configuration, and OS-owned native popup highlight styling is not reliably configurable.
+
+**Implementation:** Reusable local `enhanceSelects(panel)` adds a custom Shadow DOM listbox to ordinary selects at the end of each Organizer render. The original select remains in the DOM for existing value handling, with `tabIndex=-1` and hidden appearance; selecting the styled option updates `selectedIndex` and dispatches the original `change` event. The styled trigger is `role=combobox` with `aria-expanded`, `aria-controls` and an accessible label; options use `role=option` and `aria-selected`. Supports Arrow Up/Down, Home/End, Enter, Space, Escape, Tab, typeahead, click, outside click, and option overflow scrolling. Disabled selects/options remain disabled. List uses white background, near-black text and a pale hover/active state, fully controlled by userscript CSS. Applies across Prompt Builder, category management, Quick Links and ChatGPT Tools.
+
+**Privacy/compatibility:** All elements are created via explicit DOM APIs, no HTML string injection. No additional permissions, storage, network requests or data model changes. Legacy select change handlers remain authoritative. Requires browser testing of keyboard behavior, open-popup placement, focus, native label interaction and overflow near the bottom of the dialog.
+
+**Status:** experimental branch; draft PR #6 remains unmerged pending browser acceptance.

@@ -299,6 +299,23 @@ test('Prompt Builder confirms only when entered fields or edited preview would b
   assert.equal(hooks.promptHasWork(template,{},'Custom edited prompt'),true);
   assert.equal(hooks.promptHasWork(null,{topic:'x'},'text'),false);
 });
+
+test('Custom shared combobox renders legible highlighted options without relying on native Firefox select painting', () => {
+  assert.match(script,/function enhanceSelects\(root\)/);
+  assert.match(script,/querySelectorAll\('select:not\(\[data-sc-enhanced\]\)'\)/);
+  assert.match(script,/queueMicrotask\(\(\)=>enhanceSelects\(panel\)\)/);
+  assert.match(script,/select\.selectedIndex=i/);
+  assert.match(script,/select\.dispatchEvent\(new Event\('change',\{bubbles:true,composed:true\}\)\)/);
+  assert.match(script,/trigger\.setAttribute\('role','combobox'\)/);
+  assert.match(script,/list\.setAttribute\('role','listbox'\)/);
+  assert.match(script,/item\.setAttribute\('role','option'\)/);
+  assert.match(script,/highlight\(index\+\(event\.key==='ArrowDown'\?1:-1\)\)/);
+  assert.match(script,/event\.key==='Escape' && !list\.hidden/);
+  assert.match(script,/event\.key==='Tab'/);
+  assert.match(script,/\.sc-select-option:hover,\.sc-select-option\[data-active="true"\],\.sc-select-option:focus-visible\{background:#f0f4fa!important;color:#111827!important;/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+});
+
 test('Select menus have high-contrast options; all editable inputs show white caret and focus', () => {
   assert.match(script,/select option,select optgroup\{background-color:#ffffff;color:#111827;\}/);
   assert.match(script,/select option:hover,select option:focus,select option:checked\{background-color:#ffffff;color:#111827;\}/);
@@ -1097,7 +1114,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.25/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.26/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

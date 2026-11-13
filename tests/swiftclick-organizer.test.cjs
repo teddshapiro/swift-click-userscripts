@@ -478,12 +478,75 @@ test('Quick Links opens real new-tab anchors and is isolated from ChatGPT invent
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 
+test('fresh installs use public starter categories and preserve no private link inventory', () => {
+  const setup = hooks.chooseInitialCategoryDefinitions(null, false);
+  assert.equal(setup.seed, 'starter-v1');
+  assert.equal(setup.shouldPersist, true);
+  assert.deepEqual(Array.from(setup.categories,(c)=>c.id),
+    ['work','personal','learning','interests','uncategorized']);
+  assert.equal(setup.categories.some((c)=>c.id==='family' || c.id==='business'),false);
+  assert.match(script,/const CATEGORY_SETUP_KEY = APP_ID \+ '\.categorySetup\.v1'/);
+  assert.match(script,/GM_setValue\(CATEGORY_DEFS_KEY/);
+  assert.match(script,/GM_setValue\(CATEGORY_SETUP_KEY/);
+});
+
+test('preexisting Organizer state without category definitions is seeded with legacy catalog', () => {
+  const setup = hooks.chooseInitialCategoryDefinitions(null, true);
+  assert.equal(setup.seed,'legacy-v1');
+  assert.equal(setup.shouldPersist,true);
+  assert.deepEqual(Array.from(setup.categories,(c)=>c.id),
+    ['family','health','finances','home','business','ai','hobbies','uncategorized']);
+  assert.match(script,/const hasPriorState = otherKeys\.some/);
+});
+
+test('saved customized categories survive an update without reseeding', () => {
+  const stored={version:1,categories:[
+    {id:'business',label:'My studio',icon:'🎨'},
+    {id:'custom-work123',label:'Client work',icon:'💼'},
+    {id:'family',label:'Family archive',icon:'👪'},
+    {id:'uncategorized',label:'Uncategorized',icon:'▤'}
+  ]};
+  const result=hooks.chooseInitialCategoryDefinitions(stored,true);
+  assert.equal(result.shouldPersist,false);
+  assert.equal(result.seed,'saved');
+  assert.deepEqual(Array.from(result.categories,c=>c.id),
+    ['business','custom-work123','family','uncategorized']);
+  assert.equal(result.categories[0].label,'My studio');
+  assert.equal(result.categories[0].icon,'🎨');
+  const assignments=hooks.migrateAssignments({
+    'project:g-p-client':'custom-work123','chat:family':'family'
+  },result.categories);
+  assert.equal(assignments.migrated,false);
+  assert.equal(assignments.assignments['project:g-p-client'],'custom-work123');
+  assert.equal(assignments.assignments['chat:family'],'family');
+  const order=hooks.sanitizeCategoryOrders({version:1,categories:{
+    'custom-work123':['project:g-p-client'],family:['chat:family']
+  }},result.categories);
+  assert.deepEqual(Array.from(order['custom-work123']),['project:g-p-client']);
+  assert.deepEqual(Array.from(order.family),['chat:family']);
+  const absent=hooks.chooseInitialCategoryDefinitions({version:1,categories:[
+    {id:'custom-only1',label:'My only category'}
+  ]},true);
+  assert.equal(absent.categories.some(c=>c.id==='work'),false);
+});
+
+test('existing category definitions are authoritative even without other saved data', () => {
+  const existing={version:1,categories:[{id:'hobbies',label:'Cinema'},
+    {id:'uncategorized',label:'Uncategorized'}]};
+  const result=hooks.chooseInitialCategoryDefinitions(existing,false);
+  assert.equal(result.shouldPersist,false);
+  assert.deepEqual(Array.from(result.categories,c=>c.id),['hobbies','uncategorized']);
+  assert.equal(hooks.sanitizeCategoryDefinitions({version:1,categories:[
+    {id:'learning',label:'Courses'}
+  ]})[0].id,'learning');
+});
+
 test('category catalog defaults and persists custom names, order and deletion', () => {
   const defaults = hooks.sanitizeCategoryDefinitions(null);
   assert.deepEqual(Array.from(defaults, (c) => c.id), [
-    'family','health','finances','home','business','ai','hobbies','uncategorized'
+    'work','personal','learning','interests','uncategorized'
   ]);
-  assert.equal(defaults[0].label, 'Family');
+  assert.equal(defaults[0].label, 'Work & Projects');
   const stored = {
     version: 1,
     categories: [
@@ -504,7 +567,7 @@ test('category catalog defaults and persists custom names, order and deletion', 
 });
 
 test('category create, rename, reorder and delete preserve stable item-category IDs', () => {
-  const initial = hooks.sanitizeCategoryDefinitions(null);
+  const initial = hooks.sanitizeCategoryDefinitions({version:1,categories:hooks.legacyCategoryDefinitions});
   const created = hooks.createCategoryModel(initial, '  Garden   &  Yard ', 'custom-yard123');
   assert.ok(created);
   assert.equal(created[created.length - 2].label, 'Garden & Yard');
@@ -537,7 +600,7 @@ test('category create, rename, reorder and delete preserve stable item-category 
 });
 
 test('custom categories preserve assignments and ordering across reload', () => {
-  const catalog = hooks.createCategoryModel(hooks.sanitizeCategoryDefinitions(null),
+  const catalog = hooks.createCategoryModel(hooks.sanitizeCategoryDefinitions({version:1,categories:hooks.legacyCategoryDefinitions}),
     'Home Services', 'custom-services');
   const saved = hooks.sanitizeCategoryDefinitions({version:1,
     categories:Array.from(catalog,(c)=>({id:c.id,label:c.label}))});
@@ -561,7 +624,7 @@ test('custom categories preserve assignments and ordering across reload', () => 
 
 
 test('icon changes persist locally while category IDs and old icons remain valid', () => {
-  const defaults = hooks.sanitizeCategoryDefinitions(null);
+  const defaults = hooks.sanitizeCategoryDefinitions({version:1,categories:hooks.legacyCategoryDefinitions});
   assert.equal(defaults.find((c)=>c.id==='home').icon,'⌂');
   const changed = hooks.changeCategoryIconModel(defaults,'home','🏡');
   assert.ok(changed);
@@ -668,7 +731,8 @@ test('legacy assignments migrate to top-level categories without losing links', 
     'project:house': 'home',
     'chat:retirement': 'finances'
   };
-  const { assignments, migrated } = hooks.migrateAssignments(old);
+  const legacy = hooks.sanitizeCategoryDefinitions({version:1,categories:hooks.legacyCategoryDefinitions});
+  const { assignments, migrated } = hooks.migrateAssignments(old, legacy);
   assert.equal(migrated, true);
   assert.equal(Object.keys(assignments).length, Object.keys(old).length);
   assert.equal(assignments['chat:transcript'], 'hobbies');
@@ -680,11 +744,11 @@ test('legacy assignments migrate to top-level categories without losing links', 
   assert.equal(assignments['project:ai-video'], 'hobbies');
   assert.equal(assignments['project:house'], 'home');
   assert.equal(assignments['chat:retirement'], 'finances');
-  assert.equal(hooks.migrateAssignments(assignments).migrated, false);
-  assert.equal(hooks.normalizeCategoryId('cinema'), 'hobbies');
-  assert.equal(hooks.normalizeCategoryId('henry'), 'family');
+  assert.equal(hooks.migrateAssignments(assignments, legacy).migrated, false);
+  assert.equal(hooks.normalizeCategoryId('cinema', legacy), 'hobbies');
+  assert.equal(hooks.normalizeCategoryId('henry', legacy), 'family');
   assert.equal(hooks.normalizeCategoryId('nonexistent'), 'uncategorized');
-  assert.equal(hooks.itemInCategory('cinema', 'hobbies'), true);
+  assert.equal(hooks.normalizeCategoryId('hobbies', legacy), 'hobbies');
 });
 
 test('new category assignment remains a flat selector without nested navigation', () => {
@@ -860,7 +924,7 @@ test('category order deserialization removes invalid and duplicate IDs', () => {
     home: ['project:maintenance'],
     finances: ['chat:investments'],
     madeUp: ['project:unrelated']
-  } });
+  } }, hooks.sanitizeCategoryDefinitions({version:1,categories:hooks.legacyCategoryDefinitions}));
   assert.deepEqual(Array.from(state.hobbies), ['project:cinema', 'chat:note']);
   assert.deepEqual(Array.from(state.family), ['chat:henry']);
   assert.deepEqual(Array.from(state.home), ['project:maintenance']);
@@ -1116,7 +1180,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.26/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.27/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.24)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.25)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -660,3 +660,16 @@ Two UI-only refinements requested after successful browser review of alpha.21:
 **Test:** Verify all 25 starter prompts and form labels, filtering, multiline source pastes, preview edits, reset and clear behavior, clipboard copy, no-copy for required blanks, desktop and narrow browser layouts, and unchanged Categories/Quick Links/ChatGPT Tools storage and navigation.
 
 **Status:** Experimental branch, draft PR #6. Browser acceptance pending.
+
+## Alpha.25 — two-stage Prompt Builder and form accessibility refinements (2026-11-12)
+
+**Browser feedback addressed:**
+- Prompt Builder now initially shows only **Category** and **Prompt type** dropdowns and **Initialize Prompt Template**. Neither the task-specific input fields nor generated preview appears until explicit initialization. Category must be selected before the second dropdown becomes usable.
+- Changing either selection does not mutate the active form. Choosing **Initialize New Prompt Template** replaces it, with a confirmation whenever the current form has any entered content or edited generated prompt. Cancel leaves all previous work intact. Focus moves to the first field after initialization.
+- The selected template displays as a plain section heading with a subtle underline, not a boxed/card-like field. Field inputs, editable preview, Reset preview, Clear fields and explicit Copy Prompt continue as before.
+- Across all Organizer screens, native dropdown option text/background is styled dark-on-white, including hover/focus/selected rules. **Known browser limitation:** native select option list/hover painting may be controlled by the browser or operating system; verify in the user's actual browser. If native hover is still too low-contrast, a proper accessible custom listbox component will be necessary for consistent pixel-level colors. Do not claim this CSS guarantees native popup hover appearance.
+- All editable text inputs/textareas explicitly use a white insertion caret and a stronger pale focus outline/shadow. Text selection is blue with white foreground. All styles live inside the Organizer's Shadow DOM.
+
+**Privacy:** Prompt inputs remain page-memory only. No new Tampermonkey storage, permissions, network calls, composer access or auto-send. Tab/overlay closing clears the prompt draft as before.
+
+**Browser acceptance:** Test category-first selection, initialize gating, initial empty state, category/template changes with existing values and both Confirm/Cancel branches, active heading style, mobile/narrow layout, native dropdown option hover/selected contrast across Categories/Tools/Quick Links/Prompts, keyboard caret contrast, and preservation of the previous three tabs' saved state. Alpha code remains in draft PR #6 pending approval.

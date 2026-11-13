@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.24
+// @version      0.1.0-alpha.25
 // @description  Organize ChatGPT projects, quick links, and ChatGPT tools in four tabs.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -754,6 +754,7 @@
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, shouldAutoOpenHome, parseItemLink, sanitizeManualProject, validCategory,
       promptCatalog:PROMPT_CATALOG,validatePromptCatalog,promptMissingFields,assemblePrompt,filterPromptTemplates,
+      promptHasWork,
       formatCategoryItemCounts,
       normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
       renameSavedShortcutModel,
@@ -787,9 +788,9 @@
 
   const seen = new Map(); // Session-only inventory: no cross-account stored chat titles/links.
   let activeTab = 'categories';
-  let promptTemplateId=PROMPT_CATALOG.templates[0].id;
+  let promptTemplateId='';
   let promptCategory='';
-  let promptQuery='';
+  let promptInitializedId=null;
   let promptValues={};
   let promptPreview='';
   let promptCopyNotice='';
@@ -1235,7 +1236,11 @@
     '.prompt-input[type=search]{appearance:auto;}',
     'textarea.prompt-input{resize:vertical;line-height:1.5;}',
     '.prompt-preview{min-height:190px;}',
-    '.prompt-summary{padding:12px;border:1px solid #415773;background:#203248;border-radius:9px;}',
+    '.prompt-section-heading{padding:5px 0 12px;border-bottom:1px solid #647b95;margin-top:7px;}',
+    '.prompt-section-heading h3{margin:0 0 6px;font-size:19px;font-weight:750;color:#f4faff;}',
+    '.prompt-section-heading .hint{margin:0;}',
+    '.prompt-initialize{justify-self:start;padding:10px 15px;font-weight:700;}',
+    '.prompt-initialize:disabled{opacity:.5;cursor:not-allowed;}',
     '.prompt-actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center;}',
     '.prompt-actions button:disabled{opacity:.5;cursor:not-allowed;}',
     '.prompt-status{font-size:12px;color:#cadef3;}',
@@ -1350,6 +1355,15 @@
     '.error{font-size:12px;color:#ffb6b6;}',
     '.pill{color:#b0c0d4;font-size:11px;text-transform:uppercase;letter-spacing:.5px;}',
     'select{max-width:280px;min-width:160px;background:#223449;border:1px solid #52657c;border-radius:8px;padding:7px;color:#f3f8ff;font-size:12px;}',
+
+    // Every native select in Organizer gets a light, high-contrast option list.
+    // Browser/OS can still impose native highlight colors on open popups.
+    'select option,select optgroup{background-color:#ffffff;color:#111827;}',
+    'select option:hover,select option:focus,select option:checked{background-color:#ffffff;color:#111827;}',
+    'input:not([type=checkbox]):not([type=radio]),textarea{caret-color:#ffffff;}',
+    'input::selection,textarea::selection{background:#2468a8;color:#ffffff;}',
+    'input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid #f4fbff;outline-offset:2px;border-color:#99daff;box-shadow:0 0 0 4px rgba(56,142,208,.38);}',
+
     '.foot{padding:12px 20px;border-top:1px solid #304052;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}',
     '.footer-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap;}',
     '.footer-actions .action{white-space:nowrap;}',
@@ -2938,27 +2952,44 @@
 
 
   function clearPromptDraft() {
-    promptTemplateId=PROMPT_CATALOG.templates[0].id;
+    promptTemplateId='';
     promptCategory='';
-    promptQuery='';
+    promptInitializedId=null;
     promptValues={};
     promptPreview='';
     promptCopyNotice='';
+  }
+  // Only a deliberate initialization changes the active form. Merely
+  // browsing categories or prompt types must not destroy existing work.
+  function promptHasWork(item, values, preview) {
+    if (!item) return false;
+    if (Object.values(values || {}).some(value=>String(value||'').trim())) return true;
+    return String(preview||'') !== assemblePrompt(item,values||{});
   }
   function currentPromptTemplate() {
-    return PROMPT_CATALOG.templates.find(x=>x.id===promptTemplateId)||PROMPT_CATALOG.templates[0];
+    return PROMPT_CATALOG.templates.find(x=>x.id===promptInitializedId)||null;
   }
   function resetPromptPreview() {
-    promptPreview=assemblePrompt(currentPromptTemplate(),promptValues);
+    const active=currentPromptTemplate();
+    promptPreview=active?assemblePrompt(active,promptValues):'';
     promptCopyNotice='';
   }
-  function choosePromptTemplate(id) {
-    if (!PROMPT_CATALOG.templates.some(x=>x.id===id)) return;
-    promptTemplateId=id;
+  function initializePromptTemplate(id) {
+    const selected=PROMPT_CATALOG.templates.find(x=>x.id===id);
+    if (!selected || !promptCategory || selected.category!==promptCategory) return false;
+    const active=currentPromptTemplate();
+    if (active && promptHasWork(active,promptValues,promptPreview) &&
+        !window.confirm('Starting a new prompt template will discard the information and edits in your current form. Continue?')) {
+      return false;
+    }
+    promptInitializedId=id;
     promptValues={};
-    promptPreview='';
+    promptPreview=assemblePrompt(selected,{});
     promptCopyNotice='';
     render();
+    const first=panel.querySelector('.prompt-fields input, .prompt-fields textarea');
+    if (first) first.focus();
+    return true;
   }
   async function copyPromptToClipboard(value,control) {
     try {
@@ -2972,157 +3003,146 @@
       return document.execCommand('copy')===true;
     } catch (_) {return false;}
   }
+
   function makePromptBuilder() {
-    const item=currentPromptTemplate();
+    const active=currentPromptTemplate();
     const root=el('div','prompt-builder');
     root.appendChild(el('h2','','Prompt Builder'));
-    root.appendChild(el('p','hint','Choose a starter, fill in the fields, edit the generated prompt and copy it. No prompt is sent automatically.'));
-    const chooser=el('div','prompt-chooser');
+    root.appendChild(el('p','hint',
+      'Step 1: Choose a category and prompt type, then initialize the template. ' +
+      'Step 2: Fill in the fields, review the prompt, and copy it. Nothing is sent automatically.'));
 
-    const catLabel=el('label','prompt-label','Category');
+    const chooser=el('div','prompt-chooser');
+    const catLabel=el('label','prompt-label','1. Category');
     const catSelect=el('select','prompt-input');
     catSelect.setAttribute('aria-label','Prompt category');
-    const all=el('option','','All categories');all.value='';catSelect.appendChild(all);
-    for(const cat of PROMPT_CATALOG.categories) {
-      const option=el('option','',cat.label);option.value=cat.id;catSelect.appendChild(option);
+    const chooseCategory=el('option','','Choose a category…');
+    chooseCategory.value='';
+    catSelect.appendChild(chooseCategory);
+    for (const cat of PROMPT_CATALOG.categories) {
+      const option=el('option','',cat.label);
+      option.value=cat.id;
+      catSelect.appendChild(option);
     }
     catSelect.value=promptCategory;
     catSelect.addEventListener('change',()=>{
       promptCategory=catSelect.value;
-      promptQuery='';
-      const choices=filterPromptTemplates(PROMPT_CATALOG,promptCategory,'');
-      if (choices.length && !choices.some(x=>x.id===promptTemplateId)) {
-        promptTemplateId=choices[0].id;
-        promptValues={};promptPreview='';
-      }
-      promptCopyNotice='';
+      promptTemplateId='';
+      // Keep the active form intact until Initialize is explicitly clicked.
       render();
+      const type=panel.querySelector('.prompt-template-select');
+      if (promptCategory && type) type.focus();
     });
-    catLabel.appendChild(catSelect);chooser.appendChild(catLabel);
-    const searchLabel=el('label','prompt-label','Search prompt types');
-    const search=el('input','prompt-input');
-    search.type='search';
-    search.placeholder='Search by task or description';
-    search.value=promptQuery;
-    searchLabel.appendChild(search);
-    chooser.appendChild(searchLabel);
+    catLabel.appendChild(catSelect);
+    chooser.appendChild(catLabel);
+
+    const templateLabel=el('label','prompt-label','2. Prompt type');
+    const templateSelect=el('select','prompt-input prompt-template-select');
+    templateSelect.setAttribute('aria-label','Prompt type');
+    const chooseType=el('option','',promptCategory?'Choose a prompt type…':'Choose a category first');
+    chooseType.value='';
+    templateSelect.appendChild(chooseType);
+    for (const item of filterPromptTemplates(PROMPT_CATALOG,promptCategory,'')) {
+      if (!promptCategory) break;
+      const option=el('option','',item.title);
+      option.value=item.id;
+      templateSelect.appendChild(option);
+    }
+    templateSelect.disabled=!promptCategory;
+    templateSelect.value=promptTemplateId;
+    templateSelect.addEventListener('change',()=>{
+      promptTemplateId=templateSelect.value;
+      initialize.disabled=!promptCategory || !promptTemplateId;
+    });
+    templateLabel.appendChild(templateSelect);
+    chooser.appendChild(templateLabel);
     root.appendChild(chooser);
 
-    const templateLabel=el('label','prompt-label','Prompt type');
-    const templateSelect=el('select','prompt-input');
-    templateSelect.setAttribute('aria-label','Prompt type');
-    const summary=el('div','prompt-summary');
+    const initialize=button(active?'Initialize New Prompt Template':'Initialize Prompt Template',
+      'action prompt-initialize',()=>initializePromptTemplate(promptTemplateId));
+    initialize.disabled=!promptCategory || !promptTemplateId;
+    root.appendChild(initialize);
+    if (!active) {
+      root.appendChild(el('p','prompt-status',
+        'Select a category and prompt type above to build your prompt.'));
+      return root;
+    }
+
+    // This is a typographic heading, not a card or a field.
+    const heading=el('div','prompt-section-heading');
+    heading.appendChild(el('h3','',active.title));
+    heading.appendChild(el('p','hint',active.description));
+    root.appendChild(heading);
+
     const fieldsContainer=el('div','prompt-fields');
-    const generatedLabel=el('label','prompt-label','Generated prompt — editable');
     const preview=el('textarea','prompt-input prompt-preview');
     preview.setAttribute('aria-label','Editable generated prompt');
     preview.spellcheck=true;
-    generatedLabel.appendChild(preview);
-    const notice=el('div','prompt-status');
-    notice.setAttribute('role','status');
     const completion=el('div','prompt-status');
-    const copy=button('Copy prompt','action',()=>{});
-    const actions=el('div','prompt-actions');
-    // Changing the selected prompt resets the previous template's values.
-    function fillOptions() {
-      const selected=promptTemplateId;
-      const matches=filterPromptTemplates(PROMPT_CATALOG,promptCategory,promptQuery);
-      templateSelect.replaceChildren();
-      if (!matches.length) {
-        const empty=el('option','','No matching prompt types');empty.value='';
-        templateSelect.appendChild(empty);
-        templateSelect.disabled=true;
-      } else {
-        templateSelect.disabled=false;
-        // Search doesn't unexpectedly discard a draft: keep the active item
-        // as a selectable option while showing all matching results.
-        if (!matches.some(x=>x.id===selected)) {
-          const current=currentPromptTemplate();
-          const keep=el('option','',current.title+' (current draft)');
-          keep.value=current.id;
-          templateSelect.appendChild(keep);
-        }
-        for(const entry of matches) {
-          const option=el('option','',entry.title+' — '+entry.description);
-          option.value=entry.id;
-          templateSelect.appendChild(option);
-        }
-        templateSelect.value=selected;
-      }
-    }
-    fillOptions();
-    search.addEventListener('input',()=>{
-      promptQuery=search.value;
-      fillOptions();
-    });
-    templateSelect.addEventListener('change',()=>choosePromptTemplate(templateSelect.value));
-    templateLabel.appendChild(templateSelect);
-    root.appendChild(templateLabel);
+    const notice=el('span','prompt-status');
+    notice.setAttribute('role','status');
 
-    summary.appendChild(el('div','brand',item.title));
-    summary.appendChild(el('p','hint',item.description));
-    root.appendChild(summary);
-    if (!promptPreview) resetPromptPreview();
-    function updateCopyReady() {
-      const missing=promptMissingFields(item,promptValues);
-      copy.disabled=Boolean(missing.length)||!preview.value.trim();
-      completion.textContent=missing.length
-        ? 'Complete '+missing.length+' required field'+(missing.length===1?'s':'')+
-          ' before copying; placeholders are shown in the preview.'
-        : 'All required fields complete. You can edit or copy the result.';
-      notice.textContent=promptCopyNotice;
-    }
-    for(const field of item.fields) {
-      const label=el('label','prompt-label'+(field.type==='textarea'?' prompt-field-wide':''),field.label+(field.required?' *':''));
+    for (const field of active.fields) {
+      const label=el('label','prompt-label'+(field.type==='textarea'?' prompt-field-wide':''),
+        field.label+(field.required?' *':''));
       const control=el(field.type==='textarea'?'textarea':'input','prompt-input');
-      if(field.type!=='textarea') control.type='text'; else control.rows=4;
+      if (field.type==='textarea') control.rows=4; else control.type='text';
       control.value=promptValues[field.key]||'';
-      control.placeholder=field.label;
       control.maxLength=12000;
+      control.placeholder=field.label;
       control.addEventListener('input',()=>{
         promptValues[field.key]=control.value;
         resetPromptPreview();
         preview.value=promptPreview;
-        updateCopyReady();
+        updateReadiness();
       });
       label.appendChild(control);
       fieldsContainer.appendChild(label);
     }
     root.appendChild(fieldsContainer);
+
+    const previewLabel=el('label','prompt-label','Generated prompt — editable');
     preview.value=promptPreview;
+    previewLabel.appendChild(preview);
     preview.addEventListener('input',()=>{
       promptPreview=preview.value;
       promptCopyNotice='';
-      updateCopyReady();
+      updateReadiness();
     });
-    root.appendChild(generatedLabel);
+    root.appendChild(previewLabel);
     root.appendChild(completion);
 
-    // Replace the initial inert button with one that performs an actual copy.
-    const copyControl=button('Copy prompt','action',async()=>{
-      if(promptMissingFields(item,promptValues).length||!preview.value.trim())return;
-      const worked=await copyPromptToClipboard(preview.value,preview);
-      promptCopyNotice=worked?'Prompt copied. Paste it into ChatGPT when ready.':
-        'Clipboard access was blocked. Select the preview and copy manually.';
+    const actions=el('div','prompt-actions');
+    const copy=button('Copy prompt','action',async()=>{
+      if (promptMissingFields(active,promptValues).length || !preview.value.trim()) return;
+      const ok=await copyPromptToClipboard(preview.value,preview);
+      promptCopyNotice=ok?'Prompt copied. Paste it into ChatGPT when ready.':
+        'Clipboard unavailable. Select the generated prompt and copy it manually.';
       notice.textContent=promptCopyNotice;
     });
-    function syncReady() {
-      updateCopyReady();
-      copyControl.disabled=copy.disabled;
-    }
-    for(const control of fieldsContainer.querySelectorAll('input,textarea'))
-      control.addEventListener('input',syncReady);
-    preview.addEventListener('input',syncReady);
-    actions.appendChild(copyControl);
+    actions.appendChild(copy);
     actions.appendChild(button('Reset preview','action',()=>{
-      resetPromptPreview();preview.value=promptPreview;syncReady();
+      resetPromptPreview();
+      preview.value=promptPreview;
+      updateReadiness();
     }));
     actions.appendChild(button('Clear fields','action',()=>{
-      promptValues={};promptPreview='';promptCopyNotice='';render();
+      promptValues={};
+      resetPromptPreview();
+      render();
     }));
     actions.appendChild(notice);
     root.appendChild(actions);
-    syncReady();
+    function updateReadiness() {
+      const missing=promptMissingFields(active,promptValues);
+      copy.disabled=Boolean(missing.length)||!preview.value.trim();
+      completion.textContent=missing.length
+        ? 'Complete '+missing.length+' required field'+(missing.length===1?'':'s')+
+          ' before copying. The preview shows placeholders until then.'
+        : 'Required fields complete. Review or edit the prompt before copying.';
+      notice.textContent=promptCopyNotice;
+    }
+    updateReadiness();
     return root;
   }
   function render() {

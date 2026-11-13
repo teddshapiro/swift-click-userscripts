@@ -273,6 +273,40 @@ test('Quick Link subheadings render section breaks and share link drag order', (
 });
 
 
+
+test('Prompt Builder requires explicit Initialize and keeps the active form while browsing', () => {
+  assert.match(script,/let promptInitializedId=null/);
+  assert.match(script,/function initializePromptTemplate\(id\)/);
+  assert.match(script,/promptCategory=catSelect\.value;\s*promptTemplateId='';/);
+  assert.match(script,/promptTemplateId=templateSelect\.value/);
+  assert.match(script,/initialize\.disabled=!promptCategory \|\| !promptTemplateId/);
+  assert.match(script,/if \(!active\) \{/);
+  assert.match(script,/root\.appendChild\(initialize\)/);
+  assert.match(script,/root\.appendChild\(heading\)/);
+  assert.match(script,/function currentPromptTemplate\(\)/);
+  assert.match(script,/promptInitializedId=id/);
+  assert.match(script,/window\.confirm\('Starting a new prompt template will discard/);
+  assert.match(script,/const first=panel\.querySelector\('\.prompt-fields input, \.prompt-fields textarea'\)/);
+  assert.doesNotMatch(script,/\.prompt-summary\{padding:/);
+});
+test('Prompt Builder confirms only when entered fields or edited preview would be discarded', () => {
+  const template=hooks.promptCatalog.templates[0];
+  const initial=hooks.assemblePrompt(template,{});
+  assert.equal(hooks.promptHasWork(template,{},initial),false);
+  assert.equal(hooks.promptHasWork(template,{topic:' '},initial),false);
+  const values={topic:'Important project'};
+  assert.equal(hooks.promptHasWork(template,values,hooks.assemblePrompt(template,values)),true);
+  assert.equal(hooks.promptHasWork(template,{},'Custom edited prompt'),true);
+  assert.equal(hooks.promptHasWork(null,{topic:'x'},'text'),false);
+});
+test('Select menus have high-contrast options; all editable inputs show white caret and focus', () => {
+  assert.match(script,/select option,select optgroup\{background-color:#ffffff;color:#111827;\}/);
+  assert.match(script,/select option:hover,select option:focus,select option:checked\{background-color:#ffffff;color:#111827;\}/);
+  assert.match(script,/textarea\{caret-color:#ffffff;\}/);
+  assert.match(script,/textarea:focus-visible,select:focus-visible\{outline:3px solid #f4fbff;/);
+  assert.match(script,/\.prompt-section-heading h3\{/);
+});
+
 test('Prompt Builder has exactly 25 validated local templates and seven categories', () => {
   const cat=hooks.promptCatalog;
   assert.equal(cat.templates.length,25);
@@ -314,7 +348,7 @@ test('Prompt Builder UI is browser-local, editable, explicit-copy and never auto
   assert.match(script,/copyPromptToClipboard\(preview\.value,preview\)/);
   assert.match(script,/button\('Reset preview','action'/);
   assert.match(script,/button\('Clear fields','action'/);
-  assert.match(script,/promptMissingFields\(item,promptValues\)/);
+  assert.match(script,/promptMissingFields\(active,promptValues\)/);
   assert.match(script,/if \(activeTab === 'prompts' && tab\.id !== 'prompts'\) clearPromptDraft\(\)/);
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script,/(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);
@@ -1063,7 +1097,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.24/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.25/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

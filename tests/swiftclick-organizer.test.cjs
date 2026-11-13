@@ -685,7 +685,8 @@ test('Manage Categories contains an accessible offline icon picker', () => {
 
 test('category editor is isolated from chat sidebar and keeps destructive reset in manager', () => {
   assert.match(script, /const CATEGORY_DEFS_KEY = APP_ID \+ '\.categoryDefinitions\.v1'/);
-  assert.match(script, /CATEGORIES = sanitizeCategoryDefinitions\(GM_getValue\(CATEGORY_DEFS_KEY, null\)\)/);
+  assert.match(script, /CATEGORIES = chosen\.categories/);
+  assert.match(script, /chooseInitialCategoryDefinitions\(existing, hasPriorState\)/);
   assert.match(script, /GM_setValue\(CATEGORY_DEFS_KEY/);
   assert.match(script, /const wrapper = el\('div', 'category-manager'\)/);
   assert.match(script, /button\('⚙ Manage categories', 'action'/);
@@ -701,22 +702,20 @@ test('category editor is isolated from chat sidebar and keeps destructive reset 
 
 test('categories are flat and contain only projects or chats', () => {
   assert.deepEqual(Array.from(hooks.categories), [
-    'family', 'health', 'finances', 'home', 'business', 'ai', 'hobbies', 'uncategorized'
+    'work', 'personal', 'learning', 'interests', 'uncategorized'
   ]);
-  assert.equal(hooks.validCategory('family'), true);
-  assert.equal(hooks.validCategory('hobbies'), true);
-  assert.equal(hooks.validCategory('finances'), true);
-  assert.equal(hooks.validCategory('home'), true);
+  assert.equal(hooks.validCategory('work'), true);
+  assert.equal(hooks.validCategory('personal'), true);
+  assert.equal(hooks.validCategory('learning'), true);
+  assert.equal(hooks.validCategory('interests'), true);
+  assert.equal(hooks.validCategory('family'), false);
   assert.equal(hooks.validCategory('cinema'), false);
   assert.equal(hooks.validCategory('henry'), false);
-  assert.equal(hooks.validCategory('bradley'), false);
   assert.equal(hooks.validCategory('unknown'), false);
-  assert.equal(hooks.itemInCategory('hobbies', 'hobbies'), true);
-  assert.equal(hooks.itemInCategory('family', 'hobbies'), false);
-  assert.equal(hooks.itemInCategory('hobbies', null), true);
-  assert.equal(hooks.itemInCategory('finances', 'finances'), true);
-  assert.equal(hooks.itemInCategory('home', 'home'), true);
-  assert.equal(hooks.itemInCategory('home', 'finances'), false);
+  assert.equal(hooks.itemInCategory('work', 'work'), true);
+  assert.equal(hooks.itemInCategory('personal', 'work'), false);
+  assert.equal(hooks.itemInCategory('interests', null), true);
+  assert.equal(hooks.itemInCategory('learning', 'learning'), true);
 });
 
 test('legacy assignments migrate to top-level categories without losing links', () => {

@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.23)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.24)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -650,3 +650,13 @@ Two UI-only refinements requested after successful browser review of alpha.21:
 7. Confirm all Quick Links still open new tabs; unrelated Categories/Tools features work and existing data remains intact.
 
 **Status:** feature branch and draft PR #6; browser verification pending. No merge into main until approved.
+
+## Alpha.24 — fourth-tab Prompt Builder (2026-11-12)
+
+**Initial implementation:** Add a Prompt Builder tab with the approved local 25-template catalog across seven task categories. Includes category filtering, text search, task selection, three or four labeled required fields, live editable generated prompt, manual Reset preview, Clear fields, and explicit Copy prompt. There is no AI API call, automatic composer insertion, or sending a chat.
+
+**Privacy:** Inputs and preview are ephemeral per-page JS memory; closing Organizer or leaving Prompt Builder clears them. No user-entered prompt content is written to GM/Tampermonkey storage, sent to a server, or logged. The clipboard operation occurs only after pressing Copy, and the action is disabled for incomplete required fields. HTML is constructed using DOM APIs, not string-based HTML sinks.
+
+**Test:** Verify all 25 starter prompts and form labels, filtering, multiline source pastes, preview edits, reset and clear behavior, clipboard copy, no-copy for required blanks, desktop and narrow browser layouts, and unchanged Categories/Quick Links/ChatGPT Tools storage and navigation.
+
+**Status:** Experimental branch, draft PR #6. Browser acceptance pending.

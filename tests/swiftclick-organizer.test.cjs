@@ -272,6 +272,54 @@ test('Quick Link subheadings render section breaks and share link drag order', (
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 
+
+test('Prompt Builder has exactly 25 validated local templates and seven categories', () => {
+  const cat=hooks.promptCatalog;
+  assert.equal(cat.templates.length,25);
+  assert.equal(cat.categories.length,7);
+  assert.equal(hooks.validatePromptCatalog(cat),true);
+  assert.equal(new Set(cat.templates.map(x=>x.id)).size,25);
+  for (const tpl of cat.templates) {
+    assert.ok(tpl.fields.length>=3 && tpl.fields.length<=4);
+    assert.equal(hooks.promptMissingFields(tpl,{}).length,tpl.fields.length);
+    assert.equal(hooks.promptMissingFields(tpl,Object.fromEntries(tpl.fields.map(f=>[f.key,'OK']))).length,0);
+  }
+});
+test('Prompt Builder uses literal replacement, honest blanks and safe input handling', () => {
+  const tpl=hooks.promptCatalog.templates.find(x=>x.id==='research-brief');
+  const result=hooks.assemblePrompt(tpl,{topic:'<script> & {{focus}}',purpose:'evaluation',focus:'reliability'});
+  assert.ok(result.includes('<script> & {{focus}}'));
+  assert.ok(result.includes('evaluation'));
+  assert.ok(result.includes('reliability'));
+  const preview=hooks.assemblePrompt(tpl,{topic:'cats'});
+  assert.ok(preview.includes("[Why you're researching it]"));
+  assert.ok(preview.includes('[Questions or aspects to cover]'));
+  assert.equal(hooks.promptMissingFields(tpl,{topic:' ',purpose:'yes'}).length,2);
+  assert.equal(hooks.assemblePrompt(null,{}),'');
+});
+test('Prompt Builder filters original task prompts by type and keyword', () => {
+  const catalog=hooks.promptCatalog;
+  assert.equal(hooks.filterPromptTemplates(catalog,'','').length,25);
+  assert.equal(hooks.filterPromptTemplates(catalog,'coding','').length,4);
+  assert.equal(hooks.filterPromptTemplates(catalog,'coding','debug')[0].id,'debug-issue');
+  assert.equal(hooks.filterPromptTemplates(catalog,'writing','debug').length,0);
+});
+test('Prompt Builder UI is browser-local, editable, explicit-copy and never auto-sends', () => {
+  assert.match(script,/\{ id: 'prompts', title: 'Prompt Builder' \}/);
+  assert.match(script,/if \(activeTab === 'prompts'\)/);
+  assert.match(script,/content\.appendChild\(makePromptBuilder\(\)\)/);
+  assert.match(script,/function clearPromptDraft\(\)/);
+  assert.match(script,/function makePromptBuilder\(\)/);
+  assert.match(script,/Editable generated prompt/);
+  assert.match(script,/copyPromptToClipboard\(preview\.value,preview\)/);
+  assert.match(script,/button\('Reset preview','action'/);
+  assert.match(script,/button\('Clear fields','action'/);
+  assert.match(script,/promptMissingFields\(item,promptValues\)/);
+  assert.match(script,/if \(activeTab === 'prompts' && tab\.id !== 'prompts'\) clearPromptDraft\(\)/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+  assert.doesNotMatch(script,/(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);
+});
+
 test('Quick Links start with YouTube and Google Drive only for uninitialized storage', () => {
   const defaults = hooks.sanitizeQuickLinks(null);
   assert.deepEqual(Array.from(defaults, (item) => item.title), ['YouTube', 'Google Drive']);
@@ -1015,7 +1063,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.23/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.24/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

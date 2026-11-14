@@ -1382,37 +1382,21 @@
   }
 
   function removeSavedShortcut(item) {
+    if(profileMode) {
+      if(!isInActiveProfile(item.key))return false;
+      // Last membership removal also removes this shared shortcut from storage.
+      return setActiveProfileMembership(item.key,'uncategorized',false);
+    }
     const isProject=item.type==='project';
     const existing=isProject?manualProjects:savedChats;
     if(!existing.some(x=>x.key===item.key))return false;
     const storageKey=isProject?MANUAL_PROJECTS_KEY:SAVED_CHATS_KEY;
     const next=existing.filter(x=>x.key!==item.key);
-    const serialize=arr=>arr.map(({href,title})=>({href,title}));
-    try {GM_setValue(storageKey,serialize(next));}
+    try {GM_setValue(storageKey,next.map(({href,title})=>({href,title})));}
     catch(error){console.warn('[SwiftClick Organizer] Shortcut deletion failed:',error);return false;}
-    let success=false;
-    if(profileMode){
-      const profiles=profilesState.profiles.map(p=>{
-        const assigned={...p.assignments};delete assigned[item.key];
-        const order=Object.fromEntries(Object.entries(p.categoryOrders).map(([id,keys])=>
-          [id,keys.filter(key=>key!==item.key)]));
-        return {...p,assignments:assigned,categoryOrders:order};
-      });
-      success=persistProfiles({...profilesState,profiles});
-    }else{
-      const assigned={...assignments};delete assigned[item.key];
-      try {GM_setValue(STORAGE_KEY,{version:2,assignments:assigned});success=true;
-        assignments=assigned;}
-      catch(error){console.warn('[SwiftClick Organizer] Shortcut cleanup failed:',error);}
-    }
-    if(!success){
-      try {GM_setValue(storageKey,serialize(existing));}
-      catch(error){console.warn('[SwiftClick Organizer] Restore shortcut after error failed:',error);}
-      return false;
-    }
     if(isProject)manualProjects=next;else savedChats=next;
-    seen.delete(item.key);
-    if(!profileMode)forgetItemOrder(item.key);
+    seen.delete(item.key);delete assignments[item.key];
+    forgetItemOrder(item.key);saveAssignments();
     return true;
   }
 
@@ -1898,61 +1882,46 @@
     quickSavePopover.hidden = true;
     quickSaveButton.setAttribute('aria-expanded','false');
   }
-  function persistQuickSave(item, operation, title, category) {
-    if (!item || currentQuickSave()?.key!==item.key || !validCategory(category)) return false;
+  function persistQuickSave(item,operation,title,category) {
+    if(!item || currentQuickSave()?.key!==item.key || !validCategory(category))return false;
+    if(operation==='remove')return removeSavedShortcut(item);
+    if(operation!=='save')return false;
+    const trimmed=String(title||'').replace(/\\s+/g,' ').trim();
+    if(!trimmed || trimmed.length>140)return false;
     const existing=item.type==='project'?manualProjects:savedChats;
     const storageKey=item.type==='project'?MANUAL_PROJECTS_KEY:SAVED_CHATS_KEY;
-    const next=existing.filter(x=>x.key!==item.key);
-    if(operation==='save'){
-      const trimmed=String(title||'').replace(/\s+/g,' ').trim();
-      if(!trimmed || trimmed.length>140 ||
-        next.length >= (item.type==='project'?200:500))return false;
-      const entry=item.type==='project'
-        ?sanitizeManualProject({title:trimmed,href:item.href},location.origin)
-        :sanitizeSavedChat({title:trimmed,href:item.href},location.origin);
-      if(!entry || entry.key!==item.key)return false;
-      next.push(entry);
-    }else if(operation!=='remove' || !item.saved)return false;
-    const nextAssignments={...assignments};
-    delete nextAssignments[item.key];
-    if(operation==='save' && category!=='uncategorized')
-      nextAssignments[item.key]=category;
-    const serialize=arr=>arr.map(({href,title})=>({href,title}));
+    const remaining=existing.filter(x=>x.key!==item.key);
+    if(!item.saved && remaining.length>=(item.type==='project'?200:500))return false;
+    const entry=item.type==='project'
+      ?sanitizeManualProject({title:trimmed,href:item.href},location.origin)
+      :sanitizeSavedChat({title:trimmed,href:item.href},location.origin);
+    if(!entry || entry.key!==item.key)return false;
+    const next=[...remaining,entry], serialize=arr=>arr.map(({href,title})=>({href,title}));
     try {GM_setValue(storageKey,serialize(next));}
-    catch(error){console.warn('[SwiftClick Organizer] Quick Save link write failed:',error);return false;}
-
+    catch(error){console.warn('[SwiftClick Organizer] Shortcut write failed:',error);return false;}
     let success=false;
     if(profileMode){
-      const profiles=profilesState.profiles.map(p=>{
-        // Removing a shared link removes obsolete assignments/order from ALL
-        // profiles, but never deletes or changes their category definitions.
-        if(operation==='remove'){
-          const linked={...p.assignments};delete linked[item.key];
-          const order=Object.fromEntries(Object.entries(p.categoryOrders).map(([id,keys])=>
-            [id,keys.filter(key=>key!==item.key)]));
-          return {...p,assignments:linked,categoryOrders:order};
-        }
-        if(p.id!==profilesState.activeId)return p;
-        const order=Object.fromEntries(Object.entries(categoryOrders).map(([id,keys])=>
-          [id,category===item.category?keys:keys.filter(key=>key!==item.key)]));
-        return {...p,assignments:nextAssignments,categoryOrders:order};
-      });
-      success=persistProfiles({...profilesState,profiles});
-    } else {
-      try {
-        GM_setValue(STORAGE_KEY,{version:2,assignments:nextAssignments});
-        assignments=nextAssignments;
-        success=true;
-      }catch(error){console.warn('[SwiftClick Organizer] Quick Save assignment write failed:',error);}
+      // Only the selected profile gains membership. The shared title/URL is
+      // updated once and appears consistently wherever the link is included.
+      const target=profileMemberUpdate(profilesState,profilesState.activeId,
+        item.key,category,true);
+      success=Boolean(target && persistProfiles(target));
+    }else{
+      const nextAssignments={...assignments};
+      if(category==='uncategorized')delete nextAssignments[item.key];
+      else nextAssignments[item.key]=category;
+      try {GM_setValue(STORAGE_KEY,{version:2,assignments:nextAssignments});
+        assignments=nextAssignments;success=true;}
+      catch(error){console.warn('[SwiftClick Organizer] Assignment write failed:',error);}
     }
     if(!success){
       try {GM_setValue(storageKey,serialize(existing));}
-      catch(error){console.warn('[SwiftClick Organizer] Quick Save rollback failed:',error);}
+      catch(error){console.warn('[SwiftClick Organizer] Shortcut rollback failed:',error);}
       return false;
     }
     if(item.type==='project')manualProjects=next;else savedChats=next;
-    if(operation==='save')seen.set(item.key,next[next.length-1]);else seen.delete(item.key);
-    if(!profileMode && (operation==='remove' || category!==item.category))forgetItemOrder(item.key);
+    seen.set(item.key,entry);
+    if(!profileMode && category!==item.category)forgetItemOrder(item.key);
     if(open)render();
     return true;
   }

@@ -1487,7 +1487,8 @@ test('Stage 1.5 wiring filters profile lists and cleans orphans without rewritin
   assert.match(script,/if\(profileMode\) \{/);
   assert.match(script,/setActiveProfileMembership\(parsed\.key,category,true\)/);
   assert.match(script,/setActiveProfileMembership\(item\.key,'uncategorized',false\)/);
-  assert.match(script,/const included=isInActiveProfile\(item\.key\)/);
+  assert.match(script,/const included=Boolean\(item\.saved && isInActiveProfile\(item\.key\)\)/);
+  assert.match(script,/quickSaveButton\.dataset\.saved=String\(included\)/);
   assert.match(script,/Not included in this profile/);
   assert.match(script,/Remove from profile/);
   assert.doesNotMatch(script,/GM_setValue\(PROFILES_KEY,/);

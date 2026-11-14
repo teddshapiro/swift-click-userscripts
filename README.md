@@ -21,6 +21,16 @@ Canonical distribution repository for Swift Click Tampermonkey userscripts.
 
 Each canonical file keeps a stable filename. Tampermonkey update metadata points to the raw `main` branch version of the same file. Future releases increment `@version`; the filename and update URLs stay unchanged.
 
+## Experimental: SwiftClick Organizer
+
+**SwiftClick Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.34** (Stage 1.5: explicit profile membership).
+
+- [Current development handoff and implementation status](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
+- [Full technical PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
+- [Draft pull request #6](https://github.com/teddshapiro/swift-click-userscripts/pull/6)
+
+The sole current tester reported favorable initial Firefox testing of alpha.34 on November 14, 2026, without known functional issues. This is not full regression/browser acceptance for public distribution. Further changes belong on the development branch unless separately approved.
+
 ## Release workflow
 
 1. Make and test changes in a working copy.

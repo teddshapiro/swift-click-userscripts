@@ -820,8 +820,10 @@
     const assignments={...profile.assignments};
     if(!include || category==='uncategorized')delete assignments[key];
     else assignments[key]=category;
+    const oldCategory=profile.assignments[key]||'uncategorized';
+    const keepOrder=include && memberInProfile(profile,key) && category===oldCategory;
     const categoryOrders=Object.fromEntries(Object.entries(profile.categoryOrders)
-      .map(([id,keys])=>[id,keys.filter(k=>k!==key)]));
+      .map(([id,keys])=>[id,keepOrder?keys:[...keys].filter(k=>k!==key)]));
     return {...profile,...profileSnapshot(profile.categories,assignments,categoryOrders,members)};
   }
   function profileMemberUpdate(state,profileId,key,category,include) {

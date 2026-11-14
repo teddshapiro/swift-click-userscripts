@@ -2,6 +2,8 @@
 
 > **Current alpha.36 baseline:** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
+**Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
+
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
 Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.36)  
@@ -837,3 +839,19 @@ The page-level bookmark now includes a labeled **Organize in profile** picker wi
 **Quick Links compatibility, preservation-first:** On initial startup without `quickLinks.v2`, alpha.36 reads existing valid `quickLinks.v1` (or starter defaults), attempts to persist the identical ordered items into `quickLinks.v2`, and does not touch V1. If the V2 write fails, it continues showing original links and a later explicit edit can retry saving. If a V2 snapshot already exists, it is authoritative and V1 is not used. This is deliberately the final one-time compatibility *bridge*, not removal of the V1 parser yet: an actual local V2 snapshot was not independently verifiable at design time. Once the owner confirms alpha.36 and Quick Links persistence after reload, V1 reading and parsing can be safely removed in the next cleanup without endangering old local shortcuts.
 
 **Regression/Firefox acceptance:** Tests cover deletion of active, default, both and inactive profiles; never delete the final profile; survivor membership/assignments; UI action visibility; confirmation and session state; preservation of V1 Quick Links order and intentionally empty lists when promoted to V2. In Firefox, back up Tampermonkey storage, create two temporary profiles, delete each active/default configuration, confirm original content and other profiles survive, and verify Quick Links headings/links after reload. No network calls or new privileges were added. Stay on `feat/swiftclick-organizer-poc-20261111` / draft PR #6, not `main`. Stage 2 remains deferred.
+
+## Cross-product design retrospective — reusable lessons (2026-11-14)
+
+The full evergreen guide is maintained in [Web App Development Standards — Organizer, Shortcut & Collection Tools](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk). Major decisions illustrated by Organizer:
+
+- **Always evaluate profiles; never assume they are needed.** Separate work contexts justify per-profile membership, categories and order; one list may suffice for simpler tools.
+- **Keep a resource, the saved reference to it, and the reference's placement distinct.** Profile membership should be explicit. In this design “Uncategorized” means included in that particular profile but unassigned, not all globally known shortcuts.
+- **Scope controls to consequences.** Organizer profiles apply to ChatGPT Categories, while Quick Links, ChatGPT Tools and Prompt Builder remain independent. The bookmark widget needs profile context because it saves a link into a chosen profile.
+- **Make lifecycle actions obvious and safe.** Removing the final membership cleans only the local shared shortcut. Deleting active/default profiles must remain possible by choosing a valid survivor; deleting the final profile must remain blocked. Never imply that original ChatGPT objects are removed.
+- **Favor contextual capture and progressive disclosure without hiding essential actions.** Use a category-first front door plus a small page-level Add widget. Keep profile creation/rename/delete discoverable.
+- **Treat saved organization as durable data.** Validate V2 schemas, preserve useful recovery states, avoid silent reset, test migration and rollback paths, and distinguish private-alpha cleanup from public-release compatibility obligations.
+- **Host and privacy constraints matter.** Do not infer identity from titles alone, avoid unnecessary page scraping and remote calls, create injected UI with explicit DOM operations for Trusted Types/CSP compatibility, and test real browsers and narrow layouts.
+- **Test combinations, not just features.** One/two/multiple profiles, active≠default, shared/exclusive links, Uncategorized, failed writes, reloads, keyboard controls and actual user understanding all need coverage.
+- **AI-assisted organization (future work)** should import an opt-in preview as a new editable profile, preserving existing taxonomies and boundaries by default.
+
+These guidelines generalize the lessons but do not impose Organizer's precise implementation on unrelated products. **Approved baseline:** alpha.36 (owner's initial Firefox acceptance); no merge to `main`, no public release, Stage 2 deferred.

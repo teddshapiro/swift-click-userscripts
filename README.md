@@ -28,8 +28,13 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
 - [Alpha.34 development handoff (historical)](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
 - [Draft pull request #6](https://github.com/teddshapiro/swift-click-userscripts/pull/6)
+- [Cross-product design standard — Organizer, Shortcut & Collection Tools](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) (Web App Development Standards → Human-Centered Design)
 
-The sole current tester reported favorable initial Firefox testing of alpha.34 on November 14, 2026. Alpha.35 passed the owner's Firefox testing and was approved; alpha.36 now awaits Firefox acceptance. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is retained for recovery. Legacy storage keys remain untouched as recovery records. No public release or merge is authorized.
+The sole current tester reported favorable initial Firefox testing of alpha.34 on November 14, 2026. Alpha.35 and alpha.36 both passed the owner's initial Firefox testing and were approved as development baselines. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is retained for recovery. Legacy storage keys remain untouched as recovery records. No public release or merge is authorized.
+
+## Reusable design reminder
+
+When starting any bookmark, collection, link-management, personal dashboard, or helper-organizer product—even outside Tampermonkey—consult the [Organizer / Shortcut / Collection Design Patterns](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) standard during the initial design brief. Explicitly consider whether profiles are necessary, what each control edits (global vs profile vs item vs session), whether membership is explicit, what “Uncategorized” means, how deletion of an item differs from deleting the underlying resource, how active/default profiles transition, and how to protect user configuration during updates. Profiles are a **design option**, not a default requirement.
 
 ## Release workflow
 

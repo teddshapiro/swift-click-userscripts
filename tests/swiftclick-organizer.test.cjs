@@ -1244,8 +1244,89 @@ test('Quick Save category grid expands naturally and only scrolls when viewport-
   assert.doesNotMatch(css,/max-height:165px/);
 });
 
+
+test('profile migration captures old definitions, assignments and item order independently',()=>{
+  const old=hooks.sanitizeCategoryDefinitions({version:1,categories:[
+    {id:'business',label:'Clients',icon:'◈'},
+    {id:'custom-work123',label:'Personal projects',icon:'🎨'},
+    {id:'uncategorized',label:'Uncategorized',icon:'▤'}
+  ]});
+  const assignments={'project:g-p-client':'business','chat:abc':'custom-work123'};
+  const orders={business:['project:g-p-client'], 'custom-work123':['chat:abc']};
+  const initial=hooks.firstProfileState(old,assignments,orders);
+  assert.equal(initial.version,1);
+  assert.equal(initial.activeId,'profile-original');
+  assert.equal(initial.defaultId,'profile-original');
+  assert.equal(initial.profiles[0].name,'My Organization');
+  assert.deepEqual(Array.from(initial.profiles[0].categories,c=>c.label),
+    ['Clients','Personal projects','Uncategorized']);
+  assert.equal(initial.profiles[0].assignments['chat:abc'],'custom-work123');
+  assert.deepEqual(Array.from(initial.profiles[0].categoryOrders.business),
+    ['project:g-p-client']);
+  const checked=hooks.sanitizeProfilesState(initial);
+  assert.ok(checked);
+  // Mutating a validated copy does not affect the original configuration.
+  checked.profiles[0].categories[0].label='Other';
+  assert.equal(old[0].label,'Clients');
+  assert.equal(initial.profiles[0].categories[0].label,'Clients');
+});
+
+test('duplicate, blank, activation and deletion retain independent profiles',()=>{
+  const old=hooks.firstProfileState(hooks.legacyCategoryDefinitions,{'chat:abc':'family'},
+    {family:['chat:abc']});
+  const duplicate=hooks.newProfileState(old,'profile-experiment123','Experiment',
+    old.profiles[0]);
+  assert.ok(duplicate);
+  assert.equal(duplicate.profiles.length,2);
+  duplicate.profiles[1].categories[0].label='Personalized';
+  duplicate.profiles[1].assignments['chat:abc']='home';
+  assert.equal(old.profiles[0].categories[0].label,'Family');
+  assert.equal(old.profiles[0].assignments['chat:abc'],'family');
+  const blank=hooks.newProfileState(duplicate,'profile-empty123','Clean slate');
+  assert.equal(blank.profiles.length,3);
+  assert.deepEqual(Array.from(blank.profiles[2].categories,c=>c.id),
+    ['work','personal','learning','interests','uncategorized']);
+  assert.equal(Object.keys(blank.profiles[2].assignments).length,0);
+  assert.equal(hooks.deleteProfileState(blank,'profile-original'),null);
+  assert.equal(hooks.deleteProfileState(blank,'profile-empty123').profiles.length,2);
+  assert.equal(hooks.deleteProfileState({...blank,activeId:'profile-empty123'},'profile-empty123'),null);
+  const snap=hooks.profileSnapshot(blank.profiles[2].categories,
+    {'chat:abc':'work'},{work:['chat:abc']});
+  const revised=hooks.profileWithSnapshot(blank,'profile-empty123',snap);
+  assert.equal(revised.profiles[2].assignments['chat:abc'],'work');
+  assert.equal(blank.profiles[2].assignments['chat:abc'],undefined);
+});
+
+test('invalid profile storage fails closed rather than resetting user categories',()=>{
+  const base=hooks.firstProfileState(hooks.legacyCategoryDefinitions,{}, {});
+  assert.equal(hooks.sanitizeProfilesState({...base,version:999}),null);
+  assert.equal(hooks.sanitizeProfilesState({...base,activeId:'profile-missing'}),null);
+  assert.equal(hooks.sanitizeProfilesState({...base,profiles:[]}),null);
+  assert.equal(hooks.sanitizeProfilesState({...base,profiles:[{
+    ...base.profiles[0],categories:[{id:'bad',label:'Untrusted'}]
+  }]}),null);
+  assert.equal(hooks.newProfileState(base,'invalid','bad'),null);
+  assert.equal(hooks.deleteProfileState(base,'profile-original'),null);
+});
+
+test('profiles use a dedicated versioned store and retain legacy recovery keys',()=>{
+  assert.match(script,/const PROFILES_KEY = APP_ID \+ '\.profiles\.v1'/);
+  assert.match(script,/const ACTIVE_PROFILE_TAB_KEY = APP_ID \+ '\.activeProfileTab\.v1'/);
+  assert.match(script,/GM_getValue\(PROFILES_KEY,null\)/);
+  assert.match(script,/GM_setValue\(PROFILES_KEY,initial\)/);
+  assert.match(script,/GM_setValue\(PROFILES_KEY,checked\)/);
+  assert.match(script,/if\(profileMode\)return persistCurrentProfile\(\)/);
+  assert.match(script,/function makeProfilesManager\(\)/);
+  assert.match(script,/newProfileState\(profilesState,id,entry\.value,source\)/);
+  assert.match(script,/deleteProfileState\(profilesState,p\.id\)/);
+  assert.match(script,/if\(activeTab==='profiles'\)/);
+  assert.match(script,/\{ id: 'profiles', title: 'Profiles' \}/);
+  assert.match(script,/const profiles=profilesState\.profiles\.map\(p=>/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.30/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.31/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

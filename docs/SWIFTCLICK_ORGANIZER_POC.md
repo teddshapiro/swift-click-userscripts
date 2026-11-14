@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.27)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.28)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -699,3 +699,19 @@ Two UI-only refinements requested after successful browser review of alpha.21:
 **Tests:** Regression checks cover generic first installation, legacy bootstrap, saved custom category titles/icons, assignments, ordering and intentional deletion. Browser acceptance should verify upgrading with real existing Tampermonkey data and a fresh isolated browser profile; code-only tests cannot replace these checks.
 
 **Release:** Remains on the alpha development branch with draft PR #6, without production update/download URLs or merge to `main`.
+
+## Alpha.28 — Page-level bookmark Quick Save (2026-11-13)
+
+The Organizer now provides an always-local bookmark control on **recognized ChatGPT project home and chat routes**. It is a separate, body-mounted Shadow DOM widget—not inserted into ChatGPT's React-owned navigation.
+
+- Outline bookmark: project/chat not in saved SwiftClick inventory. Filled green bookmark: matching saved shortcut. The matching key is parsed from the current validated ChatGPT route, **never inferred from a title**.
+- Clicking the bookmark opens a small category and display-name editor. Unsaved items may be added; saved items can change category/name or be removed (with explicit confirmation). Removal affects only the SwiftClick shortcut, never the real ChatGPT project/chat.
+- The widget reads saved shortcuts from the existing `manualProjects.v1` and `savedChats.v1` stores, and category assignment from `assignments.v1`; **no parallel inventory or new personal-data store** is introduced.
+- The status check reads the URL and already saved metadata. Only an explicit user click invokes the existing page-title helpers. It does not read conversation message bodies, make network requests or automatically index sidebar content.
+- SPA navigation re-evaluates saved state and dismisses an open editor when the page identifier changes. The bookmark is hidden on Home, unsupported routes and while the full Organizer overlay is open.
+- Invalid/missing names block saving. Existing saved titles are preserved unless explicitly edited. Storage writes are checked before changing in-memory state; failure displays a message and attempts to restore the old shortcut list.
+- Popover uses direct DOM creation, textContent and its own CSS. No HTML string injection or native ChatGPT DOM mutation.
+
+**Manual acceptance:** Open unsaved project home → outline bookmark → Add in a chosen category → green bookmark. Refresh and verify persistence. Change category and custom name, verify Organizer list changes without renaming the native ChatGPT item. Remove and verify outline and absence from Organizer, with native project unchanged. Repeat with a saved/unsaved chat and with two identically named chats. Navigate within ChatGPT without full reload, ensuring correct state and closed old editor. Check browser narrow width, keyboard focus/Escape, modal overlap, and ordinary sidebar/menu controls.
+
+**Status:** Draft branch only. Browser placement and user acceptance remain pending. The Settings feature toggle discussed for future releases has **not** been implemented.

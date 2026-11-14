@@ -1,5 +1,7 @@
 # SwiftClick Organizer — Technical Proof of Concept
 
+> **Current handoff (2026-11-14):** See [SwiftClick Organizer — Development Handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) for the authoritative alpha.34 behavior, initial owner Firefox acceptance, storage/migration safety requirements, CI and open risks. This lengthy document preserves the historical alpha-by-alpha decisions; earlier descriptions of a shared global Uncategorized pool or a separate Profiles top-level tab are **superseded** by Stage 1.5. The current implementation is still experimental on the development branch, not merged to `main`.
+
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
 Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.34)  

@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.28)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.29)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -715,3 +715,9 @@ The Organizer now provides an always-local bookmark control on **recognized Chat
 **Manual acceptance:** Open unsaved project home → outline bookmark → Add in a chosen category → green bookmark. Refresh and verify persistence. Change category and custom name, verify Organizer list changes without renaming the native ChatGPT item. Remove and verify outline and absence from Organizer, with native project unchanged. Repeat with a saved/unsaved chat and with two identically named chats. Navigate within ChatGPT without full reload, ensuring correct state and closed old editor. Check browser narrow width, keyboard focus/Escape, modal overlap, and ordinary sidebar/menu controls.
 
 **Status:** Draft branch only. Browser placement and user acceptance remain pending. The Settings feature toggle discussed for future releases has **not** been implemented.
+
+## Alpha.29 — Quick Save bookmark rendering repair (2026-11-14)
+
+User-provided Firefox screenshot of alpha.28 showed an unstyled thin gray rectangle at the intended bookmark position; it disappeared when disabling the Organizer, and was not clickable. Code inspection found the root cause: the `QUICK_SAVE_CSS` rule-array used `join('\\\\n')` (literal backslash plus n) instead of the normal newline separator `join('\\n')`. The browser therefore could not apply the Shadow DOM stylesheet reliably. The Quick Save title trimming expression also contained an overescaped whitespace regex; that is corrected.
+
+Alpha.29 repairs both and adds a targeted CSS-separator regression test. **GitHub Actions is green; real Firefox visual and click acceptance is still required.** Verify the visible outlined/filled bookmark, click to open the popover, save and remove from an unsaved and saved chat/project respectively, and ensure the existing Organizer launcher and native ChatGPT controls remain clickable. No storage schema or saved shortcut data was changed.

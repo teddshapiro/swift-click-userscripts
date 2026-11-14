@@ -2103,8 +2103,10 @@
         isInActiveProfile(item.key):'legacy');
     if(force||snapshot!==quickSaveSnapshot){
       quickSaveSnapshot=snapshot;
-      quickSaveButton.dataset.saved=String(Boolean(item.saved));
-      const included=isInActiveProfile(item.key);
+      const included=Boolean(item.saved && isInActiveProfile(item.key));
+      // The visual bookmark state reflects membership in THIS profile,
+      // not merely existence somewhere in the hidden shared library.
+      quickSaveButton.dataset.saved=String(included);
       quickSaveButton.setAttribute('aria-label',
         (included?'Manage this ':'Add this ')+item.type+
         (profileMode?' in '+profilesState.profiles.find(p=>p.id===profilesState.activeId).name:' in SwiftClick'));

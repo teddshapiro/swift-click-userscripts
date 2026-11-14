@@ -434,7 +434,7 @@ test('ChatGPT category search precedes forms, cards and footer Add controls', ()
   const footer = render.lastIndexOf("const footer = el('div', 'foot')");
   const add = render.indexOf("footerActions.appendChild(button(addingProject ?",footer);
   const chat = render.indexOf("footerActions.appendChild(button(addingChat ?",footer);
-  const manage = render.indexOf("footerActions.appendChild(button('⚙ Manage categories'",footer);
+  const manage = render.indexOf("footerActions.appendChild(button('⚙ Manage Profiles & Categories'",footer);
   assert.ok(search >= 0 && search < intake && intake < items && items < footer &&
     footer < add && add < chat && chat < manage);
   assert.equal((render.match(/button\(addingProject \?/g)||[]).length,1);
@@ -689,7 +689,7 @@ test('category editor is isolated from chat sidebar and keeps destructive reset 
   assert.match(script, /chooseInitialCategoryDefinitions\(existing, hasPriorState\)/);
   assert.match(script, /GM_setValue\(CATEGORY_DEFS_KEY/);
   assert.match(script, /const wrapper = el\('div', 'category-manager'\)/);
-  assert.match(script, /button\('⚙ Manage categories', 'action'/);
+  assert.match(script, /button\('⚙ Manage Profiles & Categories', 'action'/);
   assert.match(script, /content\.appendChild\(makeCategoryManager\(\)\)/);
   assert.match(script, /button\('Clear all category assignments', 'action remove-action'/);
   assert.match(script, /deleteCategoryAssignments\(assignments, category\.id\)/);
@@ -1334,14 +1334,37 @@ test('profiles use a dedicated versioned store and retain legacy recovery keys',
   assert.match(script,/function makeProfilesManager\(\)/);
   assert.match(script,/newProfileState\(profilesState,id,entry\.value,source\)/);
   assert.match(script,/deleteProfileState\(profilesState,p\.id\)/);
-  assert.match(script,/if\(activeTab==='profiles'\)/);
-  assert.match(script,/\{ id: 'profiles', title: 'Profiles' \}/);
+  assert.match(script,/wrapper\.appendChild\(makeProfileManagerIntro\(\)\)/);
+  assert.doesNotMatch(script,/\{ id: 'profiles', title: 'Profiles' \}/);
   assert.match(script,/const profiles=profilesState\.profiles\.map\(p=>/);
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 
+
+test('profile switching is scoped to ChatGPT Categories, with admin and category editor combined',()=>{
+  const start=script.indexOf('function render()');
+  const end=script.indexOf('function show(',start);
+  const renderer=script.slice(start,end);
+  const manager=script.slice(script.indexOf('function makeCategoryManager()'),
+    script.indexOf('function makeCategoryCard('));
+  assert.ok(renderer.includes("const searchRow=el('div','category-search-row')"));
+  assert.ok(renderer.includes("makeProfileSelector('category-profile-select','Switch active Organizer profile')"));
+  assert.ok(renderer.includes("searchRow.appendChild(selectorLabel)"));
+  assert.ok(renderer.includes("content.appendChild(searchRow)"));
+  assert.ok(renderer.includes("footerActions.appendChild(button('⚙ Manage Profiles & Categories'"));
+  assert.doesNotMatch(renderer,/activeTab==='profiles'|activeTab='profiles'/);
+  assert.doesNotMatch(renderer,/header\.appendChild\(control\)/);
+  assert.match(manager,/Manage Profiles & Categories/);
+  assert.match(manager,/makeProfileManagerIntro\(\)/);
+  assert.match(manager,/makeProfilesManager\(\)/);
+  assert.match(manager,/profileAdminExpanded/);
+  assert.match(script,/function makeProfileSelector\(className, ariaLabel\)/);
+  assert.match(script,/if\(!switchProfile\(select\.value\)\)/);
+  assert.match(script,/let profileAdminExpanded = false/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.31/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.32/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

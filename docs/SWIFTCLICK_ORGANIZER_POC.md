@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.33)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.34)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -778,3 +778,38 @@ The page-level bookmark now includes a labeled **Organize in profile** picker wi
 **Important data-model distinction:** The library of saved links is shared across all profiles. Consequently, an item saved globally is visible in other profiles' **Uncategorized** category unless separately categorized there. This feature does *not* introduce per-profile inclusion/exclusion or independently hide shared saved links. Saving a name changes the single shared SwiftClick display name. **Remove everywhere** is explicitly global and requires confirmation; it removes the shared shortcut and cleans references from every profile. If future product requirements call for truly hiding/excluding an item from an individual profile, that requires a separately designed profile-membership feature.
 
 **Regression and browser acceptance:** Verify active profile name and default marker in widget; keyboard/Firefox profile selector; same project/chat assigned to two different categories in two profiles; change back to first profile to confirm its assignment remains intact; rename a shared title deliberately and verify it is global; ensure default is unchanged when selecting another profile; verify a fresh link can be added then categorized in another profile without duplicate shortcuts; test removal everywhere only after confirmation; verify page navigation closes stale popup; verify popup overflow on smaller viewports and the native ChatGPT controls remain clickable. No new storage keys or script permissions are introduced. The implementation remains on the development branch until browser testing.
+
+## Alpha.34 — Stage 1.5 explicit profile membership (2026-11-14)
+
+**Design goal:** A saved ChatGPT project or chat appears in a profile only when explicitly included in that profile; **Uncategorized** means *included in that profile without an assigned category*, rather than all links known globally. Each profile holds its independent list of member link keys, categories, assignments and ordering. The shared saved-link library (URL + display name) remains hidden and deduplicated.
+
+### Migration and storage
+- Active profile schema upgrades to `swiftclick-organizer-poc.profiles.v2` (`version:2`) with each profile's `members: string[]`, in addition to its existing categories/assignments/order.
+- **Preservation-first:** existing alpha.33 `profiles.v1` is **read but never overwritten**. On first alpha.34 load, the script loads the existing saved project/chat shortcut library, then creates V2 profiles that explicitly include every saved shortcut in **every existing profile**. Existing category assignments and ordering are retained. This deliberately does NOT infer which previously uncategorized items were unwanted.
+- A brand-new starter profile starts with no members; **Duplicate current profile** copies its membership and category layout. The shared library does not appear globally in empty profiles.
+- Original pre-profile category keys and alpha.33 `profiles.v1` remain a recovery source. If V2 validation or storage fails on migration, the script does not overwrite those records.
+- Normal removal of a profile's membership checks whether any other profile still includes the key. When the **last** membership disappears, SwiftClick removes the unused shortcut from the shared project/chat storage and in-memory inventory. Deleting an entire nonactive, nondefault profile also removes its exclusively owned shortcuts. These actions never delete the native ChatGPT object. Migration itself never garbage-collects saved links.
+- Shared link metadata (display name and URL) remains global; changing a shared display name affects all profiles that include it. Profile assignments and ordering remain independent.
+- Runtime storage operations write the new profile record first and attempt a safe rollback if a subsequent shared-library write fails. Cross-tab synchronization and complete transactional rollback against external storage failure are **not** guaranteed; avoid concurrent edits in multiple tabs during browser testing.
+
+### Interface and other entry points
+- Category cards, search, item editor and reorder lists now filter on explicit membership in the active profile. Uncategorized shows only included links without a category assignment.
+- The page bookmark identifies whether the current ChatGPT item is **included in the selected profile**, or merely saved in another profile. The category grid can add the item to the selected profile and remain open for sequential additions to other profiles. Its destructive action is **Remove from profile**, with a last-reference confirmation when appropriate.
+- The main Organizer item editor has **Remove from profile** (including for chats). The manual Add Chat/Add Project forms explicitly add membership to the active profile.
+- The native ChatGPT project-menu companion distinguishes **already included in this profile** from **saved globally but not included here**; the latter opens the Add Project flow instead of an empty category.
+- Profile administration warns how many shortcuts are exclusively included in a profile before deletion; shared links referenced elsewhere remain untouched.
+- Footer shows the current profile's member count rather than the total shared-library count.
+
+### Manual Firefox acceptance checklist
+1. Back up the currently working alpha.33 Tampermonkey script/storage before upgrading. Capture current profile names/categories, one or two non-Uncategorized items, and at least one previously Uncategorized saved item per profile.
+2. Update to alpha.34 and reload ChatGPT. Verify **all pre-existing profiles still contain their saved links** and original category assignments; confirm legacy Uncategorized items were preserved initially.
+3. Create a **new generic starter profile**, activate it, and confirm **all** category counts are zero, including Uncategorized; search for an existing saved link's title and confirm it is absent.
+4. On an existing chat/project page, click the bookmark, select the empty profile, choose a category (or Uncategorized) and **Add to this profile**. Verify the item appears only where included, without modifying categories in other profiles.
+5. Add that same link to a second profile under a different category; switch back and forth to confirm independent assignments and persistence after refresh.
+6. Remove from one profile using the bookmark. Confirm the link disappears from that profile's search and Uncategorized, but remains in the other profile and shared library.
+7. Remove the same link from its **last** profile: confirm the dialogue warns about last-reference cleanup, the saved shortcut disappears everywhere, and the original ChatGPT conversation/project still exists.
+8. Repeat Add/Remove from the **main Organizer** item editor, and test manual Add Chat / Add Project in a blank profile. Confirm duplicate profile creation copies membership; new starter remains empty.
+9. Delete a test profile containing exclusively included links. Verify the warning displays the exclusive count, and that deleting it leaves other profiles and their shared shortcuts intact.
+10. Check Quick Links, ChatGPT Tools, Prompt Builder, category order, project-menu action, and short-window bookmark overflow. Avoid concurrent multi-tab edits during these tests.
+
+**Known scope:** Master-library management is intentionally hidden. To add an existing shortcut to a profile, navigate to its ChatGPT page or paste its URL through the Organizer Add flow. AI-generated category/profile import remains a separate future stage.

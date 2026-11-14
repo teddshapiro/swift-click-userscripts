@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.35
+// @version      0.1.0-alpha.36
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -773,7 +773,7 @@
 
 
   // Membership is independent of category. Uncategorized means INCLUDED but unassigned.
-  // V1 is retained untouched for disaster recovery; V2 is the active storage.
+  // The V2 profile record is authoritative. Earlier storage keys are read-only guards.
   const PROFILE_LIMIT=12;
   function profileSnapshot(categories, assigned, orders, members=[]) {
     return {
@@ -863,9 +863,16 @@
       ...profileSnapshot(snap.categories,snap.assignments,snap.categoryOrders,snap.members)}]};
   }
   function deleteProfileState(state,id) {
-    if(!state || state.profiles.length<2 || id===state.activeId ||
-      id===state.defaultId || !state.profiles.some(p=>p.id===id))return null;
-    return {...state,profiles:state.profiles.filter(p=>p.id!==id)};
+    // Any profile may be deleted except the last one. Reassign active/default
+    // to a survivor atomically with the deletion so the V2 state stays valid.
+    if(!state || !Array.isArray(state.profiles) || state.profiles.length<2 ||
+      !state.profiles.some(p=>p.id===id))return null;
+    const profiles=state.profiles.filter(p=>p.id!==id);
+    const nextDefault=state.defaultId===id
+      ? (state.activeId!==id ? state.activeId : profiles[0].id)
+      : state.defaultId;
+    const nextActive=state.activeId===id ? nextDefault : state.activeId;
+    return {...state,profiles,activeId:nextActive,defaultId:nextDefault};
   }
 
   // Node regression tests opt in to helpers, bypassing browser initialization.
@@ -1006,11 +1013,24 @@
   }
   function readQuickLinks() {
     try {
-      // The original v1 key remains untouched. Read it only when no v2
-      // snapshot exists, preserving user-created links and custom order.
       const savedV2 = GM_getValue(QUICK_LINKS_V2_KEY, null);
       if (savedV2 !== null) return sanitizeQuickLinks(savedV2);
-      return sanitizeQuickLinks(GM_getValue(QUICK_LINKS_KEY, null));
+      // Final preservation bridge: write a V2 snapshot for V1-only installs
+      // and first-time defaults. Never overwrite or remove the original V1.
+      const oldV1 = GM_getValue(QUICK_LINKS_KEY, null);
+      const initial = sanitizeQuickLinks(oldV1);
+      if(oldV1 !== null && (!oldV1 || oldV1.version !== 1 ||
+        !Array.isArray(oldV1.links))) {
+        console.warn('[SwiftClick Organizer] Unrecognized Quick Links V1; not migrating.');
+        return initial;
+      }
+      try {
+        GM_setValue(QUICK_LINKS_V2_KEY, serializeQuickLinksV2(initial));
+      } catch (error) {
+        // Display the original links and allow a later explicit edit to retry V2.
+        console.warn('[SwiftClick Organizer] Could not initialize Quick Links V2:',error);
+      }
+      return initial;
     } catch (error) {
       console.warn('[SwiftClick Organizer] Could not read Quick Links:', error);
       return DEFAULT_QUICK_LINKS.map((entry) => ({ ...entry }));
@@ -1095,7 +1115,6 @@
   let profilesState=null;
   let profilesError='';
   let profileNameDraft='';
-  let profileCreateMode='';
   let profileEditingId=null;
   function activateProfileSnapshot(profile) {
     CATEGORIES=profile.categories.map(c=>({...c}));
@@ -1107,8 +1126,8 @@
     const checked=sanitizeProfilesState(next);
     if(!checked)return false;
     const previous=profilesState;
-    // Only links that LOST their last membership during this operation can
-    // be garbage-collected; migration never invokes garbage collection.
+    // Only shortcuts losing their last profile membership may be removed
+    // from the hidden library. This runs on deliberate profile edits/deletion.
     const lost=previous?[...new Set(previous.profiles.flatMap(p=>p.members))]
       .filter(key=>!isMemberAnywhere(checked,key)):[];
     const oldProjects=manualProjects,oldChats=savedChats;
@@ -1159,7 +1178,7 @@
       profileSnapshot(CATEGORIES,assignments,categoryOrders,
         profilesState.profiles.find(p=>p.id===profilesState.activeId).members));
     if(persistProfiles(next))return true;
-    // Roll back a failed in-memory mutation; never write to legacy keys.
+    // Roll back a failed in-memory mutation; V2 is the only live profile store.
     activateProfileSnapshot(profilesState.profiles.find(p=>p.id===profilesState.activeId));
     return false;
   }
@@ -1256,14 +1275,6 @@
     return;
   }
 
-  function saveSavedChats() {
-    try {
-      GM_setValue(SAVED_CHATS_KEY, savedChats.map(({ href, title }) => ({ href, title })));
-    } catch (error) {
-      console.warn('[SwiftClick Organizer] Could not save chat shortcuts:', error);
-    }
-  }
-
   function saveChatShortcut(chat,category='uncategorized') {
     const parsed=sanitizeSavedChat(chat,location.origin);
     if(!parsed)return false;
@@ -1285,16 +1296,7 @@
     return true;
   }
 
-  function saveManualProjects() {
-    try {
-      GM_setValue(MANUAL_PROJECTS_KEY, manualProjects.map(({ href, title }) => ({ href, title })));
-    } catch (error) {
-      console.warn('[SwiftClick Organizer] Could not save project shortcuts:', error);
-    }
-  }
-
-  // One type of project, regardless of whether its link was discovered or added by hand.
-  // Keep the existing shared shortcut key stable across versions.
+  // One shared project shortcut format, regardless of how the link was added.
   function saveProjectShortcut(project,category='uncategorized') {
     const parsed=sanitizeManualProject(project,location.origin);
     if(!parsed)return false;
@@ -2387,7 +2389,7 @@
     wrapper.appendChild(el('h2', '', 'Manage Profiles & Categories'));
     {
       wrapper.appendChild(makeProfileManagerIntro());
-      const expand=button(profileAdminExpanded?'▾ Hide profile management':'▸ Manage profiles…',
+      const expand=button(profileAdminExpanded?'▾ Hide profile management':'▸ Manage profiles (create, rename, delete)…',
         'action profile-admin-toggle',()=>{
           profileAdminExpanded=!profileAdminExpanded;
           profileEditingId=null;
@@ -3953,16 +3955,34 @@
         profileEditingId=profileEditingId===p.id?null:p.id;render();
       });
       actions.appendChild(rename);
-      if(p.id!==profilesState.activeId && p.id!==profilesState.defaultId){
+      if(profilesState.profiles.length>1){
         actions.appendChild(button('Delete','action remove-action',()=>{
-          const exclusive=p.members.filter(key=>!profilesState.profiles.some(other=>
-            other.id!==p.id && memberInProfile(other,key)));
+          const next=deleteProfileState(profilesState,p.id);
+          if(!next)return;
+          const exclusive=p.members.filter(key=>!next.profiles.some(other=>
+            memberInProfile(other,key)));
+          const switching=p.id===profilesState.activeId;
+          const changingDefault=p.id===profilesState.defaultId;
+          const successor=next.profiles.find(other=>
+            other.id===(switching?next.activeId:next.defaultId));
+          const transition=(switching?' Active profile will switch to "'+successor.name+'".':'')+
+            (changingDefault?' Default profile will become "'+
+              next.profiles.find(other=>other.id===next.defaultId).name+'".':'');
           if(!window.confirm('Delete the profile "'+p.name+'"? '+
             exclusive.length+' shortcut'+(exclusive.length===1?'':'s')+
             ' exist only in this profile and will be removed from the SwiftClick library. '+
-            'Links included in other profiles will remain. No original ChatGPT projects or chats are deleted.'))return;
-          const next=deleteProfileState(profilesState,p.id);
-          if(next && persistProfiles(next))render();
+            'Links included in other profiles will remain. No original ChatGPT projects or chats are deleted.'+
+            transition))return;
+          if(!persistProfiles(next)){render();return;}
+          // The current tab must never point to the now-deleted profile.
+          try{
+            if(next.activeId===next.defaultId)
+              window.sessionStorage.removeItem(ACTIVE_PROFILE_TAB_KEY);
+            else window.sessionStorage.setItem(ACTIVE_PROFILE_TAB_KEY,next.activeId);
+          }catch(_){}
+          currentCategory=null;query='';editItemKey=null;
+          iconPickerCategoryId=null;profileEditingId=null;
+          render();refreshQuickSave(true);
         }));
       }
       row.appendChild(actions);
@@ -3985,7 +4005,7 @@
     }
     wrapper.appendChild(list);
     wrapper.appendChild(el('p','hint',
-      'The active profile controls this tab. The default profile loads in new browser tabs. To delete a default or active profile, choose a different one first.'));
+      'The active profile controls this tab. The default profile loads in new browser tabs. You can delete any profile except the last; active/default selections transfer automatically.'));
     return wrapper;
   }
 

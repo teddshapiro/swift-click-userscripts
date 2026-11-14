@@ -1,4 +1,4 @@
-> **Historical handoff notice (alpha.34):** The active development branch has advanced to **0.1.0-alpha.35**. Refer to the [latest alpha.35 section of the technical PoC](SWIFTCLICK_ORGANIZER_POC.md#alpha35--matching-navy-header-launcher-and-v2-only-cleanup-2026-11-14) and the actual userscript for current behavior. This document deliberately preserves the alpha.34 migration procedures as historical evidence, not current instructions.
+> **Historical handoff notice (alpha.34):** The active development branch has advanced to **0.1.0-alpha.36**. Refer to the [latest alpha.36 section of the technical PoC](SWIFTCLICK_ORGANIZER_POC.md#alpha36--restore-profile-deletion-and-finalize-safe-legacy-cleanup-2026-11-14) and the actual userscript for current behavior. This document deliberately preserves the alpha.34 migration procedures as historical evidence, not current instructions.
 
 # SwiftClick Organizer — Development Handoff (2026-11-14)
 

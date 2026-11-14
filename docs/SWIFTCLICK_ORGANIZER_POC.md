@@ -1,10 +1,10 @@
 # SwiftClick Organizer — Technical Proof of Concept
 
-> **Current alpha.35 baseline:** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.36 baseline:** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.35)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.36)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -825,3 +825,15 @@ The page-level bookmark now includes a labeled **Organize in profile** picker wi
 **Safe startup:** first-time installations with no existing organizational data directly create an empty V2 Starter profile. Existing installations load and validate V2 without rewriting old keys. A missing or corrupt V2 with pre-existing legacy data now fails closed and shows a visible warning rather than overwriting the saved configuration. Anyone still on a pre-alpha.34 version must first run alpha.34 to migrate, then update to alpha.35. Historical Tampermonkey keys are not deleted. The independent Quick Links V1/V2 fallback remains in place.
 
 **Test/acceptance focus:** syntax check and regression suite; current V2 profile preservation on reload; blank-starter initialization; invalid/missing V2 storage behavior; profile add/remove and final-reference cleanup; fixed blue launcher visible in header and right-edge fallback; modal/bookmark appearance unaffected. Test multiple tabs and storage write failures before public release. Alpha.35 stays exclusively on the development branch and draft PR #6; no merge or release is authorized. Stage 2 remains deferred.
+
+## Alpha.36 — Restore profile deletion and finalize safe legacy cleanup (2026-11-14)
+
+**Confirmed issue:** Alpha.35 did not remove profile deletion, but hid the Delete button whenever a profile was active or default. With only two profiles (one active, another default), neither could be deleted; furthermore the action was behind the collapsed Manage profiles control. The UI now labels that control **Manage profiles (create, rename, delete)** and shows Delete for every profile when there is more than one.
+
+**Updated deletion rules:** A profile can be deleted whether active, default, both, or neither; the final profile cannot be deleted. The pure V2 deletion function reassigns active/default to a valid survivor in the same state update. If the current default is removed but active survives, the active profile becomes default. If active is removed, its replacement is the surviving default; when active and default were the same removed profile, the first surviving profile becomes both. The confirmation enumerates exclusive shared-library links that will be removed and names any active/default successor. Shared links included elsewhere stay saved. Original ChatGPT chats/projects are never changed. After a successful deletion, the tab's session profile marker and category UI state are updated, and the bookmark refreshes. On persistence failure, the previous V2 and shared-library state is retained on a best-effort basis. Multi-tab concurrent edits remain a known limitation.
+
+**Maintenance:** Removed unused profile creation and unused shared-shortcut helper functions. Retained V2 profile validation, rollback, reference-counted shortcut deletion, historical category IDs/aliases within V2, and the read-only guard against an unsafe pre-V2 reset. Cleaned comments previously referencing completed migrations.
+
+**Quick Links compatibility, preservation-first:** On initial startup without `quickLinks.v2`, alpha.36 reads existing valid `quickLinks.v1` (or starter defaults), attempts to persist the identical ordered items into `quickLinks.v2`, and does not touch V1. If the V2 write fails, it continues showing original links and a later explicit edit can retry saving. If a V2 snapshot already exists, it is authoritative and V1 is not used. This is deliberately the final one-time compatibility *bridge*, not removal of the V1 parser yet: an actual local V2 snapshot was not independently verifiable at design time. Once the owner confirms alpha.36 and Quick Links persistence after reload, V1 reading and parsing can be safely removed in the next cleanup without endangering old local shortcuts.
+
+**Regression/Firefox acceptance:** Tests cover deletion of active, default, both and inactive profiles; never delete the final profile; survivor membership/assignments; UI action visibility; confirmation and session state; preservation of V1 Quick Links order and intentionally empty lists when promoted to V2. In Firefox, back up Tampermonkey storage, create two temporary profiles, delete each active/default configuration, confirm original content and other profiles survive, and verify Quick Links headings/links after reload. No network calls or new privileges were added. Stay on `feat/swiftclick-organizer-poc-20261111` / draft PR #6, not `main`. Stage 2 remains deferred.

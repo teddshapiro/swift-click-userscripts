@@ -206,6 +206,26 @@ test('Quick Link subheadings coexist with links in stable ordered v2 storage', (
   assert.equal(hooks.sanitizeQuickLinks({version:2,entries:[]}).length,0);
 });
 
+test('Quick Links promote existing V1 safely to V2 without changing contents',()=>{
+  const legacy={version:1,links:[
+    {id:'google-drive',title:'Drive',href:'https://drive.google.com/',icon:'📁'},
+    {id:'youtube',title:'YouTube',href:'https://youtube.com/',icon:'🎬'}
+  ]};
+  const upgraded=hooks.serializeQuickLinksV2(hooks.sanitizeQuickLinks(legacy));
+  assert.equal(upgraded.version,2);
+  assert.deepEqual(Array.from(upgraded.entries,x=>x.id),['google-drive','youtube']);
+  assert.deepEqual(Array.from(hooks.sanitizeQuickLinks(upgraded),x=>x.id),['google-drive','youtube']);
+  assert.deepEqual(Array.from(hooks.sanitizeQuickLinks({version:1,links:[]})),[]);
+  assert.deepEqual(Array.from(hooks.serializeQuickLinksV2([]).entries),[]);
+  assert.equal(legacy.links.length,2); // Recovery source untouched.
+  const code=script.slice(script.indexOf('function readQuickLinks()'),
+    script.indexOf('let quickLinks = readQuickLinks()'));
+  assert.match(code,/if \(savedV2 !== null\) return sanitizeQuickLinks\(savedV2\)/);
+  assert.match(code,/GM_setValue\(QUICK_LINKS_V2_KEY, serializeQuickLinksV2\(initial\)\)/);
+  assert.match(code,/!Array\.isArray\(oldV1\.links\)/);
+  assert.doesNotMatch(code,/GM_setValue\(QUICK_LINKS_KEY/);
+});
+
 test('Quick Link subheadings rename, move, and delete without deleting their links', () => {
   const old=hooks.sanitizeQuickLinks(null);
   const heading=hooks.saveQuickHeadingModel(old,{
@@ -1261,14 +1281,71 @@ test('duplicate, blank, activation and deletion retain independent profiles',()=
   assert.deepEqual(Array.from(blank.profiles[2].categories,c=>c.id),
     ['work','personal','learning','interests','uncategorized']);
   assert.equal(Object.keys(blank.profiles[2].assignments).length,0);
-  assert.equal(hooks.deleteProfileState(blank,'profile-original'),null);
+  const deleteOriginal=hooks.deleteProfileState(blank,'profile-original');
+  assert.equal(deleteOriginal.profiles.length,2);
+  assert.equal(deleteOriginal.activeId,'profile-experiment123');
+  assert.equal(deleteOriginal.defaultId,'profile-experiment123');
   assert.equal(hooks.deleteProfileState(blank,'profile-empty123').profiles.length,2);
-  assert.equal(hooks.deleteProfileState({...blank,activeId:'profile-empty123'},'profile-empty123'),null);
+  const deleteActive=hooks.deleteProfileState({...blank,activeId:'profile-empty123'},'profile-empty123');
+  assert.equal(deleteActive.activeId,'profile-original');
+  assert.equal(deleteActive.defaultId,'profile-original');
   const snap=hooks.profileSnapshot(blank.profiles[2].categories,
     {'chat:abc':'work'},{work:['chat:abc']});
   const revised=hooks.profileWithSnapshot(blank,'profile-empty123',snap);
   assert.equal(revised.profiles[2].assignments['chat:abc'],'work');
   assert.equal(blank.profiles[2].assignments['chat:abc'],undefined);
+});
+
+test('profile deletion works for active, default, both, or inactive without resetting survivors',()=>{
+  const base=hooks.firstProfileState(hooks.starterCategoryDefinitions,
+    {'chat:shared':'work'},{work:['chat:shared']},'Original',['chat:shared']);
+  const second=hooks.newProfileState(base,'profile-two123','Second');
+  const withShared=hooks.profileMemberUpdate(second,'profile-two123','chat:shared','learning',true);
+  const third=hooks.newProfileState(withShared,'profile-three123','Third');
+  // Delete current active+default profile: first remaining becomes both.
+  const both=hooks.deleteProfileState(third,'profile-original');
+  assert.deepEqual(Array.from(both.profiles,p=>p.id),['profile-two123','profile-three123']);
+  assert.equal(both.activeId,'profile-two123');
+  assert.equal(both.defaultId,'profile-two123');
+  assert.equal(both.profiles[0].assignments['chat:shared'],'learning');
+  assert.equal(hooks.isMemberAnywhere(both,'chat:shared'),true);
+  // Delete active but not default: switch to the existing default profile.
+  const activeOnly={...third,activeId:'profile-three123'};
+  const activeDeleted=hooks.deleteProfileState(activeOnly,'profile-three123');
+  assert.equal(activeDeleted.activeId,'profile-original');
+  assert.equal(activeDeleted.defaultId,'profile-original');
+  // Delete default but not active: active profile becomes the new default.
+  const defaultOnly={...third,activeId:'profile-two123'};
+  const defaultDeleted=hooks.deleteProfileState(defaultOnly,'profile-original');
+  assert.equal(defaultDeleted.activeId,'profile-two123');
+  assert.equal(defaultDeleted.defaultId,'profile-two123');
+  // Delete neither active nor default without changing the selections.
+  const inactiveDeleted=hooks.deleteProfileState(third,'profile-three123');
+  assert.equal(inactiveDeleted.activeId,'profile-original');
+  assert.equal(inactiveDeleted.defaultId,'profile-original');
+  assert.equal(hooks.deleteProfileState(third,'profile-missing'),null);
+  const lastRemaining=hooks.deleteProfileState(both,'profile-three123');
+  assert.equal(lastRemaining.profiles.length,1);
+  assert.equal(hooks.deleteProfileState(lastRemaining,'profile-two123'),null);
+  assert.equal(third.profiles.length,3); // Pure model: never mutate input.
+  assert.ok(hooks.sanitizeProfilesState(both));
+  assert.ok(hooks.sanitizeProfilesState(defaultDeleted));
+});
+
+test('profile delete action is visible for active and default when a survivor exists',()=>{
+  const start=script.indexOf('function makeProfilesManager()');
+  const end=script.indexOf('function render()',start);
+  const manager=script.slice(start,end);
+  assert.match(manager,/if\(profilesState\.profiles\.length>1\)\{/);
+  assert.match(manager,/button\('Delete','action remove-action'/);
+  assert.doesNotMatch(manager,/if\(p\.id!==profilesState\.activeId && p\.id!==profilesState\.defaultId\)/);
+  assert.match(manager,/const next=deleteProfileState\(profilesState,p\.id\)/);
+  assert.match(manager,/if\(!window\.confirm\(/);
+  assert.match(manager,/const exclusive=p\.members\.filter/);
+  assert.match(manager,/if\(!persistProfiles\(next\)\)\{render\(\);return;\}/);
+  assert.match(manager,/window\.sessionStorage\.removeItem\(ACTIVE_PROFILE_TAB_KEY\)/);
+  assert.match(manager,/window\.sessionStorage\.setItem\(ACTIVE_PROFILE_TAB_KEY,next\.activeId\)/);
+  assert.match(manager,/currentCategory=null;query='';editItemKey=null/);
 });
 
 test('new users receive a named Starter profile with generic categories',()=>{
@@ -1460,7 +1537,7 @@ test('profile deletion warns before last-reference shortcut cleanup',()=>{
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.35/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.36/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

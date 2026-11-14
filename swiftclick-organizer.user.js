@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.28
+// @version      0.1.0-alpha.29
 // @description  Organize ChatGPT projects, quick links, and ChatGPT tools in four tabs.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1566,7 +1566,7 @@
     '.action.danger{background:#4a2933;border-color:#b97e8a;}',
     '.error{color:#ffc4c4;font-size:12px;}',
     '@media(max-width:600px){:host{right:8px;top:76px}}'
-  ].join('\\n');
+  ].join('\n');
   const quickSaveHost = el('div');
   quickSaveHost.id = APP_ID + '-quick-save';
   quickSaveHost.hidden = true;
@@ -1611,7 +1611,7 @@
     const remaining = existing.filter(x=>x.key!==item.key);
     const next = [...remaining];
     if (operation==='save') {
-      const trimmed = String(title||'').replace(/\\s+/g,' ').trim();
+      const trimmed = String(title||'').replace(/\s+/g,' ').trim();
       if (!trimmed || trimmed.length>140 || remaining.length >= (item.type==='project'?200:500)) return false;
       const entry = item.type==='project'
         ? sanitizeManualProject({title:trimmed,href:item.href},location.origin)

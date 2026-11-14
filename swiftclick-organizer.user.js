@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.27
+// @version      0.1.0-alpha.28
 // @description  Organize ChatGPT projects, quick links, and ChatGPT tools in four tabs.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1526,6 +1526,193 @@
   document.documentElement.appendChild(overlayHost);
   backdrop.addEventListener('click', (event) => {
     if (event.target === backdrop) hide();
+  });
+
+
+  // Quick Save is mounted in a dedicated Shadow DOM outside native ChatGPT UI.
+  // Routine updates inspect only the current URL and previously saved IDs.
+  const QUICK_SAVE_CSS = [
+    ':host{position:fixed;right:12px;top:82px;z-index:2147483540;pointer-events:none;font:13px system-ui;color:#eaf3ff;}',
+    ':host([hidden]){display:none!important;}',
+    '*{box-sizing:border-box;}',
+    'button,input{font:inherit;}',
+    '.bookmark{pointer-events:auto;width:36px;height:36px;display:grid;place-items:center;border:1px solid #7992aa;border-radius:10px;background:#182b3e;color:#e3f0ff;cursor:pointer;box-shadow:0 4px 14px #0004;}',
+    '.bookmark[data-saved="true"]{color:#9de1b7;border-color:#69a787;background:#193930;}',
+    '.bookmark:hover{background:#294760;}',
+    'button:focus-visible,input:focus-visible{outline:3px solid #85caff;outline-offset:2px;}',
+    'svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round;}',
+    '.bookmark[data-saved="true"] svg{fill:#91dfb044;}',
+    '.popover{pointer-events:auto;position:absolute;right:0;top:44px;width:min(330px,calc(100vw - 20px));max-height:calc(100vh - 145px);overflow:auto;border:1px solid #67809a;border-radius:12px;background:#142335;padding:14px;display:grid;gap:11px;box-shadow:0 14px 34px #0009;}',
+    '.popover[hidden]{display:none!important;}',
+    '.heading{font-size:15px;font-weight:750;}',
+    '.hint{color:#b9ccdf;font-size:12px;}',
+    'label{display:grid;gap:6px;font-size:12px;font-weight:650;}',
+    'input{width:100%;padding:9px;background:#20374d;color:#fff;border:1px solid #718da6;border-radius:8px;caret-color:white;}',
+    '.choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;max-height:165px;overflow:auto;}',
+    '.choice{background:#263e55;color:#fff;border:1px solid #63839f;border-radius:8px;padding:9px 7px;text-align:left;cursor:pointer;overflow-wrap:anywhere;}',
+    '.choice[aria-pressed="true"]{border-color:#b5dfff;background:#3c607c;box-shadow:inset 0 0 0 1px #b5dfff;}',
+    '.actions{display:flex;gap:6px;flex-wrap:wrap;}',
+    '.action{background:#2f526f;border:1px solid #7996b0;border-radius:8px;color:#fff;padding:9px 11px;cursor:pointer;}',
+    '.action.primary{background:#346997;font-weight:750;}',
+    '.action.danger{background:#4a2933;border-color:#b97e8a;}',
+    '.error{color:#ffc4c4;font-size:12px;}',
+    '@media(max-width:600px){:host{right:8px;top:76px}}'
+  ].join('\\n');
+  const quickSaveHost = el('div');
+  quickSaveHost.id = APP_ID + '-quick-save';
+  quickSaveHost.hidden = true;
+  const quickSaveRoot = quickSaveHost.attachShadow({mode:'open'});
+  stylesheet(quickSaveRoot, QUICK_SAVE_CSS);
+  const quickSaveButton = button('', 'bookmark', () => {
+    if (quickSaveHost.hidden) return;
+    const opening = quickSavePopover.hidden;
+    quickSavePopover.hidden = !opening;
+    quickSaveButton.setAttribute('aria-expanded', String(opening));
+    if (opening) renderQuickSaveEditor();
+  });
+  quickSaveButton.setAttribute('aria-haspopup','dialog');
+  quickSaveButton.setAttribute('aria-expanded','false');
+  const mark = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  mark.setAttribute('viewBox','0 0 24 24');
+  mark.setAttribute('aria-hidden','true');
+  const shape = document.createElementNS('http://www.w3.org/2000/svg','path');
+  shape.setAttribute('d','M6 4h12v16l-6-4-6 4z');
+  mark.appendChild(shape);
+  quickSaveButton.appendChild(mark);
+  const quickSavePopover = el('section','popover');
+  quickSavePopover.hidden = true;
+  quickSavePopover.setAttribute('role','dialog');
+  quickSavePopover.setAttribute('aria-label','SwiftClick quick save');
+  quickSaveRoot.append(quickSaveButton,quickSavePopover);
+  document.body.appendChild(quickSaveHost);
+  let quickSaveActiveKey = null;
+  let quickSaveSnapshot = '';
+  function currentQuickSave() {
+    const item = parseItemLink(location.href, '', location.origin);
+    if (!item) return null;
+    const list = item.type === 'project' ? manualProjects : savedChats;
+    return { ...item, saved:list.find(x=>x.key===item.key)||null,
+      category:normalizeCategoryId(assignments[item.key]) };
+  }
+  function closeQuickSave() {
+    quickSavePopover.hidden = true;
+    quickSaveButton.setAttribute('aria-expanded','false');
+  }
+  function persistQuickSave(item, operation, title, category) {
+    if (!item || currentQuickSave()?.key!==item.key || !validCategory(category)) return false;
+    const existing = item.type==='project' ? manualProjects : savedChats;
+    const storageKey = item.type==='project' ? MANUAL_PROJECTS_KEY : SAVED_CHATS_KEY;
+    const remaining = existing.filter(x=>x.key!==item.key);
+    const next = [...remaining];
+    if (operation==='save') {
+      const trimmed = String(title||'').replace(/\\s+/g,' ').trim();
+      if (!trimmed || trimmed.length>140 || remaining.length >= (item.type==='project'?200:500)) return false;
+      const entry = item.type==='project'
+        ? sanitizeManualProject({title:trimmed,href:item.href},location.origin)
+        : sanitizeSavedChat({title:trimmed,href:item.href},location.origin);
+      if (!entry || entry.key!==item.key) return false;
+      next.push(entry);
+    } else if (operation!=='remove' || !item.saved) return false;
+    const nextAssignments = {...assignments};
+    delete nextAssignments[item.key];
+    if (operation==='save' && category!=='uncategorized') nextAssignments[item.key]=category;
+    const serialize = (items)=>items.map(({href,title})=>({href,title}));
+    const changed = (assignments[item.key]||'uncategorized') !==
+      (nextAssignments[item.key]||'uncategorized');
+    let listWritten = false;
+    try {
+      GM_setValue(storageKey,serialize(next));
+      listWritten = true;
+      if (changed) GM_setValue(STORAGE_KEY,{version:2,assignments:nextAssignments});
+    } catch(error) {
+      if (listWritten) {
+        try { GM_setValue(storageKey,serialize(existing)); } catch (_) {}
+      }
+      console.warn('[SwiftClick Organizer] Quick Save failed:',error);
+      return false;
+    }
+    if (item.type==='project') manualProjects=next; else savedChats=next;
+    assignments=nextAssignments;
+    if (operation==='save') seen.set(item.key,next[next.length-1]); else seen.delete(item.key);
+    if (operation==='remove' || category!==item.category) forgetItemOrder(item.key);
+    if (open) render();
+    return true;
+  }
+  function renderQuickSaveEditor() {
+    const item=currentQuickSave();
+    if (!item) {closeQuickSave();return;}
+    quickSavePopover.replaceChildren();
+    quickSavePopover.appendChild(el('div','heading',item.saved?'✓ Saved in SwiftClick':'Add to SwiftClick'));
+    quickSavePopover.appendChild(el('div','hint',item.type==='project'?'Current project':'Current conversation'));
+    const titleLabel=el('label','','Display name');
+    const name=el('input');
+    name.type='text'; name.maxLength=140;
+    name.value=item.saved?item.saved.title:'';
+    if (!item.saved) {
+      // Explicit click is the only time we inspect a current page title.
+      const found=item.type==='project'?currentProjectForManualIntake():currentChatForManualIntake();
+      if (found?.key===item.key) name.value=cleanIntakeName(found.title);
+    }
+    name.placeholder=item.type==='project'?'Project name':'Chat title';
+    titleLabel.appendChild(name);quickSavePopover.appendChild(titleLabel);
+    quickSavePopover.appendChild(el('div','hint','Choose a category'));
+    const choices=el('div','choices');
+    choices.setAttribute('role','group');
+    choices.setAttribute('aria-label','SwiftClick category');
+    let selected=item.category;
+    const buttons=[];
+    for(const c of CATEGORIES) {
+      const option=button(c.icon+' '+c.label,'choice',()=>{
+        selected=c.id;
+        for(const b of buttons)b.setAttribute('aria-pressed',String(b.dataset.categoryId===selected));
+      });
+      option.dataset.categoryId=c.id;
+      option.setAttribute('aria-pressed',String(selected===c.id));
+      buttons.push(option);choices.appendChild(option);
+    }
+    quickSavePopover.appendChild(choices);
+    const error=el('div','error');
+    error.setAttribute('role','alert');
+    quickSavePopover.appendChild(error);
+    const actions=el('div','actions');
+    actions.appendChild(button(item.saved?'Save changes':'Add to SwiftClick','action primary',()=>{
+      if(!name.value.trim()) {error.textContent='Please enter a display name.';name.focus();return;}
+      if(!persistQuickSave(item,'save',name.value,selected)){
+        error.textContent='Could not save. Check storage and shortcut limits.';return;
+      }
+      closeQuickSave();refreshQuickSave(true);
+    }));
+    if(item.saved) actions.appendChild(button('Remove','action danger',()=>{
+      if(!window.confirm('Remove this SwiftClick shortcut? The original ChatGPT '+item.type+' will not change.'))return;
+      if(!persistQuickSave(item,'remove','',item.category)){
+        error.textContent='Could not remove the shortcut.';return;
+      }
+      closeQuickSave();refreshQuickSave(true);
+    }));
+    actions.appendChild(button('Close','action',()=>{closeQuickSave();quickSaveButton.focus();}));
+    quickSavePopover.appendChild(actions);
+  }
+  function refreshQuickSave(force=false) {
+    const item=currentQuickSave();
+    quickSaveHost.hidden=!item||open;
+    if(quickSaveHost.hidden){closeQuickSave();quickSaveActiveKey=null;return;}
+    if(item.key!==quickSaveActiveKey){closeQuickSave();quickSaveActiveKey=item.key;}
+    const snapshot=item.key+':'+Boolean(item.saved)+':'+item.category;
+    if(force||snapshot!==quickSaveSnapshot){
+      quickSaveSnapshot=snapshot;
+      quickSaveButton.dataset.saved=String(Boolean(item.saved));
+      quickSaveButton.setAttribute('aria-label',(item.saved?'Manage saved ':'Save current ')+item.type+' in SwiftClick Organizer');
+      quickSaveButton.title=item.saved?'Saved in SwiftClick · Manage':'Add to SwiftClick';
+      if(!quickSavePopover.hidden)renderQuickSaveEditor();
+    }
+  }
+  quickSaveRoot.addEventListener('keydown',event=>{
+    if(event.key==='Escape'&&!quickSavePopover.hidden){
+      event.stopPropagation();closeQuickSave();quickSaveButton.focus();
+    }
+  });
+  document.addEventListener('pointerdown',event=>{
+    if(!quickSavePopover.hidden&&!quickSaveHost.contains(event.target))closeQuickSave();
   });
 
   // The native project menu is React-owned: observe it but never insert children.
@@ -3634,6 +3821,7 @@
     managingCategories = false;
     categoryManagerError = '';
     open = true;
+    refreshQuickSave();
     launcherButton.setAttribute('aria-expanded', 'true');
     launcherButton.setAttribute('aria-label', 'Close SwiftClick Organizer');
     currentCategory = null;
@@ -3676,6 +3864,7 @@
     launcherButton.setAttribute('aria-expanded', 'false');
     launcherButton.setAttribute('aria-label', 'Open SwiftClick Organizer');
     overlayHost.hidden = true;
+    refreshQuickSave();
     launcherButton.focus();
   }
 
@@ -3731,11 +3920,12 @@
       refreshTimer = 0;
       positionLauncher();
       positionProjectMenuAction();
+      refreshQuickSave();
     }, 150);
   }
 
   const observer = new MutationObserver((records) => {
-    if (records.every((r) => launcherHost.contains(r.target) || overlayHost.contains(r.target) || menuActionHost.contains(r.target))) return;
+    if (records.every((r) => launcherHost.contains(r.target) || overlayHost.contains(r.target) || menuActionHost.contains(r.target) || quickSaveHost.contains(r.target))) return;
     scheduleRefresh();
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
@@ -3746,6 +3936,7 @@
       if (open) hide(); // Ordinary navigation closes the organizer.
       scheduleRefresh();
     }
+    refreshQuickSave();
     positionLauncher();
     positionProjectMenuAction();
   }, 1000);
@@ -3758,6 +3949,7 @@
   window.addEventListener('resize', scheduleRefresh, { passive: true });
   window.addEventListener('scroll', scheduleRefresh, { passive: true, capture: true });
   positionProjectMenuAction();
+  refreshQuickSave();
   // Clear any orphaned navigation intent left by alpha.12's Project Home
   // auto-click mechanism; this version never resumes an automatic navigation.
   try { window.sessionStorage.removeItem(LEGACY_PENDING_INTAKE_KEY); } catch (_) { /* storage optional */ } // Full page navigation should not lose an intake.

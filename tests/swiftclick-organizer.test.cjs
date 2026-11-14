@@ -1209,7 +1209,7 @@ test('bookmark widget is isolated and keeps user-initiated mutations local', () 
   assert.match(script,/GM_setValue\(STORAGE_KEY,\{version:2,assignments:nextAssignments\}\)/);
   assert.match(script,/currentProjectForManualIntake\(\):currentChatForManualIntake\(\)/);
   assert.match(script,/if\(item\.key!==quickSaveActiveKey\)\{closeQuickSave\(\)/);
-  assert.match(script,/Remove this SwiftClick shortcut\? The original ChatGPT/);
+  assert.match(script,/Remove this saved shortcut from ALL SwiftClick profiles/);
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 
@@ -1363,8 +1363,45 @@ test('profile switching is scoped to ChatGPT Categories, with admin and category
   assert.match(script,/let profileAdminExpanded = false/);
 });
 
+
+test('bookmark can switch among profiles without altering the default',()=>{
+  const start=script.indexOf('function renderQuickSaveEditor()');
+  const end=script.indexOf('function refreshQuickSave(force=false)',start);
+  const ui=script.slice(start,end);
+  assert.match(ui,/if\(profileMode\)/);
+  assert.match(ui,/const active=profilesState\.profiles\.find\(p=>p\.id===profilesState\.activeId\)/);
+  assert.match(ui,/for\(const profile of profilesState\.profiles\)/);
+  assert.match(ui,/trigger\.setAttribute\('aria-label','Select profile for this shortcut/);
+  assert.match(ui,/switchProfile\(profile\.id\)/);
+  assert.doesNotMatch(ui,/switchProfile\(profile\.id,true\)/);
+  assert.match(ui,/renderQuickSaveEditor\(\)/);
+  assert.match(ui,/profile\.id===profilesState\.defaultId/);
+  assert.match(ui,/label.*shared|display name \(shared\)/i);
+  assert.match(ui,/Category in this profile/);
+  assert.match(ui,/role','status'/);
+  assert.match(ui,/select another profile to organize it there/);
+  assert.match(ui,/Remove everywhere/);
+  assert.match(ui,/saved shortcut from ALL SwiftClick profiles/);
+});
+
+test('bookmark profile list remains visible, keyboard usable and non-HTML-injected',()=>{
+  const css=script.slice(script.indexOf('const QUICK_SAVE_CSS'),
+    script.indexOf('const quickSaveHost'));
+  assert.match(css,/\.profile-list\{position:absolute;/);
+  assert.match(css,/\.profile-list\[hidden\]\{display:none!important/);
+  assert.match(css,/\.profile-option:hover,\.profile-option:focus-visible/);
+  const ui=script.slice(script.indexOf('function renderQuickSaveEditor()'),
+    script.indexOf('function refreshQuickSave(force=false)'));
+  assert.match(ui,/list\.setAttribute\('role','listbox'\)/);
+  assert.match(ui,/option\.setAttribute\('role','option'\)/);
+  assert.match(ui,/event\.key==='Escape'/);
+  assert.match(ui,/event\.key==='ArrowDown'/);
+  assert.match(ui,/event\.key==='Home'/);
+  assert.doesNotMatch(ui,/innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.32/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.33/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

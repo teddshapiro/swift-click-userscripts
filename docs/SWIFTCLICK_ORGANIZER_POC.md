@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.31)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.32)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -757,3 +757,14 @@ Removed the fixed 165px height ceiling on the Quick Save category grid. The pane
 9. Reopen the original profile and confirm the original setup still matches the starting screenshot.
 
 **Important:** A regression test suite can verify the model and storage code, but it cannot establish successful migration of the actual authenticated Firefox/Tampermonkey store. Keep this on the experimental development branch and draft PR #6 pending browser acceptance. Avoid concurrent edits in multiple tabs during initial testing because cross-tab profile synchronization has not yet been implemented.
+
+## Alpha.32 — Profile and category interface re-scoped (2026-11-14)
+
+Following owner browser feedback, Profiles is no longer a fifth top-level tab, and the profile selector no longer sits in the global Organizer header. This was a **UI scoping correction**, not a profile-data migration.
+
+- **ChatGPT Categories:** search shares its row with an accessible current-profile selector. Selecting another profile directly switches the category view **without entering any management screen**; the current category/search state is reset to avoid presenting an invalid former category. Quick Links, ChatGPT Tools, and Prompt Builder display no profile selector.
+- **Manage Profiles & Categories:** the former Manage Categories footer action now opens one combined workspace. At the top is a labeled profile picker: selecting a profile updates the category editor immediately. Beneath it is a collapsed **Manage profiles…** disclosure for creating, renaming, activating, setting defaults and deleting permitted profiles. The currently selected profile's category manager follows in the same workspace. Profile administration stays collapsed by default, so category editing is immediately accessible.
+- **Navigation:** the outer Organizer returns to four main tabs. Escape/Back from combined management returns to ChatGPT Categories. The active profile remains tab-specific (sessionStorage), and the default profile still governs fresh browser tabs, as in alpha.31.
+- All existing profile records, category IDs, saved links, ordering, Quick Save actions and versioned data storage are unchanged. No new storage keys are introduced.
+
+**Firefox checks:** open each of four main tabs and confirm no misleading global profile selector; in ChatGPT Categories switch profiles directly from the search row; verify category cards/assignments change. Open Manage Profiles & Categories, select another profile and edit its categories; switch back and confirm prior profile unchanged. Expand Manage profiles and test creating/renaming/default selection. Confirm dropdown hover and keyboard navigation (including Firefox), narrow layouts, footer back button, and that the bookmark uses the current profile's assignments. Keep this draft branch unmerged until browser acceptance.

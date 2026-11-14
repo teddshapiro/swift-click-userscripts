@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.31
+// @version      0.1.0-alpha.32
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1184,7 +1184,7 @@
         window.sessionStorage.removeItem(ACTIVE_PROFILE_TAB_KEY);
       else window.sessionStorage.setItem(ACTIVE_PROFILE_TAB_KEY,id);
     } catch(_) {}
-    currentCategory=null;query='';editItemKey=null;managingCategories=false;
+    currentCategory=null;query='';editItemKey=null;
     iconPickerCategoryId=null;
     render();
     return true;
@@ -1427,6 +1427,18 @@
     '.profile-actions{display:flex;gap:6px;flex-wrap:wrap;}',
     '.profile-rename{flex:0 0 100%;}',
     '.profile-error{color:#ffbdbd;font-size:13px;}',
+    '.category-search-row{display:flex;align-items:stretch;gap:12px;min-width:0;}',
+    '.category-search-row .search{flex:1;min-width:0;}',
+    '.category-profile-switch{display:flex;align-items:center;gap:8px;flex:0 1 320px;min-width:165px;color:#b9cde4;font-size:12px;font-weight:700;}',
+    '.category-profile-switch .category-profile-select{width:100%;min-width:0;}',
+    '.category-profile-switch .sc-select-wrap{flex:1;}',
+    '.category-profile-switch .sc-select-trigger{min-height:43px;}',
+    '.profile-current{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px;border:1px solid #4c6985;border-radius:10px;background:#1a2b40;}',
+    '.profile-current-label{display:flex;align-items:center;gap:10px;flex:1;min-width:230px;font-weight:700;font-size:13px;}',
+    '.profile-current-label select{min-width:150px;max-width:none;flex:1;}',
+    '.profile-current-label .sc-select-wrap{flex:1;min-width:160px;}',
+    '.category-section-title{margin:12px 0 0;font-size:17px;padding-top:13px;border-top:1px solid #50667e;}',
+    '@media(max-width:680px){.category-search-row{flex-wrap:wrap}.category-profile-switch{flex:1 1 100%;}.profile-current-label{flex-wrap:wrap}}',
     '.category-manager{display:grid;gap:15px;max-width:850px;}',
     '.category-manager h2{margin:0;font-size:20px;}',
     '.category-manager-list{display:grid;gap:9px;}',
@@ -2258,12 +2270,54 @@
     focusCategoryDragHandle(movingId);
   }
 
+  function makeProfileSelector(className, ariaLabel) {
+    const select=el('select',className);
+    select.setAttribute('aria-label',ariaLabel);
+    if (!profileMode) {
+      select.disabled=true;
+      const opt=el('option','','Legacy categories');opt.value='legacy';
+      select.appendChild(opt);
+      return select;
+    }
+    for(const p of profilesState.profiles) {
+      const opt=el('option','',p.name+(p.id===profilesState.defaultId?' · Default':''));
+      opt.value=p.id;
+      select.appendChild(opt);
+    }
+    select.value=profilesState.activeId;
+    select.addEventListener('change',()=>{
+      if(select.value!==profilesState.activeId) {
+        if(!switchProfile(select.value)) {
+          select.value=profilesState.activeId;
+        }
+      }
+    });
+    return select;
+  }
+
+  function makeProfileManagerIntro() {
+    const section=el('div','profile-current');
+    const label=el('label','profile-current-label','Editing profile');
+    label.appendChild(makeProfileSelector('profile-management-select',
+      'Choose profile whose categories to manage'));
+    section.appendChild(label);
+    const active=profilesState.profiles.find(p=>p.id===profilesState.activeId);
+    section.appendChild(el('span','hint',active.id===profilesState.defaultId
+      ? 'This is also the default profile.' : 'This profile is active in this tab.'));
+    return section;
+  }
+
   function makeCategoryManager() {
     const wrapper = el('div', 'category-manager');
-    wrapper.appendChild(el('h2', '', 'Manage categories'));
+    wrapper.appendChild(el('h2', '', 'Manage Profiles & Categories'));
+    if (profileMode) {
+      wrapper.appendChild(makeProfileManagerIntro());
+      wrapper.appendChild(makeProfilesManager());
+    }
+    wrapper.appendChild(el('h3', 'category-section-title', 'Categories in the active profile'));
     wrapper.appendChild(el('p', 'hint',
-      'Rename categories, drag or use the arrows to reorder them, and create new ones. ' +
-      'Renaming and reordering do not change your saved projects or chats.'));
+      'Rename, reorder, create or delete categories in the selected profile. ' +
+      'Your other profiles and your original ChatGPT projects and chats are not changed.'));
 
     const list = el('div', 'category-manager-list');
     let movingId = null;
@@ -3753,9 +3807,9 @@
 
   function makeProfilesManager() {
     const wrapper=el('div','profile-manager');
-    wrapper.appendChild(el('h2','','Organizer Profiles'));
+    wrapper.appendChild(el('h2','','Profiles'));
     wrapper.appendChild(el('p','hint',
-      'Profiles organize the same saved ChatGPT projects and chats. Each profile has independent categories, assignments and ordering. Quick Links and ChatGPT Tools are shared.'));
+      'Choose a profile to edit its categories below. Create, rename or delete profiles here. Saved ChatGPT shortcuts remain shared across profiles.'));
     if(!profileMode){
       wrapper.appendChild(el('p','profile-error',profilesError ||
         'Profiles could not initialize; your previous Organizer remains available.'));
@@ -3791,7 +3845,7 @@
       render();
     });
     wrapper.appendChild(creator);
-    wrapper.appendChild(el('p','hint','Creating a profile does not switch to it. Maximum 12 profiles.'));
+    wrapper.appendChild(el('p','hint','New profiles do not become active automatically. Maximum 12 profiles.'));
     const list=el('div','profile-list');
     for(const p of profilesState.profiles) {
       const row=el('div','profile-row');
@@ -3860,14 +3914,6 @@
     brand.appendChild(el('div', 'brand', '▦  SwiftClick Organizer'));
     brand.appendChild(el('div', 'muted', 'A personal front door to ChatGPT · Technical PoC'));
     header.appendChild(brand);
-    if(profileMode){
-      const selected=profilesState.profiles.find(p=>p.id===profilesState.activeId);
-      const control=button('Profile: '+selected.name+' ▾','action',()=>{
-        activeTab='profiles';render();
-      });
-      control.setAttribute('aria-label','Manage Organizer profiles. Active: '+selected.name);
-      header.appendChild(control);
-    }
     header.appendChild(button('✕ Close', 'action', hide));
     panel.appendChild(header);
 
@@ -3876,8 +3922,7 @@
     for (const tab of [{ id: 'categories', title: 'ChatGPT Categories' },
       { id: 'quicklinks', title: 'Quick Links' },
       { id: 'tools', title: 'ChatGPT Tools' },
-      { id: 'prompts', title: 'Prompt Builder' },
-      { id: 'profiles', title: 'Profiles' }]) {
+      { id: 'prompts', title: 'Prompt Builder' }]) {
       const control = button(tab.title, 'section-tab', () => {
         if (activeTab === 'prompts' && tab.id !== 'prompts') clearPromptDraft();
         activeTab = tab.id;
@@ -3909,15 +3954,6 @@
 
     const content = el('div', 'main');
 
-    if(activeTab==='profiles'){
-      content.appendChild(makeProfilesManager());
-      panel.appendChild(content);
-      const foot=el('div','foot');
-      foot.appendChild(el('span','hint',
-        'Profiles are stored locally. Your original pre-profile configuration is retained for recovery.'));
-      panel.appendChild(foot);
-      return;
-    }
     if (activeTab === 'prompts') {
       content.appendChild(makePromptBuilder());
       panel.appendChild(content);
@@ -3993,7 +4029,7 @@
       panel.appendChild(content);
       const footer = el('div', 'foot');
       footer.appendChild(el('span', 'hint',
-        'Categories are stored locally in Tampermonkey. Saved projects and chats are never moved in native ChatGPT.'));
+        'Profiles and categories are stored locally. Saved projects and chats are never moved in native ChatGPT.'));
       footer.appendChild(button('← Back to categories', 'action', () => {
         managingCategories = false;
         iconPickerCategoryId = null;
@@ -4032,7 +4068,15 @@
         try { replacement.setSelectionRange(cursor, cursor); } catch (_) { /* Search input browser support */ }
       }
     });
-    content.appendChild(search);
+    const searchRow=el('div','category-search-row');
+    searchRow.appendChild(search);
+    if (profileMode) {
+      const profileSelect=makeProfileSelector('category-profile-select','Switch active Organizer profile');
+      const selectorLabel=el('label','category-profile-switch','Profile');
+      selectorLabel.appendChild(profileSelect);
+      searchRow.appendChild(selectorLabel);
+    }
+    content.appendChild(searchRow);
     if (addingProject) content.appendChild(makeAddProjectForm());
     if (addingChat) content.appendChild(makeAddChatForm());
 
@@ -4104,7 +4148,7 @@
         if (firstField) firstField.focus();
       }
     }));
-    footerActions.appendChild(button('⚙ Manage categories', 'action', () => {
+    footerActions.appendChild(button('⚙ Manage Profiles & Categories', 'action', () => {
       managingCategories = true;
       categoryManagerError = '';
       currentCategory = null;

@@ -1297,6 +1297,14 @@ test('duplicate, blank, activation and deletion retain independent profiles',()=
   assert.equal(blank.profiles[2].assignments['chat:abc'],undefined);
 });
 
+test('new users receive a named Starter profile with generic categories',()=>{
+  const starter=hooks.firstProfileState(hooks.starterCategoryDefinitions,{}, {},'Starter');
+  assert.equal(starter.profiles[0].name,'Starter');
+  assert.equal(starter.profiles[0].categories.length,5);
+  assert.equal(hooks.sanitizeProfilesState(starter).profiles[0].name,'Starter');
+  assert.match(script,/firstRunCategorySeed\?'Starter':'My Organization'/);
+});
+
 test('invalid profile storage fails closed rather than resetting user categories',()=>{
   const base=hooks.firstProfileState(hooks.legacyCategoryDefinitions,{}, {});
   assert.equal(hooks.sanitizeProfilesState({...base,version:999}),null);

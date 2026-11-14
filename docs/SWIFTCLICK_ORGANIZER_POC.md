@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.32)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.33)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -768,3 +768,13 @@ Following owner browser feedback, Profiles is no longer a fifth top-level tab, a
 - All existing profile records, category IDs, saved links, ordering, Quick Save actions and versioned data storage are unchanged. No new storage keys are introduced.
 
 **Firefox checks:** open each of four main tabs and confirm no misleading global profile selector; in ChatGPT Categories switch profiles directly from the search row; verify category cards/assignments change. Open Manage Profiles & Categories, select another profile and edit its categories; switch back and confirm prior profile unchanged. Expand Manage profiles and test creating/renaming/default selection. Confirm dropdown hover and keyboard navigation (including Firefox), narrow layouts, footer back button, and that the bookmark uses the current profile's assignments. Keep this draft branch unmerged until browser acceptance.
+
+## Alpha.33 — Profile-aware Quick Save bookmark (2026-11-14)
+
+The page-level bookmark now includes a labeled **Organize in profile** picker within its own Shadow DOM popover. It displays the current active profile, allows choosing any configured profile, and switches the active ChatGPT Categories profile in the browser tab without changing the default profile. The picker is a keyboard-operable, high-contrast custom popup to avoid Firefox native-select hover legibility problems. Its selections, category options and save feedback are rebuilt from the currently selected profile's own categories and assignments.
+
+**Sequential use:** Open a chat/project, click the bookmark, pick a profile, select its category and click **Save placement** (or **Add to SwiftClick** if the link was not previously saved). The panel remains open and confirms the selected profile. Choose another profile and repeat. Category IDs, ordering and assignment data stay independent per profile; one shared URL/title shortcut is reused rather than duplicated.
+
+**Important data-model distinction:** The library of saved links is shared across all profiles. Consequently, an item saved globally is visible in other profiles' **Uncategorized** category unless separately categorized there. This feature does *not* introduce per-profile inclusion/exclusion or independently hide shared saved links. Saving a name changes the single shared SwiftClick display name. **Remove everywhere** is explicitly global and requires confirmation; it removes the shared shortcut and cleans references from every profile. If future product requirements call for truly hiding/excluding an item from an individual profile, that requires a separately designed profile-membership feature.
+
+**Regression and browser acceptance:** Verify active profile name and default marker in widget; keyboard/Firefox profile selector; same project/chat assigned to two different categories in two profiles; change back to first profile to confirm its assignment remains intact; rename a shared title deliberately and verify it is global; ensure default is unchanged when selecting another profile; verify a fresh link can be added then categorized in another profile without duplicate shortcuts; test removal everywhere only after confirmation; verify page navigation closes stale popup; verify popup overflow on smaller viewports and the native ChatGPT controls remain clickable. No new storage keys or script permissions are introduced. The implementation remains on the development branch until browser testing.

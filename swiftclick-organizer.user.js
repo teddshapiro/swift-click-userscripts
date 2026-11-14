@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.33
+// @version      0.1.0-alpha.34
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -24,7 +24,8 @@
   const ORDER_KEY = APP_ID + '.categoryOrder.v1';
   const CATEGORY_DEFS_KEY = APP_ID + '.categoryDefinitions.v1';
   const CATEGORY_SETUP_KEY = APP_ID + '.categorySetup.v1';
-  const PROFILES_KEY = APP_ID + '.profiles.v1';
+  const PROFILES_KEY = APP_ID + '.profiles.v1'; // Immutable alpha.33 recovery data
+  const PROFILES_V2_KEY = APP_ID + '.profiles.v2';
   const ACTIVE_PROFILE_TAB_KEY = APP_ID + '.activeProfileTab.v1';
   const QUICK_LINKS_KEY = APP_ID + '.quickLinks.v1';
   const QUICK_LINKS_V2_KEY = APP_ID + '.quickLinks.v2';
@@ -789,63 +790,101 @@
       (!q || (x.title+' '+x.description+' '+x.category).toLocaleLowerCase().includes(q)));
   }
 
-  // Profiles are organization views over the SAME saved-link library.
-  // The legacy category/assignment/order keys remain an untouched recovery source.
-  const PROFILE_LIMIT = 12;
-  function profileSnapshot(categories, assigned, orders) {
+
+  // Membership is independent of category. Uncategorized means INCLUDED but unassigned.
+  // V1 is retained untouched for disaster recovery; V2 is the active storage.
+  const PROFILE_LIMIT=12;
+  function profileSnapshot(categories, assigned, orders, members=[]) {
     return {
-      categories: categories.map(({id,label,icon})=>({id,label,icon})),
-      assignments: {...assigned},
-      categoryOrders: Object.fromEntries(Object.entries(orders)
-        .map(([id,keys])=>[id,[...keys]]))
+      categories:categories.map(({id,label,icon})=>({id,label,icon})),
+      assignments:{...assigned},
+      categoryOrders:Object.fromEntries(Object.entries(orders)
+        .map(([id,keys])=>[id,[...keys]])),
+      members:[...new Set(members)]
     };
   }
-  function firstProfileState(categories, assigned, orders, name='My Organization') {
-    return {version:1, activeId:'profile-original', defaultId:'profile-original',
+  function firstProfileState(categories, assigned, orders, name='My Organization', members=[]) {
+    return {version:2,activeId:'profile-original',defaultId:'profile-original',
       profiles:[{id:'profile-original',name,
-        ...profileSnapshot(categories,assigned,orders)}]};
+        ...profileSnapshot(categories,assigned,orders,members)}]};
+  }
+  function memberInProfile(p,key) {
+    return Boolean(p && Array.isArray(p.members) && p.members.includes(key));
+  }
+  function isMemberAnywhere(state,key) {
+    return Boolean(state && state.profiles.some(p=>memberInProfile(p,key)));
+  }
+  function profileWithMembership(profile,key,category,include) {
+    const members=include?[...new Set([...profile.members,key])]:
+      profile.members.filter(k=>k!==key);
+    const assignments={...profile.assignments};
+    if(!include || category==='uncategorized')delete assignments[key];
+    else assignments[key]=category;
+    const categoryOrders=Object.fromEntries(Object.entries(profile.categoryOrders)
+      .map(([id,keys])=>[id,keys.filter(k=>k!==key)]));
+    return {...profile,...profileSnapshot(profile.categories,assignments,categoryOrders,members)};
+  }
+  function profileMemberUpdate(state,profileId,key,category,include) {
+    if(!state || !state.profiles.some(p=>p.id===profileId))return null;
+    return {...state,profiles:state.profiles.map(p=>p.id===profileId?
+      profileWithMembership(p,key,category,include):p)};
+  }
+  function upgradeProfilesToV2(v1,libraryKeys) {
+    if(!v1 || v1.version!==1 || !Array.isArray(v1.profiles) ||
+      !Array.isArray(libraryKeys))return null;
+    const keys=[...new Set(libraryKeys)];
+    return {version:2,activeId:v1.activeId,defaultId:v1.defaultId,
+      profiles:v1.profiles.map(p=>({...p,members:[...keys]}))};
   }
   function sanitizeProfilesState(raw) {
-    if (!raw || raw.version!==1 || !Array.isArray(raw.profiles) ||
-        !raw.profiles.length || raw.profiles.length>PROFILE_LIMIT) return null;
-    const ids=new Set(), profiles=[];
+    if(!raw || raw.version!==2 || !Array.isArray(raw.profiles) ||
+      !raw.profiles.length || raw.profiles.length>PROFILE_LIMIT)return null;
+    const ids=new Set(),profiles=[];
     for(const p of raw.profiles) {
-      if (!p || typeof p!=='object' ||
-          !/^profile-[a-z0-9-]{3,80}$/.test(p.id||'') ||
-          ids.has(p.id) || typeof p.name!=='string' ||
-          !p.name.trim() || p.name.trim().length>60 ||
-          !Array.isArray(p.categories) || !p.categories.length ||
-          p.categories.length>40 || !p.categories.some(c=>c.id==='uncategorized') ||
-          !p.assignments || typeof p.assignments!=='object' ||
-          Array.isArray(p.assignments) || !p.categoryOrders ||
-          typeof p.categoryOrders!=='object' || Array.isArray(p.categoryOrders)) return null;
+      if(!p || typeof p!=='object' ||
+        !/^profile-[a-z0-9-]{3,80}$/.test(p.id||'') ||
+        ids.has(p.id) || typeof p.name!=='string' ||
+        !p.name.trim() || p.name.trim().length>60 ||
+        !Array.isArray(p.categories) || !p.categories.length ||
+        p.categories.length>40 || !p.categories.some(c=>c.id==='uncategorized') ||
+        !p.assignments || typeof p.assignments!=='object' ||
+        Array.isArray(p.assignments) || !p.categoryOrders ||
+        typeof p.categoryOrders!=='object' || Array.isArray(p.categoryOrders) ||
+        !Array.isArray(p.members) || p.members.length>1000 ||
+        p.members.some(key=>typeof key!=='string' ||
+          key.length>512 || !/^(?:chat|project):/.test(key)) ||
+        new Set(p.members).size!==p.members.length)return null;
       const categories=sanitizeCategoryDefinitions({version:1,categories:p.categories});
-      // A malformed profile must not silently replace user categories with defaults.
-      if(categories.length!==p.categories.length) return null;
+      if(categories.length!==p.categories.length)return null;
       const {assignments}=migrateAssignments(p.assignments,categories);
+      const allowed=new Set(p.members);
+      const cleaned=Object.fromEntries(Object.entries(assignments)
+        .filter(([key])=>allowed.has(key)));
       const categoryOrders=sanitizeCategoryOrders(
         {version:1,categories:p.categoryOrders},categories);
+      const pruned=Object.fromEntries(Object.entries(categoryOrders)
+        .map(([category,keys])=>[category,keys.filter(key=>allowed.has(key))]));
       profiles.push({id:p.id,name:p.name.trim(),
-        ...profileSnapshot(categories,assignments,categoryOrders)});
+        ...profileSnapshot(categories,cleaned,pruned,p.members)});
       ids.add(p.id);
     }
     if(!ids.has(raw.activeId)||!ids.has(raw.defaultId))return null;
-    return {version:1,activeId:raw.activeId,defaultId:raw.defaultId,profiles};
+    return {version:2,activeId:raw.activeId,defaultId:raw.defaultId,profiles};
   }
   function profileWithSnapshot(state,id,snapshot) {
     return {...state,profiles:state.profiles.map(p=>p.id===id?
       {...p,...profileSnapshot(snapshot.categories,snapshot.assignments,
-        snapshot.categoryOrders)}:p)};
+        snapshot.categoryOrders,snapshot.members)}:p)};
   }
   function newProfileState(state,id,name,source=null) {
     if(!state || state.profiles.length>=PROFILE_LIMIT ||
       !/^profile-[a-z0-9-]{3,80}$/.test(id) ||
       state.profiles.some(p=>p.id===id) ||
       !String(name||'').trim() || String(name).trim().length>60)return null;
-    const snap=source || profileSnapshot(DEFAULT_CATEGORIES, {}, {});
+    const snap=source || profileSnapshot(DEFAULT_CATEGORIES,{}, {}, []);
     return {...state,profiles:[...state.profiles,{
       id,name:String(name).trim(),
-      ...profileSnapshot(snap.categories,snap.assignments,snap.categoryOrders)}]};
+      ...profileSnapshot(snap.categories,snap.assignments,snap.categoryOrders,snap.members)}]};
   }
   function deleteProfileState(state,id) {
     if(!state || state.profiles.length<2 || id===state.activeId ||
@@ -866,6 +905,7 @@
       sanitizeCategoryDefinitions, chooseInitialCategoryDefinitions,
       quickSaveStateForRoute,
       firstProfileState,sanitizeProfilesState,profileSnapshot,profileWithSnapshot,
+      upgradeProfilesToV2,memberInProfile,isMemberAnywhere,profileWithMembership,profileMemberUpdate,
       newProfileState,deleteProfileState,
       legacyCategoryDefinitions: LEGACY_CATEGORY_DEFINITIONS_V1,
       starterCategoryDefinitions: DEFAULT_CATEGORIES,

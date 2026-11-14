@@ -2,7 +2,7 @@
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
 // @version      0.1.0-alpha.31
-// @description  Organize ChatGPT projects, quick links, and ChatGPT tools in four tabs.
+// @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
 // @match        https://www.chatgpt.com/*
@@ -800,9 +800,9 @@
         .map(([id,keys])=>[id,[...keys]]))
     };
   }
-  function firstProfileState(categories, assigned, orders) {
+  function firstProfileState(categories, assigned, orders, name='My Organization') {
     return {version:1, activeId:'profile-original', defaultId:'profile-original',
-      profiles:[{id:'profile-original',name:'My Organization',
+      profiles:[{id:'profile-original',name,
         ...profileSnapshot(categories,assigned,orders)}]};
   }
   function sanitizeProfilesState(raw) {
@@ -890,12 +890,14 @@
 
   // Initialize category definitions before the existing assignment and order
   // stores read category IDs; old installations have no definitions key.
+  let firstRunCategorySeed=false;
   try {
     const existing = GM_getValue(CATEGORY_DEFS_KEY, null);
     const otherKeys = [STORAGE_KEY, MANUAL_PROJECTS_KEY, SAVED_CHATS_KEY,
       ORDER_KEY, QUICK_LINKS_KEY, QUICK_LINKS_V2_KEY, CHATGPT_TOOLS_KEY];
     const hasPriorState = otherKeys.some((key) => GM_getValue(key, null) !== null);
     const chosen = chooseInitialCategoryDefinitions(existing, hasPriorState);
+    firstRunCategorySeed=chosen.shouldPersist && chosen.seed==='starter-v1';
     CATEGORIES = chosen.categories;
     if (chosen.shouldPersist) {
       // Write the definitions before the setup marker. If saving fails, do not
@@ -1194,7 +1196,8 @@
       if(!loaded)throw Error('Existing profile data failed validation; refusing to overwrite.');
       profilesState=loaded;profileMode=true;
     } else {
-      const initial=firstProfileState(CATEGORIES,assignments,categoryOrders);
+      const initial=firstProfileState(CATEGORIES,assignments,categoryOrders,
+        firstRunCategorySeed?'Starter':'My Organization');
       GM_setValue(PROFILES_KEY,initial);
       profilesState=initial;profileMode=true;
     }

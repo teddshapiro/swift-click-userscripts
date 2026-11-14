@@ -1756,42 +1756,60 @@
   }
   function persistQuickSave(item, operation, title, category) {
     if (!item || currentQuickSave()?.key!==item.key || !validCategory(category)) return false;
-    const existing = item.type==='project' ? manualProjects : savedChats;
-    const storageKey = item.type==='project' ? MANUAL_PROJECTS_KEY : SAVED_CHATS_KEY;
-    const remaining = existing.filter(x=>x.key!==item.key);
-    const next = [...remaining];
-    if (operation==='save') {
-      const trimmed = String(title||'').replace(/\s+/g,' ').trim();
-      if (!trimmed || trimmed.length>140 || remaining.length >= (item.type==='project'?200:500)) return false;
-      const entry = item.type==='project'
-        ? sanitizeManualProject({title:trimmed,href:item.href},location.origin)
-        : sanitizeSavedChat({title:trimmed,href:item.href},location.origin);
-      if (!entry || entry.key!==item.key) return false;
+    const existing=item.type==='project'?manualProjects:savedChats;
+    const storageKey=item.type==='project'?MANUAL_PROJECTS_KEY:SAVED_CHATS_KEY;
+    const next=existing.filter(x=>x.key!==item.key);
+    if(operation==='save'){
+      const trimmed=String(title||'').replace(/\s+/g,' ').trim();
+      if(!trimmed || trimmed.length>140 ||
+        next.length >= (item.type==='project'?200:500))return false;
+      const entry=item.type==='project'
+        ?sanitizeManualProject({title:trimmed,href:item.href},location.origin)
+        :sanitizeSavedChat({title:trimmed,href:item.href},location.origin);
+      if(!entry || entry.key!==item.key)return false;
       next.push(entry);
-    } else if (operation!=='remove' || !item.saved) return false;
-    const nextAssignments = {...assignments};
+    }else if(operation!=='remove' || !item.saved)return false;
+    const nextAssignments={...assignments};
     delete nextAssignments[item.key];
-    if (operation==='save' && category!=='uncategorized') nextAssignments[item.key]=category;
-    const serialize = (items)=>items.map(({href,title})=>({href,title}));
-    const changed = (assignments[item.key]||'uncategorized') !==
-      (nextAssignments[item.key]||'uncategorized');
-    let listWritten = false;
-    try {
-      GM_setValue(storageKey,serialize(next));
-      listWritten = true;
-      if (changed) GM_setValue(STORAGE_KEY,{version:2,assignments:nextAssignments});
-    } catch(error) {
-      if (listWritten) {
-        try { GM_setValue(storageKey,serialize(existing)); } catch (_) {}
-      }
-      console.warn('[SwiftClick Organizer] Quick Save failed:',error);
+    if(operation==='save' && category!=='uncategorized')
+      nextAssignments[item.key]=category;
+    const serialize=arr=>arr.map(({href,title})=>({href,title}));
+    try {GM_setValue(storageKey,serialize(next));}
+    catch(error){console.warn('[SwiftClick Organizer] Quick Save link write failed:',error);return false;}
+
+    let success=false;
+    if(profileMode){
+      const profiles=profilesState.profiles.map(p=>{
+        // Removing a shared link removes obsolete assignments/order from ALL
+        // profiles, but never deletes or changes their category definitions.
+        if(operation==='remove'){
+          const linked={...p.assignments};delete linked[item.key];
+          const order=Object.fromEntries(Object.entries(p.categoryOrders).map(([id,keys])=>
+            [id,keys.filter(key=>key!==item.key)]));
+          return {...p,assignments:linked,categoryOrders:order};
+        }
+        if(p.id!==profilesState.activeId)return p;
+        const order=Object.fromEntries(Object.entries(categoryOrders).map(([id,keys])=>
+          [id,category===item.category?keys:keys.filter(key=>key!==item.key)]));
+        return {...p,assignments:nextAssignments,categoryOrders:order};
+      });
+      success=persistProfiles({...profilesState,profiles});
+    } else {
+      try {
+        GM_setValue(STORAGE_KEY,{version:2,assignments:nextAssignments});
+        assignments=nextAssignments;
+        success=true;
+      }catch(error){console.warn('[SwiftClick Organizer] Quick Save assignment write failed:',error);}
+    }
+    if(!success){
+      try {GM_setValue(storageKey,serialize(existing));}
+      catch(error){console.warn('[SwiftClick Organizer] Quick Save rollback failed:',error);}
       return false;
     }
-    if (item.type==='project') manualProjects=next; else savedChats=next;
-    assignments=nextAssignments;
-    if (operation==='save') seen.set(item.key,next[next.length-1]); else seen.delete(item.key);
-    if (operation==='remove' || category!==item.category) forgetItemOrder(item.key);
-    if (open) render();
+    if(item.type==='project')manualProjects=next;else savedChats=next;
+    if(operation==='save')seen.set(item.key,next[next.length-1]);else seen.delete(item.key);
+    if(!profileMode && (operation==='remove' || category!==item.category))forgetItemOrder(item.key);
+    if(open)render();
     return true;
   }
   function renderQuickSaveEditor() {

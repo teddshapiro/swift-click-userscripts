@@ -1347,15 +1347,24 @@
     }
   }
 
-  function saveChatShortcut(chat) {
-    const parsed = sanitizeSavedChat(chat, location.origin);
-    if (!parsed) return false;
-    const prior = savedChats.find((c) => c.key === parsed.key);
-    if (!prior && savedChats.length >= 500) return false;
-    if (prior) parsed.title = prior.title;
-    savedChats = savedChats.filter((c) => c.key !== parsed.key).concat(parsed);
-    seen.set(parsed.key, parsed);
-    saveSavedChats();
+  function saveChatShortcut(chat,category='uncategorized') {
+    const parsed=sanitizeSavedChat(chat,location.origin);
+    if(!parsed)return false;
+    const prior=savedChats.find(c=>c.key===parsed.key);
+    if(!prior && savedChats.length>=500)return false;
+    if(prior)parsed.title=prior.title;
+    const existing=savedChats;
+    const next=existing.filter(c=>c.key!==parsed.key).concat(parsed);
+    try{GM_setValue(SAVED_CHATS_KEY,next.map(({href,title})=>({href,title})));}
+    catch(error){console.warn('[SwiftClick Organizer] Chat shortcut save failed:',error);return false;}
+    savedChats=next;
+    if(profileMode && !setActiveProfileMembership(parsed.key,category,true)){
+      try{GM_setValue(SAVED_CHATS_KEY,existing.map(({href,title})=>({href,title})));}
+      catch(_){}
+      savedChats=existing;
+      return false;
+    }
+    seen.set(parsed.key,parsed);
     return true;
   }
 
@@ -1369,15 +1378,24 @@
 
   // One type of project, regardless of whether its link was discovered or added by hand.
   // Keep the existing storage key for backwards compatibility with alpha.2–4.
-  function saveProjectShortcut(project) {
-    const parsed = sanitizeManualProject(project, location.origin);
-    if (!parsed) return false;
-    const prior = manualProjects.find((p) => p.key === parsed.key);
-    if (!prior && manualProjects.length >= 200) return false;
-    if (prior && !project.manual) parsed.title = prior.title; // preserve manually supplied names
-    manualProjects = manualProjects.filter((p) => p.key !== parsed.key).concat(parsed);
-    seen.set(parsed.key, parsed);
-    saveManualProjects();
+  function saveProjectShortcut(project,category='uncategorized') {
+    const parsed=sanitizeManualProject(project,location.origin);
+    if(!parsed)return false;
+    const prior=manualProjects.find(p=>p.key===parsed.key);
+    if(!prior && manualProjects.length>=200)return false;
+    if(prior && !project.manual)parsed.title=prior.title;
+    const existing=manualProjects;
+    const next=existing.filter(p=>p.key!==parsed.key).concat(parsed);
+    try{GM_setValue(MANUAL_PROJECTS_KEY,next.map(({href,title})=>({href,title})));}
+    catch(error){console.warn('[SwiftClick Organizer] Project shortcut save failed:',error);return false;}
+    manualProjects=next;
+    if(profileMode && !setActiveProfileMembership(parsed.key,category,true)){
+      try{GM_setValue(MANUAL_PROJECTS_KEY,existing.map(({href,title})=>({href,title})));}
+      catch(_){}
+      manualProjects=existing;
+      return false;
+    }
+    seen.set(parsed.key,parsed);
     return true;
   }
 
@@ -1886,7 +1904,7 @@
     if(!item || currentQuickSave()?.key!==item.key || !validCategory(category))return false;
     if(operation==='remove')return removeSavedShortcut(item);
     if(operation!=='save')return false;
-    const trimmed=String(title||'').replace(/\\s+/g,' ').trim();
+    const trimmed=String(title||'').replace(/\s+/g,' ').trim();
     if(!trimmed || trimmed.length>140)return false;
     const existing=item.type==='project'?manualProjects:savedChats;
     const storageKey=item.type==='project'?MANUAL_PROJECTS_KEY:SAVED_CHATS_KEY;
@@ -3527,13 +3545,15 @@
         message.textContent = 'Please enter a title and a valid ChatGPT conversation link (not a project URL).';
         return;
       }
-      if (!saveChatShortcut(item)) {
+      if (!saveChatShortcut(item,selector.value)) {
         message.textContent = 'Could not save the chat shortcut (or the 500-chat limit was reached).';
         return;
       }
-      if (selector.value === 'uncategorized') delete assignments[item.key];
-      else assignments[item.key] = selector.value;
-      saveAssignments();
+      if(!profileMode){
+        if(selector.value==='uncategorized')delete assignments[item.key];
+        else assignments[item.key]=selector.value;
+        saveAssignments();
+      }
       addingChat = false;
       intakeChat = null;
       query = '';
@@ -3600,14 +3620,15 @@
         message.textContent = 'Please paste a ChatGPT PROJECT URL (not a conversation link). Open the project first and copy the address from your browser.';
         return;
       }
-      if (!saveProjectShortcut(parsed)) {
+      if (!saveProjectShortcut(parsed,selector.value)) {
         message.textContent = 'Could not save the project shortcut (or the 200-project limit was reached).';
         return;
       }
-      if (selector.value === 'uncategorized') delete assignments[parsed.key];
-      else assignments[parsed.key] = selector.value;
-      saveManualProjects();
-      saveAssignments();
+      if(!profileMode){
+        if(selector.value==='uncategorized')delete assignments[parsed.key];
+        else assignments[parsed.key]=selector.value;
+        saveAssignments();
+      }
       addingProject = false;
       intakeProject = null;
       query = '';

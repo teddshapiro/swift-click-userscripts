@@ -1136,7 +1136,7 @@ test('discovered project titles are normalized without affecting chat titles', (
 test('native menu companion never navigates or restores an old automatic intake', () => {
   assert.match(script, /function openProjectIntake\(project\)/);
   assert.match(script, /function openProjectManualIntake\(title\)/);
-  assert.match(script, /window\.sessionStorage\.removeItem\(LEGACY_PENDING_INTAKE_KEY\)/);
+  assert.doesNotMatch(script, /LEGACY_PENDING_INTAKE_KEY|resumePendingIntake/);
   assert.match(script, /if \(open\) hide\(\); \/\/ Ordinary navigation closes the organizer/);
   assert.doesNotMatch(script, /home\.click\(\)|resumePendingIntake|pendingNativeProject/);
 });

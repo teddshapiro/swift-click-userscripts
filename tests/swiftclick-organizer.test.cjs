@@ -755,7 +755,7 @@ test('new category assignment remains a flat selector without nested navigation'
   assert.doesNotMatch(script, /directChildren|categoryPath\(/);
   assert.match(script, /if \(!hasSearch && currentCategory === null\)/);
   assert.match(script, /CATEGORIES\.forEach\(\(category\) => cards\.appendChild\(makeCategoryCard\(category\)\)\)/);
-  assert.match(script, /GM_setValue\(STORAGE_KEY, \{ version: 2, assignments: clean \}\)/);
+  assert.match(script, /const \{ assignments: clean \} = migrateAssignments\(value\.assignments\)/);
   assert.match(script, /if\(profileMode\)return persistCurrentProfile\(\)/);
 });
 
@@ -1310,6 +1310,13 @@ test('invalid profile storage fails closed rather than resetting user categories
 });
 
 test('profiles use a dedicated versioned store and retain legacy recovery keys',()=>{
+  const reader=script.slice(script.indexOf('function readAssignments()'),
+    script.indexOf('let assignments = readAssignments()'));
+  assert.doesNotMatch(reader,/GM_setValue\(STORAGE_KEY/);
+  assert.match(script,/function removeSavedShortcut\(item\)/);
+  assert.match(script,/if\(!removeSavedShortcut\(item\)\)/);
+  assert.match(script,/const profiles=profilesState\.profiles\.map\(p=>/);
+
   assert.match(script,/const PROFILES_KEY = APP_ID \+ '\.profiles\.v1'/);
   assert.match(script,/const ACTIVE_PROFILE_TAB_KEY = APP_ID \+ '\.activeProfileTab\.v1'/);
   assert.match(script,/GM_getValue\(PROFILES_KEY,null\)/);

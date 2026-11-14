@@ -1951,6 +1951,10 @@
       item.saved?'✓ Saved in SwiftClick':'Add to SwiftClick'));
     quickSavePopover.appendChild(el('div','hint',
       item.type==='project'?'Current project':'Current conversation'));
+    const included=isInActiveProfile(item.key);
+    const membershipCount=profileMode?
+      profilesState.profiles.filter(p=>memberInProfile(p,item.key)).length:
+      (item.saved?1:0);
 
     if(profileMode) {
       const picker=el('div','profile-picker');
@@ -2014,8 +2018,12 @@
       picker.appendChild(list);
       quickSavePopover.appendChild(picker);
       quickSavePopover.appendChild(el('div','profile-context',
-        'Switching here changes the active ChatGPT Categories profile in this tab. '+
-        'The shortcut itself is shared; category placements are independent.'));
+        included?'Included in this profile · '+membershipCount+' total profile'+
+          (membershipCount===1?'':'s'):
+          'Not included in this profile · '+membershipCount+' other profile'+
+          (membershipCount===1?'':'s')));
+      quickSavePopover.appendChild(el('div','profile-context',
+        'Switching profiles changes this tab’s active Categories view.'));
     }
 
     const titleLabel=el('label','','SwiftClick display name (shared)');
@@ -2053,7 +2061,7 @@
     error.setAttribute('role','alert');
     quickSavePopover.appendChild(error);
     const actions=el('div','actions');
-    actions.appendChild(button(item.saved?'Save placement':'Add to SwiftClick','action primary',()=>{
+    actions.appendChild(button(included?'Save placement':'Add to this profile','action primary',()=>{
       if(!name.value.trim()){error.textContent='Please enter a display name.';name.focus();return;}
       const profileName=profileMode?
         profilesState.profiles.find(p=>p.id===profilesState.activeId).name:'current categories';
@@ -2063,13 +2071,19 @@
       quickSaveNotice='Saved in '+profileName+'. You can select another profile to organize it there, too.';
       refreshQuickSave(true);
     }));
-    if(item.saved)actions.appendChild(button('Remove everywhere','action danger',()=>{
-      if(!window.confirm('Remove this saved shortcut from ALL SwiftClick profiles? '+
+    if(included)actions.appendChild(button('Remove from profile','action danger',()=>{
+      const profileName=profileMode?
+        profilesState.profiles.find(p=>p.id===profilesState.activeId).name:'Organizer';
+      const last=membershipCount===1;
+      if(!window.confirm('Remove this shortcut from "'+profileName+'"? '+
+        (last?'This is its last profile; the saved SwiftClick shortcut will also be removed. ':
+          'It will remain in its other profiles. ')+
         'The original ChatGPT '+item.type+' will not change.'))return;
       if(!persistQuickSave(item,'remove','',item.category)){
-        error.textContent='Could not remove the shortcut.';return;
+        error.textContent='Could not remove this profile membership.';return;
       }
-      quickSaveNotice='';
+      quickSaveNotice='Removed from '+profileName+
+        (last?' and from the shared shortcut library.':'; still available in other profiles.');
       refreshQuickSave(true);
     }));
     actions.appendChild(button('Close','action',()=>{closeQuickSave();quickSaveButton.focus();}));
@@ -2080,12 +2094,19 @@
     quickSaveHost.hidden=!item||open;
     if(quickSaveHost.hidden){closeQuickSave();quickSaveActiveKey=null;return;}
     if(item.key!==quickSaveActiveKey){closeQuickSave();quickSaveActiveKey=item.key;}
-    const snapshot=item.key+':'+Boolean(item.saved)+':'+item.category;
+    const snapshot=item.key+':'+Boolean(item.saved)+':'+item.category+':'+
+      (profileMode?profilesState.activeId+':'+
+        profilesState.profiles.filter(p=>memberInProfile(p,item.key)).length+':'+
+        isInActiveProfile(item.key):'legacy');
     if(force||snapshot!==quickSaveSnapshot){
       quickSaveSnapshot=snapshot;
       quickSaveButton.dataset.saved=String(Boolean(item.saved));
-      quickSaveButton.setAttribute('aria-label',(item.saved?'Manage saved ':'Save current ')+item.type+' in SwiftClick Organizer');
-      quickSaveButton.title=item.saved?'Saved in SwiftClick · Manage':'Add to SwiftClick';
+      const included=isInActiveProfile(item.key);
+      quickSaveButton.setAttribute('aria-label',
+        (included?'Manage this ':'Add this ')+item.type+
+        (profileMode?' in '+profilesState.profiles.find(p=>p.id===profilesState.activeId).name:' in SwiftClick'));
+      quickSaveButton.title=included?'Included in active profile · Manage':
+        item.saved?'Saved in another profile · Add here':'Add to SwiftClick';
       if(!quickSavePopover.hidden)renderQuickSaveEditor();
     }
   }
@@ -3376,7 +3397,7 @@
       if (focused) focused.focus();
     });
     editButton.dataset.itemKey = item.key;
-    editButton.title = 'Edit shortcut name, category, or remove it';
+    editButton.title = 'Edit shortcut name, category, or remove from this profile';
     editButton.setAttribute('aria-label', 'Edit ' + item.title);
     editButton.setAttribute('aria-expanded', String(editItemKey === item.key));
     editButton.setAttribute('aria-haspopup', 'true');
@@ -3448,10 +3469,15 @@
           .find((node) => node.dataset.itemKey === item.key);
         if (focused) focused.focus();
       }));
-      if (item.manual) {
-        const remove = button('Remove shortcut', 'action remove-action', () => {
-          if (!window.confirm('Remove this saved shortcut from SwiftClick Organizer? The original ChatGPT ' +
-              item.type + ' will not change.')) return;
+      if (item.manual || profileMode) {
+        const remove = button(profileMode?'Remove from profile':'Remove shortcut',
+          'action remove-action', () => {
+          const activeName=profileMode?
+            profilesState.profiles.find(p=>p.id===profilesState.activeId).name:'Organizer';
+          const last=profileMode&&profilesState.profiles.filter(p=>memberInProfile(p,item.key)).length===1;
+          if (!window.confirm('Remove this shortcut from "'+activeName+'"? '+
+              (last?'It is the final membership; the stored shortcut will also be removed. ':'')+
+              'The original ChatGPT '+item.type+' will not change.'))return;
           if(!removeSavedShortcut(item)){
             window.alert('Could not remove this shortcut. Your saved records were left unchanged.');
             return;
@@ -3459,7 +3485,7 @@
           editItemKey = null;
           render();
         });
-        remove.setAttribute('aria-label', 'Remove saved ' + item.type + ' shortcut ' + item.title);
+        remove.setAttribute('aria-label', 'Remove '+item.type+' from current profile: '+item.title);
         actions.appendChild(remove);
       }
       editor.appendChild(actions);
@@ -4304,8 +4330,11 @@
     panel.appendChild(content);
 
     const footer = el('div', 'foot');
-    footer.appendChild(el('span', 'hint', manualProjects.length + ' projects and ' +
-      savedChats.length + ' chats saved locally.'));
+    const visibleLinks=profileMode?
+      profilesState.profiles.find(p=>p.id===profilesState.activeId).members.length:
+      manualProjects.length+savedChats.length;
+    footer.appendChild(el('span','hint',
+      visibleLinks+' saved shortcuts in this profile.'));
     const footerActions = el('div', 'footer-actions');
     footerActions.appendChild(button(addingProject ? '− Cancel project' : '+ Add project', 'action', () => {
       addingProject = !addingProject;

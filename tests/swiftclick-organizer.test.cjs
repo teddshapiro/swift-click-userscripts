@@ -1232,8 +1232,20 @@ test('Quick Save CSS uses real rule separators and keeps the bookmark clickable'
   assert.equal(save.includes("replace(/\\\\s+/g,' ').trim()"),false);
 });
 
+test('Quick Save category grid expands naturally and only scrolls when viewport-constrained', () => {
+  const start=script.indexOf('const QUICK_SAVE_CSS = [');
+  const end=script.indexOf('const quickSaveHost =',start);
+  const css=script.slice(start,end);
+  assert.match(css,/\.popover\{[^']*max-height:calc\(100dvh - 145px\)/);
+  assert.match(css,/\.popover\{[^']*display:flex;flex-direction:column/);
+  assert.match(css,/\.choices\{[^']*display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(css,/\.choices\{[^']*flex:0 1 auto;min-height:0;max-height:none;overflow-y:auto/);
+  assert.match(css,/\.actions\{[^']*flex-shrink:0/);
+  assert.doesNotMatch(css,/max-height:165px/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.29/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.30/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

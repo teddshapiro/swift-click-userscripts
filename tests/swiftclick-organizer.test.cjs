@@ -679,7 +679,7 @@ test('Manage Categories contains an accessible offline icon picker', () => {
   assert.match(script,/changeCategoryIconModel\(CATEGORIES, category\.id, choice\.icon\)/);
   assert.match(script,/option\.setAttribute\('aria-pressed'/);
   assert.match(script,/button\('Cancel icon selection'/);
-  assert.match(script,/profileSnapshot\(CATEGORIES,assignments,categoryOrders\)/);
+  assert.match(script,/profileSnapshot\(CATEGORIES,assignments,categoryOrders,/);
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 
@@ -779,11 +779,11 @@ test('organized chats save a validated local shortcut for later visits', () => {
 test('saved chats persist only via explicit actions, not background observation', () => {
   assert.match(script, /GM_getValue\(SAVED_CHATS_KEY, \[\]\)/);
   assert.match(script, /GM_setValue\(SAVED_CHATS_KEY/);
-  assert.match(script, /function saveChatShortcut\(chat\)/);
+  assert.match(script, /function saveChatShortcut\(chat,category='uncategorized'\)/);
   assert.match(script, /function makeAddChatForm\(/);
   assert.match(script, /currentChatForManualIntake\(\)/);
   assert.match(script, /Save chat shortcut/);
-  assert.match(script, /saveChatShortcut\(item\)/);
+  assert.match(script, /saveChatShortcut\(item,selector.value\)/);
   assert.match(script, /function removeSavedShortcut\(item\)/);
   assert.doesNotMatch(script, /collectLoadedLinks|function indexAnchor\(/);
 });
@@ -1169,8 +1169,8 @@ test('native menu companion never navigates or restores an old automatic intake'
 
 test('categorizing a discovered project preserves its shortcut across reloads', () => {
   assert.match(script, /title !== item\.title && !renameSavedShortcut\(item, title\)/);
-  assert.match(script, /function saveProjectShortcut\(project\)/);
-  assert.match(script, /manualProjects = manualProjects\.filter/);
+  assert.match(script, /function saveProjectShortcut\(project,category='uncategorized'\)/);
+  assert.match(script, /const next=existing\.filter\(p=>p\.key!==parsed\.key\)\.concat\(parsed\)/);
   assert.match(script, /seen\.set\(parsed\.key, parsed\)/);
   assert.match(script, /GM_setValue\(MANUAL_PROJECTS_KEY/);
   assert.doesNotMatch(script, /'Saved project' : 'Project'/);
@@ -1204,12 +1204,12 @@ test('bookmark status follows URL identity and saved assignments, not titles', (
 test('bookmark widget is isolated and keeps user-initiated mutations local', () => {
   assert.match(script,/const quickSaveRoot = quickSaveHost\.attachShadow\(\{mode:'open'\}\)/);
   assert.match(script,/document\.body\.appendChild\(quickSaveHost\)/);
-  assert.match(script,/function persistQuickSave\(item, operation, title, category\)/);
+  assert.match(script,/function persistQuickSave\(item,operation,title,category\)/);
   assert.match(script,/GM_setValue\(storageKey,serialize\(next\)\)/);
   assert.match(script,/GM_setValue\(STORAGE_KEY,\{version:2,assignments:nextAssignments\}\)/);
   assert.match(script,/currentProjectForManualIntake\(\):currentChatForManualIntake\(\)/);
   assert.match(script,/if\(item\.key!==quickSaveActiveKey\)\{closeQuickSave\(\)/);
-  assert.match(script,/Remove this saved shortcut from ALL SwiftClick profiles/);
+  assert.match(script,/Remove from profile/);
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 
@@ -1253,8 +1253,8 @@ test('profile migration captures old definitions, assignments and item order ind
   ]});
   const assignments={'project:g-p-client':'business','chat:abc':'custom-work123'};
   const orders={business:['project:g-p-client'], 'custom-work123':['chat:abc']};
-  const initial=hooks.firstProfileState(old,assignments,orders);
-  assert.equal(initial.version,1);
+  const initial=hooks.firstProfileState(old,assignments,orders,'My Organization',['project:g-p-client','chat:abc']);
+  assert.equal(initial.version,2);
   assert.equal(initial.activeId,'profile-original');
   assert.equal(initial.defaultId,'profile-original');
   assert.equal(initial.profiles[0].name,'My Organization');
@@ -1326,10 +1326,12 @@ test('profiles use a dedicated versioned store and retain legacy recovery keys',
   assert.match(script,/const profiles=profilesState\.profiles\.map\(p=>/);
 
   assert.match(script,/const PROFILES_KEY = APP_ID \+ '\.profiles\.v1'/);
+  assert.match(script,/const PROFILES_V2_KEY = APP_ID \+ '\.profiles\.v2'/);
   assert.match(script,/const ACTIVE_PROFILE_TAB_KEY = APP_ID \+ '\.activeProfileTab\.v1'/);
   assert.match(script,/GM_getValue\(PROFILES_KEY,null\)/);
-  assert.match(script,/GM_setValue\(PROFILES_KEY,initial\)/);
-  assert.match(script,/GM_setValue\(PROFILES_KEY,checked\)/);
+  assert.match(script,/GM_setValue\(PROFILES_V2_KEY,loaded\)/);
+  assert.match(script,/GM_setValue\(PROFILES_V2_KEY,checked\)/);
+  assert.doesNotMatch(script,/GM_setValue\(PROFILES_KEY,/);
   assert.match(script,/if\(profileMode\)return persistCurrentProfile\(\)/);
   assert.match(script,/function makeProfilesManager\(\)/);
   assert.match(script,/newProfileState\(profilesState,id,entry\.value,source\)/);
@@ -1380,8 +1382,8 @@ test('bookmark can switch among profiles without altering the default',()=>{
   assert.match(ui,/Category in this profile/);
   assert.match(ui,/role','status'/);
   assert.match(ui,/select another profile to organize it there/);
-  assert.match(ui,/Remove everywhere/);
-  assert.match(ui,/saved shortcut from ALL SwiftClick profiles/);
+  assert.match(ui,/Remove from profile/);
+  assert.match(ui,/last profile/);
 });
 
 test('bookmark profile list remains visible, keyboard usable and non-HTML-injected',()=>{
@@ -1400,8 +1402,98 @@ test('bookmark profile list remains visible, keyboard usable and non-HTML-inject
   assert.doesNotMatch(ui,/innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
 });
 
+
+test('Stage 1.5 migration explicitly includes previous links in every existing profile',()=>{
+  const v1={
+    version:1,activeId:'profile-original',defaultId:'profile-original',
+    profiles:[{id:'profile-original',name:'Original',
+      categories:hooks.starterCategoryDefinitions,
+      assignments:{'chat:a':'work'},categoryOrders:{work:['chat:a']}},
+      {id:'profile-second123',name:'Second',
+      categories:hooks.starterCategoryDefinitions,
+      assignments:{},categoryOrders:{}}]
+  };
+  const library=['chat:a','chat:b','project:g-p-x'];
+  const migrated=hooks.upgradeProfilesToV2(v1,library);
+  const parsed=hooks.sanitizeProfilesState(migrated);
+  assert.equal(parsed.version,2);
+  for(const p of parsed.profiles)assert.deepEqual(Array.from(p.members),library);
+  assert.equal(parsed.profiles[0].assignments['chat:a'],'work');
+  assert.deepEqual(Array.from(parsed.profiles[0].categoryOrders.work),['chat:a']);
+  assert.equal(migrated.profiles[1].assignments['chat:a'],undefined);
+  assert.equal(v1.profiles[0].members,undefined);
+  assert.equal(hooks.upgradeProfilesToV2({version:999},library),null);
+});
+
+test('Stage 1.5 independent membership supports Uncategorized and profile-specific removal',()=>{
+  const initial=hooks.firstProfileState(hooks.starterCategoryDefinitions,{}, {},
+    'Personal',['chat:shared','chat:only-first']);
+  const second=hooks.newProfileState(initial,'profile-second123','Other');
+  assert.deepEqual(Array.from(second.profiles[1].members),[]);
+  assert.equal(hooks.memberInProfile(second.profiles[0],'chat:shared'),true);
+  assert.equal(hooks.memberInProfile(second.profiles[1],'chat:shared'),false);
+  const added=hooks.profileMemberUpdate(second,'profile-second123','chat:shared','learning',true);
+  assert.equal(added.profiles[1].assignments['chat:shared'],'learning');
+  assert.equal(hooks.isMemberAnywhere(added,'chat:shared'),true);
+  const removedFirst=hooks.profileMemberUpdate(added,'profile-original','chat:shared',
+    'uncategorized',false);
+  assert.equal(hooks.memberInProfile(removedFirst.profiles[0],'chat:shared'),false);
+  assert.equal(hooks.memberInProfile(removedFirst.profiles[1],'chat:shared'),true);
+  const removedSecond=hooks.profileMemberUpdate(removedFirst,'profile-second123',
+    'chat:shared','uncategorized',false);
+  assert.equal(hooks.isMemberAnywhere(removedSecond,'chat:shared'),false);
+  assert.equal(hooks.isMemberAnywhere(removedSecond,'chat:only-first'),true);
+  const uncategorized=hooks.profileMemberUpdate(removedSecond,'profile-second123',
+    'chat:yet-another','uncategorized',true);
+  assert.equal(hooks.memberInProfile(uncategorized.profiles[1],'chat:yet-another'),true);
+  assert.equal(uncategorized.profiles[1].assignments['chat:yet-another'],undefined);
+  assert.equal(hooks.sanitizeProfilesState(uncategorized).profiles.length,2);
+});
+
+test('Stage 1.5 duplicate copies membership while starter stays empty',()=>{
+  const first=hooks.firstProfileState(hooks.starterCategoryDefinitions,{}, {},
+    'Personal',['chat:a','project:g-p-test']);
+  const copied=hooks.newProfileState(first,'profile-copy123','Duplicate',first.profiles[0]);
+  assert.deepEqual(Array.from(copied.profiles[1].members),['chat:a','project:g-p-test']);
+  const clean=hooks.newProfileState(copied,'profile-starter123','Starter');
+  assert.deepEqual(Array.from(clean.profiles[2].members),[]);
+  const removed=hooks.deleteProfileState(clean,'profile-copy123');
+  assert.equal(removed.profiles.length,2);
+  assert.equal(hooks.isMemberAnywhere(removed,'chat:a'),true);
+});
+
+test('Stage 1.5 preserves per-category item ordering when placement unchanged',()=>{
+  const first=hooks.firstProfileState(hooks.starterCategoryDefinitions,
+    {'chat:a':'work'},{work:['chat:a','chat:b']},'Personal',['chat:a','chat:b']);
+  const saved=hooks.profileMemberUpdate(first,'profile-original','chat:a','work',true);
+  assert.deepEqual(Array.from(saved.profiles[0].categoryOrders.work),['chat:a','chat:b']);
+  const moved=hooks.profileMemberUpdate(saved,'profile-original','chat:a','learning',true);
+  assert.deepEqual(Array.from(moved.profiles[0].categoryOrders.work),['chat:b']);
+  assert.equal(moved.profiles[0].assignments['chat:a'],'learning');
+});
+
+test('Stage 1.5 wiring filters profile lists and cleans orphans without rewriting V1',()=>{
+  assert.match(script,/const PROFILES_V2_KEY/);
+  assert.match(script,/GM_getValue\(PROFILES_V2_KEY,null\)/);
+  assert.match(script,/upgradeProfilesToV2\(old,libraryKeys\)/);
+  assert.match(script,/firstProfileState\(CATEGORIES,assignments,categoryOrders,/);
+  assert.match(script,/memberInProfile\(active,item\.key\)/);
+  assert.match(script,/function isInActiveProfile\(key\)/);
+  assert.match(script,/function setActiveProfileMembership\(key,category,included\)/);
+  assert.match(script,/lost=previous\?/);
+  assert.match(script,/\.filter\(key=>!isMemberAnywhere\(checked,key\)\)/);
+  assert.match(script,/GM_setValue\(PROFILES_V2_KEY,checked\)/);
+  assert.match(script,/if\(profileMode\) \{/);
+  assert.match(script,/setActiveProfileMembership\(parsed\.key,category,true\)/);
+  assert.match(script,/setActiveProfileMembership\(item\.key,'uncategorized',false\)/);
+  assert.match(script,/const included=isInActiveProfile\(item\.key\)/);
+  assert.match(script,/Not included in this profile/);
+  assert.match(script,/Remove from profile/);
+  assert.doesNotMatch(script,/GM_setValue\(PROFILES_KEY,/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.33/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.34/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

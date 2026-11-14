@@ -1178,6 +1178,41 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
   assert.match(script, /for \(const category of CATEGORIES\)/);
 });
 
+
+test('bookmark status follows URL identity and saved assignments, not titles', () => {
+  const projects=[hooks.sanitizeManualProject({title:'Renamed project',
+    href:'https://chatgpt.com/g/g-p-123/project'},origin)];
+  const chats=[hooks.sanitizeSavedChat({title:'Renamed chat',
+    href:'https://chatgpt.com/c/abc123'},origin)];
+  const categories=hooks.sanitizeCategoryDefinitions({version:1,categories:[
+    {id:'work',label:'Work'},{id:'custom-one123',label:'Mine'},
+    {id:'uncategorized',label:'Uncategorized'}]});
+  const assigned={'project:g-p-123':'custom-one123','chat:abc123':'work'};
+  const status=(url)=>hooks.quickSaveStateForRoute(url,origin,projects,chats,assigned,categories);
+  assert.equal(status('https://chatgpt.com/g/g-p-123/project').saved.title,'Renamed project');
+  assert.equal(status('https://chatgpt.com/g/g-p-123/project').category,'custom-one123');
+  assert.equal(status('https://chatgpt.com/c/abc123').saved.title,'Renamed chat');
+  assert.equal(status('https://chatgpt.com/c/abc123').category,'work');
+  assert.equal(status('https://chatgpt.com/c/different').saved,null);
+  assert.equal(status('https://chatgpt.com/c/different').category,'uncategorized');
+  for(const url of ['https://chatgpt.com/','https://chatgpt.com/library',
+    'https://example.com/c/abc123','https://chatgpt.com/g/g-some-gpt']) {
+    assert.equal(status(url),null);
+  }
+});
+
+test('bookmark widget is isolated and keeps user-initiated mutations local', () => {
+  assert.match(script,/const quickSaveRoot = quickSaveHost\.attachShadow\(\{mode:'open'\}\)/);
+  assert.match(script,/document\.body\.appendChild\(quickSaveHost\)/);
+  assert.match(script,/function persistQuickSave\(item, operation, title, category\)/);
+  assert.match(script,/GM_setValue\(storageKey,serialize\(next\)\)/);
+  assert.match(script,/GM_setValue\(STORAGE_KEY,\{version:2,assignments:nextAssignments\}\)/);
+  assert.match(script,/currentProjectForManualIntake\(\):currentChatForManualIntake\(\)/);
+  assert.match(script,/if\(item\.key!==quickSaveActiveKey\)\{closeQuickSave\(\)/);
+  assert.match(script,/Remove this SwiftClick shortcut\? The original ChatGPT/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+});
+
 test('script stays isolated from production distribution until review', () => {
   assert.match(script, /@version\s+0\.1\.0-alpha\.27/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);

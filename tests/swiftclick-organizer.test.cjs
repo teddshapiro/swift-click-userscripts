@@ -836,7 +836,7 @@ test('edit popover saves name and category together and keeps remove action sepa
   assert.match(script, /button\('Save changes', 'action', saveChanges\)/);
   assert.match(script, /title !== item\.title && !renameSavedShortcut\(item, title\)/);
   assert.match(script, /if \(selector\.value !== categoryFor\(item\)\)/);
-  assert.match(script, /button\('Remove shortcut', 'action remove-action'/);
+  assert.match(script, /button\(profileMode\?'Remove from profile':'Remove shortcut'/);
   assert.doesNotMatch(script, /selector\.addEventListener\('change'/);
   assert.match(script, /GM_setValue\(storageKey, updated\.map/);
   assert.match(script, /seen\.set\(item\.key, renamed\)/);
@@ -1171,7 +1171,7 @@ test('categorizing a discovered project preserves its shortcut across reloads', 
   assert.match(script, /title !== item\.title && !renameSavedShortcut\(item, title\)/);
   assert.match(script, /function saveProjectShortcut\(project,category='uncategorized'\)/);
   assert.match(script, /const next=existing\.filter\(p=>p\.key!==parsed\.key\)\.concat\(parsed\)/);
-  assert.match(script, /seen\.set\(parsed\.key, parsed\)/);
+  assert.match(script, /seen\.set\(parsed\.key,parsed\)/);
   assert.match(script, /GM_setValue\(MANUAL_PROJECTS_KEY/);
   assert.doesNotMatch(script, /'Saved project' : 'Project'/);
   assert.match(script, /for \(const c of CATEGORIES\)/);
@@ -1323,7 +1323,7 @@ test('profiles use a dedicated versioned store and retain legacy recovery keys',
   assert.doesNotMatch(reader,/GM_setValue\(STORAGE_KEY/);
   assert.match(script,/function removeSavedShortcut\(item\)/);
   assert.match(script,/if\(!removeSavedShortcut\(item\)\)/);
-  assert.match(script,/const profiles=profilesState\.profiles\.map\(p=>/);
+  assert.match(script,/profileMemberUpdate\(profilesState,profilesState\.activeId,/);
 
   assert.match(script,/const PROFILES_KEY = APP_ID \+ '\.profiles\.v1'/);
   assert.match(script,/const PROFILES_V2_KEY = APP_ID \+ '\.profiles\.v2'/);
@@ -1338,7 +1338,7 @@ test('profiles use a dedicated versioned store and retain legacy recovery keys',
   assert.match(script,/deleteProfileState\(profilesState,p\.id\)/);
   assert.match(script,/wrapper\.appendChild\(makeProfileManagerIntro\(\)\)/);
   assert.doesNotMatch(script,/\{ id: 'profiles', title: 'Profiles' \}/);
-  assert.match(script,/const profiles=profilesState\.profiles\.map\(p=>/);
+  assert.match(script,/profileMemberUpdate\(profilesState,profilesState\.activeId,/);
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 

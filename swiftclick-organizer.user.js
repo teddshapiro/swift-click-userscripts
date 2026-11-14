@@ -1195,17 +1195,54 @@
   function persistProfiles(next) {
     const checked=sanitizeProfilesState(next);
     if(!checked)return false;
-    try {GM_setValue(PROFILES_V2_KEY,checked);}
-    catch(error){
-      console.warn('[SwiftClick Organizer] Could not save profiles:',error);
-      profilesError='Could not save profiles. Your previous configuration is unchanged.';
+    const previous=profilesState;
+    // Only links that LOST their last membership during this operation can
+    // be garbage-collected; migration never invokes garbage collection.
+    const lost=previous?[...new Set(previous.profiles.flatMap(p=>p.members))]
+      .filter(key=>!isMemberAnywhere(checked,key)):[];
+    const oldProjects=manualProjects,oldChats=savedChats;
+    const removed=new Set(lost);
+    const projects=oldProjects.filter(link=>!removed.has(link.key));
+    const chats=oldChats.filter(link=>!removed.has(link.key));
+    const serialize=items=>items.map(({href,title})=>({href,title}));
+    let wroteProjects=false,wroteChats=false,wroteProfile=false;
+    try {
+      GM_setValue(PROFILES_V2_KEY,checked);
+      wroteProfile=true;
+      if(projects.length!==oldProjects.length){
+        GM_setValue(MANUAL_PROJECTS_KEY,serialize(projects));
+        wroteProjects=true;
+      }
+      if(chats.length!==oldChats.length){
+        GM_setValue(SAVED_CHATS_KEY,serialize(chats));
+        wroteChats=true;
+      }
+    }catch(error){
+      console.warn('[SwiftClick Organizer] Could not commit profile/library update:',error);
+      // Best-effort rollback. Keep the previous in-memory view on failure.
+      try {if(wroteChats)GM_setValue(SAVED_CHATS_KEY,serialize(oldChats));}catch(_){}
+      try {if(wroteProjects)GM_setValue(MANUAL_PROJECTS_KEY,serialize(oldProjects));}catch(_){}
+      try {if(wroteProfile && previous)GM_setValue(PROFILES_V2_KEY,previous);}catch(_){}
+      profilesError='Could not save profiles or clean up shortcuts; previous view retained.';
       return false;
     }
     profilesState=checked;
     profilesError='';
+    manualProjects=projects;savedChats=chats;
+    for(const key of lost)seen.delete(key);
     const active=checked.profiles.find(p=>p.id===checked.activeId);
     activateProfileSnapshot(active);
     return true;
+  }
+  function setActiveProfileMembership(key,category,included) {
+    if(!profileMode || !validCategory(category))return false;
+    const next=profileMemberUpdate(profilesState,profilesState.activeId,
+      key,category,included);
+    return Boolean(next && persistProfiles(next));
+  }
+  function isInActiveProfile(key) {
+    if(!profileMode)return true;
+    return memberInProfile(profilesState.profiles.find(p=>p.id===profilesState.activeId),key);
   }
   function persistCurrentProfile() {
     if(!profileMode)return false;

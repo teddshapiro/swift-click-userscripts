@@ -4097,8 +4097,12 @@
       actions.appendChild(rename);
       if(p.id!==profilesState.activeId && p.id!==profilesState.defaultId){
         actions.appendChild(button('Delete','action remove-action',()=>{
-          if(!window.confirm('Delete the profile "'+p.name+
-            '"? Saved ChatGPT shortcuts and all other profiles will remain unchanged.'))return;
+          const exclusive=p.members.filter(key=>!profilesState.profiles.some(other=>
+            other.id!==p.id && memberInProfile(other,key)));
+          if(!window.confirm('Delete the profile "'+p.name+'"? '+
+            exclusive.length+' shortcut'+(exclusive.length===1?'':'s')+
+            ' exist only in this profile and will be removed from the SwiftClick library. '+
+            'Links included in other profiles will remain. No original ChatGPT projects or chats are deleted.'))return;
           const next=deleteProfileState(profilesState,p.id);
           if(next && persistProfiles(next))render();
         }));

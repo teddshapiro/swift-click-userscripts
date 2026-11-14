@@ -25,6 +25,7 @@
   const CATEGORY_DEFS_KEY = APP_ID + '.categoryDefinitions.v1';
   const CATEGORY_SETUP_KEY = APP_ID + '.categorySetup.v1';
   const PROFILES_KEY = APP_ID + '.profiles.v1';
+  const ACTIVE_PROFILE_TAB_KEY = APP_ID + '.activeProfileTab.v1';
   const QUICK_LINKS_KEY = APP_ID + '.quickLinks.v1';
   const QUICK_LINKS_V2_KEY = APP_ID + '.quickLinks.v2';
   const CHATGPT_TOOLS_KEY = APP_ID + '.chatgptTools.v1';
@@ -1184,6 +1185,11 @@
     if(!profileMode || !profilesState.profiles.some(p=>p.id===id))return false;
     if(!persistProfiles({...profilesState,activeId:id,
       defaultId:makeDefault?id:profilesState.defaultId}))return false;
+    try {
+      if(makeDefault || id===profilesState.defaultId)
+        window.sessionStorage.removeItem(ACTIVE_PROFILE_TAB_KEY);
+      else window.sessionStorage.setItem(ACTIVE_PROFILE_TAB_KEY,id);
+    } catch(_) {}
     currentCategory=null;query='';editItemKey=null;managingCategories=false;
     iconPickerCategoryId=null;
     render();
@@ -1200,7 +1206,14 @@
       GM_setValue(PROFILES_KEY,initial);
       profilesState=initial;profileMode=true;
     }
-    activateProfileSnapshot(profilesState.profiles.find(p=>p.id===profilesState.activeId));
+    // The default profile loads in new tabs. An explicit switch is tab-local
+    // until the user deliberately makes that arrangement the default.
+    let tabChoice=null;
+    try {tabChoice=window.sessionStorage.getItem(ACTIVE_PROFILE_TAB_KEY);}catch(_){}
+    const chosen=profilesState.profiles.find(p=>p.id===tabChoice) ||
+      profilesState.profiles.find(p=>p.id===profilesState.defaultId);
+    profilesState={...profilesState,activeId:chosen.id};
+    activateProfileSnapshot(chosen);
   } catch(error) {
     console.warn('[SwiftClick Organizer] Profile initialization failed; using legacy data:',error);
     profilesError='Profiles could not initialize. Legacy configuration remains available.';
@@ -1374,6 +1387,16 @@
     '.card-icon{display:block;font-size:24px;line-height:1.1;}',
     '.card-title{display:block;font-weight:700;font-size:15px;margin:8px 0 4px;}',
     '.card-meta{color:#afc1d8;font-size:12px;}',
+    '.profile-manager{display:grid;gap:15px;max-width:900px;}',
+    '.profile-manager h2{margin:0;font-size:20px;}',
+    '.profile-create,.profile-rename{display:flex;align-items:center;gap:9px;flex-wrap:wrap;}',
+    '.profile-create input,.profile-create select,.profile-rename input{flex:1 1 170px;min-width:140px;padding:10px;border:1px solid #607c99;border-radius:8px;background:#203448;color:white;font:inherit;}',
+    '.profile-list{display:grid;gap:10px;}',
+    '.profile-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:15px;border:1px solid #496079;border-radius:11px;background:#1b2c40;}',
+    '.profile-info{display:grid;gap:5px;flex:1;min-width:170px;}',
+    '.profile-actions{display:flex;gap:6px;flex-wrap:wrap;}',
+    '.profile-rename{flex:0 0 100%;}',
+    '.profile-error{color:#ffbdbd;font-size:13px;}',
     '.category-manager{display:grid;gap:15px;max-width:850px;}',
     '.category-manager h2{margin:0;font-size:20px;}',
     '.category-manager-list{display:grid;gap:9px;}',
@@ -3686,6 +3709,107 @@
     }
   }
 
+
+  function makeProfilesManager() {
+    const wrapper=el('div','profile-manager');
+    wrapper.appendChild(el('h2','','Organizer Profiles'));
+    wrapper.appendChild(el('p','hint',
+      'Profiles organize the same saved ChatGPT projects and chats. Each profile has independent categories, assignments and ordering. Quick Links and ChatGPT Tools are shared.'));
+    if(!profileMode){
+      wrapper.appendChild(el('p','profile-error',profilesError ||
+        'Profiles could not initialize; your previous Organizer remains available.'));
+      return wrapper;
+    }
+    if(profilesError)wrapper.appendChild(el('div','profile-error',profilesError));
+    const active=profilesState.profiles.find(p=>p.id===profilesState.activeId);
+    const creator=el('form','profile-create');
+    const entry=el('input');
+    entry.type='text';entry.maxLength=60;entry.required=true;
+    entry.placeholder='Name a new profile';
+    entry.setAttribute('aria-label','New profile name');
+    creator.appendChild(entry);
+    const mode=el('select');
+    for(const [value,label] of [
+      ['duplicate','Duplicate current profile'],
+      ['starter','Start with generic categories']]) {
+      const option=el('option','',label);option.value=value;mode.appendChild(option);
+    }
+    mode.setAttribute('aria-label','New profile starting configuration');
+    creator.appendChild(mode);
+    const add=el('button','action','Create profile');
+    add.type='submit';add.disabled=profilesState.profiles.length>=PROFILE_LIMIT;
+    creator.appendChild(add);
+    creator.addEventListener('submit',event=>{
+      event.preventDefault();
+      const id='profile-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+      const source=mode.value==='duplicate'?active:null;
+      const next=newProfileState(profilesState,id,entry.value,source);
+      if(!next || !persistProfiles(next)){
+        profilesError='Unable to create the profile. Check the name or storage.';
+      }
+      render();
+    });
+    wrapper.appendChild(creator);
+    wrapper.appendChild(el('p','hint','Creating a profile does not switch to it. Maximum 12 profiles.'));
+    const list=el('div','profile-list');
+    for(const p of profilesState.profiles) {
+      const row=el('div','profile-row');
+      const title=el('div','profile-info');
+      const badges=[
+        p.id===profilesState.activeId?'Active':'',
+        p.id===profilesState.defaultId?'Default':''
+      ].filter(Boolean).join(' · ');
+      title.appendChild(el('strong','',p.name));
+      title.appendChild(el('span','hint',
+        p.categories.length+' categories'+(badges?' · '+badges:'')));
+      row.appendChild(title);
+      const actions=el('div','profile-actions');
+      if(p.id!==profilesState.activeId){
+        actions.appendChild(button('Activate','action',()=>switchProfile(p.id)));
+      }
+      if(p.id!==profilesState.defaultId){
+        actions.appendChild(button('Make default','action',()=>{
+          // Set default without unexpectedly changing the active tab's layout.
+          if(!persistProfiles({...profilesState,defaultId:p.id}))return render();
+          render();
+        }));
+      }
+      const rename=button('Rename','action',()=>{
+        profileEditingId=profileEditingId===p.id?null:p.id;render();
+      });
+      actions.appendChild(rename);
+      if(p.id!==profilesState.activeId && p.id!==profilesState.defaultId){
+        actions.appendChild(button('Delete','action remove-action',()=>{
+          if(!window.confirm('Delete the profile "'+p.name+
+            '"? Saved ChatGPT shortcuts and all other profiles will remain unchanged.'))return;
+          const next=deleteProfileState(profilesState,p.id);
+          if(next && persistProfiles(next))render();
+        }));
+      }
+      row.appendChild(actions);
+      if(profileEditingId===p.id){
+        const form=el('form','profile-rename');
+        const input=el('input');input.type='text';input.maxLength=60;
+        input.required=true;input.value=p.name;form.appendChild(input);
+        const save=el('button','action','Save name');save.type='submit';form.appendChild(save);
+        form.addEventListener('submit',event=>{
+          event.preventDefault();
+          const value=input.value.trim();
+          if(!value || value.length>60)return;
+          const next={...profilesState,profiles:profilesState.profiles.map(q=>q.id===p.id?
+            {...q,name:value}:q)};
+          if(persistProfiles(next)){profileEditingId=null;render();}
+        });
+        row.appendChild(form);
+      }
+      list.appendChild(row);
+    }
+    wrapper.appendChild(list);
+    wrapper.appendChild(el('p','hint',
+      'The active profile controls this tab. The default profile loads in new browser tabs. To delete a default or active profile, choose a different one first.'));
+    return wrapper;
+  }
+
   function render() {
     panel.replaceChildren();
     // Upgrade every select after this synchronous render has completed.
@@ -3695,6 +3819,14 @@
     brand.appendChild(el('div', 'brand', '▦  SwiftClick Organizer'));
     brand.appendChild(el('div', 'muted', 'A personal front door to ChatGPT · Technical PoC'));
     header.appendChild(brand);
+    if(profileMode){
+      const selected=profilesState.profiles.find(p=>p.id===profilesState.activeId);
+      const control=button('Profile: '+selected.name+' ▾','action',()=>{
+        activeTab='profiles';render();
+      });
+      control.setAttribute('aria-label','Manage Organizer profiles. Active: '+selected.name);
+      header.appendChild(control);
+    }
     header.appendChild(button('✕ Close', 'action', hide));
     panel.appendChild(header);
 
@@ -3703,7 +3835,8 @@
     for (const tab of [{ id: 'categories', title: 'ChatGPT Categories' },
       { id: 'quicklinks', title: 'Quick Links' },
       { id: 'tools', title: 'ChatGPT Tools' },
-      { id: 'prompts', title: 'Prompt Builder' }]) {
+      { id: 'prompts', title: 'Prompt Builder' },
+      { id: 'profiles', title: 'Profiles' }]) {
       const control = button(tab.title, 'section-tab', () => {
         if (activeTab === 'prompts' && tab.id !== 'prompts') clearPromptDraft();
         activeTab = tab.id;
@@ -3735,6 +3868,15 @@
 
     const content = el('div', 'main');
 
+    if(activeTab==='profiles'){
+      content.appendChild(makeProfilesManager());
+      panel.appendChild(content);
+      const foot=el('div','foot');
+      foot.appendChild(el('span','hint',
+        'Profiles are stored locally. Your original pre-profile configuration is retained for recovery.'));
+      panel.appendChild(foot);
+      return;
+    }
     if (activeTab === 'prompts') {
       content.appendChild(makePromptBuilder());
       panel.appendChild(content);

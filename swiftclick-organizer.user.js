@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.30
+// @version      0.1.0-alpha.31
 // @description  Organize ChatGPT projects, quick links, and ChatGPT tools in four tabs.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -24,6 +24,7 @@
   const ORDER_KEY = APP_ID + '.categoryOrder.v1';
   const CATEGORY_DEFS_KEY = APP_ID + '.categoryDefinitions.v1';
   const CATEGORY_SETUP_KEY = APP_ID + '.categorySetup.v1';
+  const PROFILES_KEY = APP_ID + '.profiles.v1';
   const QUICK_LINKS_KEY = APP_ID + '.quickLinks.v1';
   const QUICK_LINKS_V2_KEY = APP_ID + '.quickLinks.v2';
   const CHATGPT_TOOLS_KEY = APP_ID + '.chatgptTools.v1';
@@ -786,6 +787,71 @@
     return data.templates.filter(x=>(!category || x.category===category) &&
       (!q || (x.title+' '+x.description+' '+x.category).toLocaleLowerCase().includes(q)));
   }
+
+  // Profiles are organization views over the SAME saved-link library.
+  // The legacy category/assignment/order keys remain an untouched recovery source.
+  const PROFILE_LIMIT = 12;
+  function profileSnapshot(categories, assigned, orders) {
+    return {
+      categories: categories.map(({id,label,icon})=>({id,label,icon})),
+      assignments: {...assigned},
+      categoryOrders: Object.fromEntries(Object.entries(orders)
+        .map(([id,keys])=>[id,[...keys]]))
+    };
+  }
+  function firstProfileState(categories, assigned, orders) {
+    return {version:1, activeId:'profile-original', defaultId:'profile-original',
+      profiles:[{id:'profile-original',name:'My Organization',
+        ...profileSnapshot(categories,assigned,orders)}]};
+  }
+  function sanitizeProfilesState(raw) {
+    if (!raw || raw.version!==1 || !Array.isArray(raw.profiles) ||
+        !raw.profiles.length || raw.profiles.length>PROFILE_LIMIT) return null;
+    const ids=new Set(), profiles=[];
+    for(const p of raw.profiles) {
+      if (!p || typeof p!=='object' ||
+          !/^profile-[a-z0-9-]{3,80}$/.test(p.id||'') ||
+          ids.has(p.id) || typeof p.name!=='string' ||
+          !p.name.trim() || p.name.trim().length>60 ||
+          !Array.isArray(p.categories) || !p.categories.length ||
+          p.categories.length>40 || !p.categories.some(c=>c.id==='uncategorized') ||
+          !p.assignments || typeof p.assignments!=='object' ||
+          Array.isArray(p.assignments) || !p.categoryOrders ||
+          typeof p.categoryOrders!=='object' || Array.isArray(p.categoryOrders)) return null;
+      const categories=sanitizeCategoryDefinitions({version:1,categories:p.categories});
+      // A malformed profile must not silently replace user categories with defaults.
+      if(categories.length!==p.categories.length) return null;
+      const {assignments}=migrateAssignments(p.assignments,categories);
+      const categoryOrders=sanitizeCategoryOrders(
+        {version:1,categories:p.categoryOrders},categories);
+      profiles.push({id:p.id,name:p.name.trim(),
+        ...profileSnapshot(categories,assignments,categoryOrders)});
+      ids.add(p.id);
+    }
+    if(!ids.has(raw.activeId)||!ids.has(raw.defaultId))return null;
+    return {version:1,activeId:raw.activeId,defaultId:raw.defaultId,profiles};
+  }
+  function profileWithSnapshot(state,id,snapshot) {
+    return {...state,profiles:state.profiles.map(p=>p.id===id?
+      {...p,...profileSnapshot(snapshot.categories,snapshot.assignments,
+        snapshot.categoryOrders)}:p)};
+  }
+  function newProfileState(state,id,name,source=null) {
+    if(!state || state.profiles.length>=PROFILE_LIMIT ||
+      !/^profile-[a-z0-9-]{3,80}$/.test(id) ||
+      state.profiles.some(p=>p.id===id) ||
+      !String(name||'').trim() || String(name).trim().length>60)return null;
+    const snap=source || profileSnapshot(DEFAULT_CATEGORIES, {}, {});
+    return {...state,profiles:[...state.profiles,{
+      id,name:String(name).trim(),
+      ...profileSnapshot(snap.categories,snap.assignments,snap.categoryOrders)}]};
+  }
+  function deleteProfileState(state,id) {
+    if(!state || state.profiles.length<2 || id===state.activeId ||
+      id===state.defaultId || !state.profiles.some(p=>p.id===id))return null;
+    return {...state,profiles:state.profiles.filter(p=>p.id!==id)};
+  }
+
   // Node regression tests opt in to helpers, bypassing browser initialization.
   if (typeof globalThis !== 'undefined' && globalThis.__SC_ORGANIZER_TEST_HOOKS__) {
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
@@ -798,6 +864,8 @@
       cleanIntakeName, chooseProjectName, headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
       sanitizeCategoryDefinitions, chooseInitialCategoryDefinitions,
       quickSaveStateForRoute,
+      firstProfileState,sanitizeProfilesState,profileSnapshot,profileWithSnapshot,
+      newProfileState,deleteProfileState,
       legacyCategoryDefinitions: LEGACY_CATEGORY_DEFINITIONS_V1,
       starterCategoryDefinitions: DEFAULT_CATEGORIES,
       createCategoryModel, renameCategoryModel,
@@ -881,15 +949,13 @@
   let categoryManagerError = '';
 
   function saveCategoryDefinitions() {
+    if(profileMode)return persistCurrentProfile();
     try {
-      GM_setValue(CATEGORY_DEFS_KEY, {
-        version: 1,
-        categories: CATEGORIES.map(({ id, label, icon }) => ({ id, label, icon }))
-      });
+      GM_setValue(CATEGORY_DEFS_KEY,{version:1,
+        categories:CATEGORIES.map(({id,label,icon})=>({id,label,icon}))});
       return true;
-    } catch (error) {
-      console.warn('[SwiftClick Organizer] Could not save category definitions:', error);
-      window.alert('SwiftClick could not save categories. Please check Tampermonkey storage.');
+    } catch(error) {
+      console.warn('[SwiftClick Organizer] Could not save legacy categories:',error);
       return false;
     }
   }
@@ -1010,11 +1076,9 @@
   let categoryOrders = readCategoryOrders();
 
   function persistCategoryOrders() {
-    try {
-      GM_setValue(ORDER_KEY, { version: 1, categories: categoryOrders });
-    } catch (error) {
-      console.warn('[SwiftClick Organizer] Could not save local item order:', error);
-    }
+    if(profileMode)return persistCurrentProfile();
+    try {GM_setValue(ORDER_KEY,{version:1,categories:categoryOrders});return true;}
+    catch(error){console.warn('[SwiftClick Organizer] Could not save local order:',error);return false;}
   }
 
   function forgetItemOrder(key) {
@@ -1077,6 +1141,71 @@
     }
   }
   let assignments = readAssignments();
+
+  // Bootstrap once from the actual legacy state; never rewrite those keys.
+  // If migration cannot be persisted, keep using the old single-profile layout.
+  let profilesState=null;
+  let profileMode=false;
+  let profilesError='';
+  let profileNameDraft='';
+  let profileCreateMode='';
+  let profileEditingId=null;
+  function activateProfileSnapshot(profile) {
+    CATEGORIES=profile.categories.map(c=>({...c}));
+    assignments={...profile.assignments};
+    categoryOrders=Object.fromEntries(Object.entries(profile.categoryOrders)
+      .map(([id,keys])=>[id,[...keys]]));
+  }
+  function persistProfiles(next) {
+    const checked=sanitizeProfilesState(next);
+    if(!checked)return false;
+    try {GM_setValue(PROFILES_KEY,checked);}
+    catch(error){
+      console.warn('[SwiftClick Organizer] Could not save profiles:',error);
+      profilesError='Could not save profiles. Your previous configuration is unchanged.';
+      return false;
+    }
+    profilesState=checked;
+    profilesError='';
+    const active=checked.profiles.find(p=>p.id===checked.activeId);
+    activateProfileSnapshot(active);
+    return true;
+  }
+  function persistCurrentProfile() {
+    if(!profileMode)return false;
+    const next=profileWithSnapshot(profilesState,profilesState.activeId,
+      profileSnapshot(CATEGORIES,assignments,categoryOrders));
+    if(persistProfiles(next))return true;
+    // Roll back a failed in-memory mutation; never write to legacy keys.
+    activateProfileSnapshot(profilesState.profiles.find(p=>p.id===profilesState.activeId));
+    return false;
+  }
+  function switchProfile(id,makeDefault=false) {
+    if(!profileMode || !profilesState.profiles.some(p=>p.id===id))return false;
+    if(!persistProfiles({...profilesState,activeId:id,
+      defaultId:makeDefault?id:profilesState.defaultId}))return false;
+    currentCategory=null;query='';editItemKey=null;managingCategories=false;
+    iconPickerCategoryId=null;
+    render();
+    return true;
+  }
+  try {
+    const saved=GM_getValue(PROFILES_KEY,null);
+    if(saved!==null){
+      const loaded=sanitizeProfilesState(saved);
+      if(!loaded)throw Error('Existing profile data failed validation; refusing to overwrite.');
+      profilesState=loaded;profileMode=true;
+    } else {
+      const initial=firstProfileState(CATEGORIES,assignments,categoryOrders);
+      GM_setValue(PROFILES_KEY,initial);
+      profilesState=initial;profileMode=true;
+    }
+    activateProfileSnapshot(profilesState.profiles.find(p=>p.id===profilesState.activeId));
+  } catch(error) {
+    console.warn('[SwiftClick Organizer] Profile initialization failed; using legacy data:',error);
+    profilesError='Profiles could not initialize. Legacy configuration remains available.';
+  }
+
 
   function readManualProjects() {
     try {
@@ -1178,11 +1307,9 @@
   }
 
   function saveAssignments() {
-    try {
-      GM_setValue(STORAGE_KEY, { version: 2, assignments });
-    } catch (error) {
-      console.warn('[SwiftClick Organizer] Could not save local labels:', error);
-    }
+    if(profileMode)return persistCurrentProfile();
+    try {GM_setValue(STORAGE_KEY,{version:2,assignments});return true;}
+    catch(error){console.warn('[SwiftClick Organizer] Could not save labels:',error);return false;}
   }
 
   function el(tag, className, text) {

@@ -451,6 +451,14 @@
     }
   }
 
+  function quickSaveStateForRoute(route, origin, projects, chats, assignmentsMap, categories) {
+    const item = parseItemLink(route, '', origin);
+    if (!item) return null;
+    const list = item.type === 'project' ? projects : chats;
+    return { ...item, saved: list.find((x) => x.key === item.key) || null,
+      category: normalizeCategoryId(assignmentsMap[item.key], categories) };
+  }
+
   function sanitizeManualProject(raw, origin) {
     if (!raw || typeof raw !== 'object') return null;
     const name = String(raw.title || '').replace(/\s+/g, ' ').trim().slice(0, 140);
@@ -789,6 +797,7 @@
       renameSavedShortcutModel,
       cleanIntakeName, chooseProjectName, headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
       sanitizeCategoryDefinitions, chooseInitialCategoryDefinitions,
+      quickSaveStateForRoute,
       legacyCategoryDefinitions: LEGACY_CATEGORY_DEFINITIONS_V1,
       starterCategoryDefinitions: DEFAULT_CATEGORIES,
       createCategoryModel, renameCategoryModel,
@@ -1588,11 +1597,8 @@
   let quickSaveActiveKey = null;
   let quickSaveSnapshot = '';
   function currentQuickSave() {
-    const item = parseItemLink(location.href, '', location.origin);
-    if (!item) return null;
-    const list = item.type === 'project' ? manualProjects : savedChats;
-    return { ...item, saved:list.find(x=>x.key===item.key)||null,
-      category:normalizeCategoryId(assignments[item.key]) };
+    return quickSaveStateForRoute(location.href, location.origin,
+      manualProjects, savedChats, assignments, CATEGORIES);
   }
   function closeQuickSave() {
     quickSavePopover.hidden = true;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.29
+// @version      0.1.0-alpha.30
 // @description  Organize ChatGPT projects, quick links, and ChatGPT tools in four tabs.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1551,16 +1551,16 @@
     'button:focus-visible,input:focus-visible{outline:3px solid #85caff;outline-offset:2px;}',
     'svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round;}',
     '.bookmark[data-saved="true"] svg{fill:#91dfb044;}',
-    '.popover{pointer-events:auto;position:absolute;right:0;top:44px;width:min(330px,calc(100vw - 20px));max-height:calc(100vh - 145px);overflow:auto;border:1px solid #67809a;border-radius:12px;background:#142335;padding:14px;display:grid;gap:11px;box-shadow:0 14px 34px #0009;}',
+    '.popover{pointer-events:auto;position:absolute;right:0;top:44px;width:min(330px,calc(100vw - 20px));max-height:calc(100vh - 145px);max-height:calc(100dvh - 145px);overflow-y:auto;border:1px solid #67809a;border-radius:12px;background:#142335;padding:14px;display:flex;flex-direction:column;gap:11px;box-shadow:0 14px 34px #0009;}',
     '.popover[hidden]{display:none!important;}',
     '.heading{font-size:15px;font-weight:750;}',
     '.hint{color:#b9ccdf;font-size:12px;}',
     'label{display:grid;gap:6px;font-size:12px;font-weight:650;}',
     'input{width:100%;padding:9px;background:#20374d;color:#fff;border:1px solid #718da6;border-radius:8px;caret-color:white;}',
-    '.choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;max-height:165px;overflow:auto;}',
+    '.choices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;align-content:start;flex:0 1 auto;min-height:0;max-height:none;overflow-y:auto;}',
     '.choice{background:#263e55;color:#fff;border:1px solid #63839f;border-radius:8px;padding:9px 7px;text-align:left;cursor:pointer;overflow-wrap:anywhere;}',
     '.choice[aria-pressed="true"]{border-color:#b5dfff;background:#3c607c;box-shadow:inset 0 0 0 1px #b5dfff;}',
-    '.actions{display:flex;gap:6px;flex-wrap:wrap;}',
+    '.actions{display:flex;gap:6px;flex-wrap:wrap;flex-shrink:0;}',
     '.action{background:#2f526f;border:1px solid #7996b0;border-radius:8px;color:#fff;padding:9px 11px;cursor:pointer;}',
     '.action.primary{background:#346997;font-weight:750;}',
     '.action.danger{background:#4a2933;border-color:#b97e8a;}',

@@ -1195,7 +1195,7 @@
   function persistProfiles(next) {
     const checked=sanitizeProfilesState(next);
     if(!checked)return false;
-    try {GM_setValue(PROFILES_KEY,checked);}
+    try {GM_setValue(PROFILES_V2_KEY,checked);}
     catch(error){
       console.warn('[SwiftClick Organizer] Could not save profiles:',error);
       profilesError='Could not save profiles. Your previous configuration is unchanged.';
@@ -1210,7 +1210,8 @@
   function persistCurrentProfile() {
     if(!profileMode)return false;
     const next=profileWithSnapshot(profilesState,profilesState.activeId,
-      profileSnapshot(CATEGORIES,assignments,categoryOrders));
+      profileSnapshot(CATEGORIES,assignments,categoryOrders,
+        profilesState.profiles.find(p=>p.id===profilesState.activeId).members));
     if(persistProfiles(next))return true;
     // Roll back a failed in-memory mutation; never write to legacy keys.
     activateProfileSnapshot(profilesState.profiles.find(p=>p.id===profilesState.activeId));
@@ -1229,30 +1230,6 @@
     iconPickerCategoryId=null;
     render();
     return true;
-  }
-  try {
-    const saved=GM_getValue(PROFILES_KEY,null);
-    if(saved!==null){
-      const loaded=sanitizeProfilesState(saved);
-      if(!loaded)throw Error('Existing profile data failed validation; refusing to overwrite.');
-      profilesState=loaded;profileMode=true;
-    } else {
-      const initial=firstProfileState(CATEGORIES,assignments,categoryOrders,
-        firstRunCategorySeed?'Starter':'My Organization');
-      GM_setValue(PROFILES_KEY,initial);
-      profilesState=initial;profileMode=true;
-    }
-    // The default profile loads in new tabs. An explicit switch is tab-local
-    // until the user deliberately makes that arrangement the default.
-    let tabChoice=null;
-    try {tabChoice=window.sessionStorage.getItem(ACTIVE_PROFILE_TAB_KEY);}catch(_){}
-    const chosen=profilesState.profiles.find(p=>p.id===tabChoice) ||
-      profilesState.profiles.find(p=>p.id===profilesState.defaultId);
-    profilesState={...profilesState,activeId:chosen.id};
-    activateProfileSnapshot(chosen);
-  } catch(error) {
-    console.warn('[SwiftClick Organizer] Profile initialization failed; using legacy data:',error);
-    profilesError='Profiles could not initialize. Legacy configuration remains available.';
   }
 
 
@@ -1291,6 +1268,39 @@
   }
   let savedChats = readSavedChats();
   for (const chat of savedChats) seen.set(chat.key, chat);
+
+  // V1 remains untouched. Only the V2 key is read/written after migration.
+  // Perform migration after loading the shared shortcut inventory, so the
+  // previous visible link set can be explicitly included in every old profile.
+  try {
+    const storedV2=GM_getValue(PROFILES_V2_KEY,null);
+    if(storedV2!==null) {
+      const loaded=sanitizeProfilesState(storedV2);
+      if(!loaded)throw Error('V2 profile data failed validation; refusing to overwrite.');
+      profilesState=loaded;profileMode=true;
+    }else{
+      const libraryKeys=[...new Set([...manualProjects,...savedChats].map(i=>i.key))];
+      const old=GM_getValue(PROFILES_KEY,null);
+      const candidate=old!==null?
+        upgradeProfilesToV2(old,libraryKeys):
+        firstProfileState(CATEGORIES,assignments,categoryOrders,
+          firstRunCategorySeed?'Starter':'My Organization',libraryKeys);
+      const loaded=sanitizeProfilesState(candidate);
+      if(!loaded)throw Error('Cannot validate migration; old data is unchanged.');
+      GM_setValue(PROFILES_V2_KEY,loaded);
+      profilesState=loaded;profileMode=true;
+    }
+    let tabChoice=null;
+    try {tabChoice=window.sessionStorage.getItem(ACTIVE_PROFILE_TAB_KEY);}catch(_){}
+    const chosen=profilesState.profiles.find(p=>p.id===tabChoice) ||
+      profilesState.profiles.find(p=>p.id===profilesState.defaultId);
+    profilesState={...profilesState,activeId:chosen.id};
+    activateProfileSnapshot(chosen);
+  }catch(error){
+    console.warn('[SwiftClick Organizer] Membership migration failed; reverting to legacy layout:',error);
+    profilesError='Profile migration failed. Existing saved shortcuts and profiles are preserved.';
+  }
+
 
   function saveSavedChats() {
     try {
@@ -2379,7 +2389,9 @@
   }
 
   function visibleItems(categoryId) {
-    return [...seen.values()].filter((item) => itemInCategory(categoryFor(item), categoryId));
+    const active=profileMode?profilesState.profiles.find(p=>p.id===profilesState.activeId):null;
+    return [...seen.values()].filter(item=>(!profileMode || memberInProfile(active,item.key)) &&
+      itemInCategory(categoryFor(item),categoryId));
   }
 
   function focusCategoryDragHandle(categoryId) {

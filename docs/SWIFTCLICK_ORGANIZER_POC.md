@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.30)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.31)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -725,3 +725,35 @@ Alpha.29 repairs both and adds a targeted CSS-separator regression test. **GitHu
 ## Alpha.30 — Quick Save category selector responsive height (2026-11-14)
 
 Removed the fixed 165px height ceiling on the Quick Save category grid. The panel now uses a vertical flex layout within its viewport-aware maximum height. The category grid uses its natural content height for ordinary category counts and shrinks to a scrollable region only when the viewport cannot accommodate the full content; action buttons resist shrinking. This retains the existing 2-column category layout and all saved data and interactions. Regression test verifies flexible category height and absence of the former hard cap. Browser acceptance: check all categories visible without scrolling on a tall desktop window; check narrow/short windows and unusually many categories for scrolling and reachable Save/Remove/Close actions.
+
+## Alpha.31 — Stage 1 Organizer Profiles (2026-11-14)
+
+**Scope:** Profile infrastructure, migration, management and safe switching only. No AI category-generation/import functionality yet.
+
+### Data model and migration
+- New Tampermonkey key `swiftclick-organizer-poc.profiles.v1` stores a single versioned `{version,activeId,defaultId,profiles}` object. Each profile stores its stable identifier, editable name, ordered category definitions/icons, project/chat category assignments, and per-category saved-item order. A single store/write for the organizational profile snapshot avoids splitting an active profile between three unrelated keys.
+- On first alpha.31 run, create one profile from the currently loaded **real** category definitions, assignments and ordering. Existing installs receive **My Organization**; truly fresh installations receive **Starter** with the generic categories.
+- **Legacy category/assignment/order keys are retained as recovery records.** Once profiles are enabled, subsequent edits to organizational data write the profile key instead of overwriting legacy keys. Legacy assignment normalization on load is now read-only. Do not delete those keys or assume they are current after using Profiles.
+- Shared saved project/chat URLs and names are unchanged and remain in their existing global Tampermonkey stores. Quick Links, ChatGPT Tools and Prompt Builder are not profile-specific.
+- Existing profile store values are validated. An invalid/unknown version fails closed to legacy mode without overwriting the existing profile record. This is recovery fallback, not a permanent migration/import tool. Profile stores are limited to twelve profiles.
+- On a write failure, profile state updates are rejected and the previous saved profile's active snapshot restored in memory. Existing original data remains a safety net. Full export/restore remains a separate future milestone.
+
+### Interface
+- Fifth top-level tab: **Profiles**, with name, active/default indicators, Create (duplicate current or generic starter), Activate, Make default, Rename and guarded Delete. The header also shows the active profile and links directly to the tab.
+- Activation is specific to the current browser tab (via sessionStorage) and persists on reload of that tab. The default determines which profile is chosen in a new browser tab; it is updated only when the user explicitly selects **Make default**.
+- The active/default profile cannot be deleted. To delete one, change the active/default profile first; at least one profile remains.
+- A profile references the same globally saved projects/chats. Removing a shared shortcut via either the bookmark or Organizer main list cleans the obsolete key from all profiles without deleting the corresponding ChatGPT object.
+- An ordinary category edit, drag reorder, assignment edit, or Quick Save category change affects only the active profile.
+
+### Acceptance procedure — existing user's Firefox
+1. Before updating, record a screenshot of the current category screen, icons, representative saved project/chat placements and ordering. Optionally retain a copy of the previously installed alpha.30 source.
+2. Update to alpha.31 and refresh. The new **My Organization** profile should reproduce **all** existing category names/icons, category order, assignments and saved-item order.
+3. Create **Test Copy** by duplicating the active profile. Activate it and rename a category, recategorize a project/chat, and reorder a saved item. Switch back to **My Organization**: none of those organizational changes should be present.
+4. Activate **Test Copy**, refresh in the same tab: it should remain active. Open ChatGPT in a *new* tab: it should select the configured default, initially **My Organization**.
+5. Make **Test Copy** the default; open a new tab and confirm it now loads by default. Change the default back to **My Organization**.
+6. Create a generic **Clean Slate** profile: expect five generic categories and existing saved project/chat links available via the shared inventory, initially assigned to Uncategorized.
+7. Verify Quick Links and ChatGPT Tools remain unchanged on switching. Test the page bookmark on a saved chat with different category placements in the two profiles.
+8. Verify active and default profiles cannot be deleted; select an alternative active profile and default before deleting a test profile. Deleting a profile must not delete any saved ChatGPT shortcut.
+9. Reopen the original profile and confirm the original setup still matches the starting screenshot.
+
+**Important:** A regression test suite can verify the model and storage code, but it cannot establish successful migration of the actual authenticated Firefox/Tampermonkey store. Keep this on the experimental development branch and draft PR #6 pending browser acceptance. Avoid concurrent edits in multiple tabs during initial testing because cross-tab profile synchronization has not yet been implemented.

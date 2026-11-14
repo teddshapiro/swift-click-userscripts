@@ -949,6 +949,7 @@
   let editItemKey = null; // One card-level editing popover at a time.
   let iconPickerCategoryId = null;
   let managingCategories = false;
+  let profileAdminExpanded = false;
   let categoryManagerError = '';
 
   function saveCategoryDefinitions() {
@@ -1434,6 +1435,7 @@
     '.category-profile-switch .sc-select-wrap{flex:1;}',
     '.category-profile-switch .sc-select-trigger{min-height:43px;}',
     '.profile-current{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px;border:1px solid #4c6985;border-radius:10px;background:#1a2b40;}',
+    '.profile-admin-toggle{justify-self:start;}',
     '.profile-current-label{display:flex;align-items:center;gap:10px;flex:1;min-width:230px;font-weight:700;font-size:13px;}',
     '.profile-current-label select{min-width:150px;max-width:none;flex:1;}',
     '.profile-current-label .sc-select-wrap{flex:1;min-width:160px;}',
@@ -2312,7 +2314,20 @@
     wrapper.appendChild(el('h2', '', 'Manage Profiles & Categories'));
     if (profileMode) {
       wrapper.appendChild(makeProfileManagerIntro());
-      wrapper.appendChild(makeProfilesManager());
+      const expand=button(profileAdminExpanded?'▾ Hide profile management':'▸ Manage profiles…',
+        'action profile-admin-toggle',()=>{
+          profileAdminExpanded=!profileAdminExpanded;
+          profileEditingId=null;
+          render();
+        });
+      expand.setAttribute('aria-expanded',String(profileAdminExpanded));
+      expand.setAttribute('aria-controls','swiftclick-profile-admin');
+      wrapper.appendChild(expand);
+      if(profileAdminExpanded){
+        const admin=makeProfilesManager();
+        admin.id='swiftclick-profile-admin';
+        wrapper.appendChild(admin);
+      }
     }
     wrapper.appendChild(el('h3', 'category-section-title', 'Categories in the active profile'));
     wrapper.appendChild(el('p', 'hint',

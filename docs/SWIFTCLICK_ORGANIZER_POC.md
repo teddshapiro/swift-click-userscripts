@@ -2,7 +2,7 @@
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.29)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.30)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -721,3 +721,7 @@ The Organizer now provides an always-local bookmark control on **recognized Chat
 User-provided Firefox screenshot of alpha.28 showed an unstyled thin gray rectangle at the intended bookmark position; it disappeared when disabling the Organizer, and was not clickable. Code inspection found the root cause: the `QUICK_SAVE_CSS` rule-array used `join('\\\\n')` (literal backslash plus n) instead of the normal newline separator `join('\\n')`. The browser therefore could not apply the Shadow DOM stylesheet reliably. The Quick Save title trimming expression also contained an overescaped whitespace regex; that is corrected.
 
 Alpha.29 repairs both and adds a targeted CSS-separator regression test. **GitHub Actions is green; real Firefox visual and click acceptance is still required.** Verify the visible outlined/filled bookmark, click to open the popover, save and remove from an unsaved and saved chat/project respectively, and ensure the existing Organizer launcher and native ChatGPT controls remain clickable. No storage schema or saved shortcut data was changed.
+
+## Alpha.30 — Quick Save category selector responsive height (2026-11-14)
+
+Removed the fixed 165px height ceiling on the Quick Save category grid. The panel now uses a vertical flex layout within its viewport-aware maximum height. The category grid uses its natural content height for ordinary category counts and shrinks to a scrollable region only when the viewport cannot accommodate the full content; action buttons resist shrinking. This retains the existing 2-column category layout and all saved data and interactions. Regression test verifies flexible category height and absence of the former hard cap. Browser acceptance: check all categories visible without scrolling on a tall desktop window; check narrow/short windows and unusually many categories for scrolling and reachable Save/Remove/Close actions.

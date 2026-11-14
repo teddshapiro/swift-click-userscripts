@@ -1124,17 +1124,9 @@
     try {
       const value = GM_getValue(STORAGE_KEY, {});
       if (!value || typeof value !== 'object' || typeof value.assignments !== 'object') return {};
-      const { assignments: clean, migrated } = migrateAssignments(value.assignments);
-      if (migrated) {
-        // Preserve project/chat links and category decisions; only flatten
-        // category IDs. This is idempotent and uses the existing storage key.
-        try {
-          GM_setValue(STORAGE_KEY, { version: 2, assignments: clean });
-        } catch (error) {
-          // A storage write failure must never blank the user's loaded labels.
-          console.warn('[SwiftClick Organizer] Could not persist category migration:', error);
-        }
-      }
+      // Migration into profiles is read-only. The pre-profile source is kept
+      // intact as a recovery snapshot, even if its IDs need normalization.
+      const { assignments: clean } = migrateAssignments(value.assignments);
       return clean;
     } catch (error) {
       console.warn('[SwiftClick Organizer] Could not read local labels:', error);
@@ -1295,6 +1287,41 @@
     manualProjects = manualProjects.filter((p) => p.key !== parsed.key).concat(parsed);
     seen.set(parsed.key, parsed);
     saveManualProjects();
+    return true;
+  }
+
+  function removeSavedShortcut(item) {
+    const isProject=item.type==='project';
+    const existing=isProject?manualProjects:savedChats;
+    if(!existing.some(x=>x.key===item.key))return false;
+    const storageKey=isProject?MANUAL_PROJECTS_KEY:SAVED_CHATS_KEY;
+    const next=existing.filter(x=>x.key!==item.key);
+    const serialize=arr=>arr.map(({href,title})=>({href,title}));
+    try {GM_setValue(storageKey,serialize(next));}
+    catch(error){console.warn('[SwiftClick Organizer] Shortcut deletion failed:',error);return false;}
+    let success=false;
+    if(profileMode){
+      const profiles=profilesState.profiles.map(p=>{
+        const assigned={...p.assignments};delete assigned[item.key];
+        const order=Object.fromEntries(Object.entries(p.categoryOrders).map(([id,keys])=>
+          [id,keys.filter(key=>key!==item.key)]));
+        return {...p,assignments:assigned,categoryOrders:order};
+      });
+      success=persistProfiles({...profilesState,profiles});
+    }else{
+      const assigned={...assignments};delete assigned[item.key];
+      try {GM_setValue(STORAGE_KEY,{version:2,assignments:assigned});success=true;
+        assignments=assigned;}
+      catch(error){console.warn('[SwiftClick Organizer] Shortcut cleanup failed:',error);}
+    }
+    if(!success){
+      try {GM_setValue(storageKey,serialize(existing));}
+      catch(error){console.warn('[SwiftClick Organizer] Restore shortcut after error failed:',error);}
+      return false;
+    }
+    if(isProject)manualProjects=next;else savedChats=next;
+    seen.delete(item.key);
+    if(!profileMode)forgetItemOrder(item.key);
     return true;
   }
 
@@ -3186,17 +3213,10 @@
         const remove = button('Remove shortcut', 'action remove-action', () => {
           if (!window.confirm('Remove this saved shortcut from SwiftClick Organizer? The original ChatGPT ' +
               item.type + ' will not change.')) return;
-          if (item.type === 'project') {
-            manualProjects = manualProjects.filter((p) => p.key !== item.key);
-            saveManualProjects();
-          } else {
-            savedChats = savedChats.filter((c) => c.key !== item.key);
-            saveSavedChats();
+          if(!removeSavedShortcut(item)){
+            window.alert('Could not remove this shortcut. Your saved records were left unchanged.');
+            return;
           }
-          seen.delete(item.key);
-          delete assignments[item.key];
-          forgetItemOrder(item.key);
-          saveAssignments();
           editItemKey = null;
           render();
         });

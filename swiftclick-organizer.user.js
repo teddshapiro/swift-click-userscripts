@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.32
+// @version      0.1.0-alpha.33
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1739,6 +1739,17 @@
     ':host([hidden]){display:none!important;}',
     '*{box-sizing:border-box;}',
     'button,input{font:inherit;}',
+    '.profile-picker{display:grid;gap:5px;position:relative;flex:none;}',
+    '.profile-label{color:#bfd4e8;font-size:12px;font-weight:700;}',
+    '.profile-trigger{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;min-height:37px;padding:9px 10px;background:#24415b;color:#fff;border:1px solid #7aa2c4;border-radius:8px;text-align:left;cursor:pointer;}',
+    '.profile-trigger:hover{background:#355878;}',
+    '.profile-list{position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:5;max-height:min(260px,40dvh);overflow-y:auto;background:#fff;color:#101827;border:1px solid #a2b6cb;border-radius:8px;padding:4px;box-shadow:0 12px 30px #0009;}',
+    '.profile-list[hidden]{display:none!important;}',
+    '.profile-option{display:block;width:100%;padding:9px 10px;background:white;color:#111827;text-align:left;border:0;border-radius:5px;cursor:pointer;}',
+    '.profile-option:hover,.profile-option:focus-visible{background:#e8f2ff;color:#091b32;outline:2px solid #2a628d;outline-offset:-2px;}',
+    '.profile-option[aria-current="true"]{font-weight:800;background:#e3eef8;}',
+    '.profile-context{color:#bdcede;font-size:11px;line-height:1.4;}',
+    '.success{color:#a5efc1;font-size:12px;line-height:1.4;}',
     '.bookmark{pointer-events:auto;width:36px;height:36px;display:grid;place-items:center;border:1px solid #7992aa;border-radius:10px;background:#182b3e;color:#e3f0ff;cursor:pointer;box-shadow:0 4px 14px #0004;}',
     '.bookmark[data-saved="true"]{color:#9de1b7;border-color:#69a787;background:#193930;}',
     '.bookmark:hover{background:#294760;}',
@@ -1790,11 +1801,13 @@
   document.body.appendChild(quickSaveHost);
   let quickSaveActiveKey = null;
   let quickSaveSnapshot = '';
+  let quickSaveNotice = '';
   function currentQuickSave() {
     return quickSaveStateForRoute(location.href, location.origin,
       manualProjects, savedChats, assignments, CATEGORIES);
   }
   function closeQuickSave() {
+    quickSaveNotice = '';
     quickSavePopover.hidden = true;
     quickSaveButton.setAttribute('aria-expanded','false');
   }
@@ -1860,52 +1873,130 @@
     const item=currentQuickSave();
     if (!item) {closeQuickSave();return;}
     quickSavePopover.replaceChildren();
-    quickSavePopover.appendChild(el('div','heading',item.saved?'✓ Saved in SwiftClick':'Add to SwiftClick'));
-    quickSavePopover.appendChild(el('div','hint',item.type==='project'?'Current project':'Current conversation'));
-    const titleLabel=el('label','','Display name');
+    quickSavePopover.appendChild(el('div','heading',
+      item.saved?'✓ Saved in SwiftClick':'Add to SwiftClick'));
+    quickSavePopover.appendChild(el('div','hint',
+      item.type==='project'?'Current project':'Current conversation'));
+
+    if(profileMode) {
+      const picker=el('div','profile-picker');
+      const heading=el('div','profile-label','Organize in profile');
+      picker.appendChild(heading);
+      const active=profilesState.profiles.find(p=>p.id===profilesState.activeId);
+      const trigger=button(active.name+'  ▾','profile-trigger',()=>{
+        const opening=list.hidden;
+        list.hidden=!opening;
+        trigger.setAttribute('aria-expanded',String(opening));
+        if(opening) {
+          const chosen=list.querySelector('[aria-current="true"]');
+          if(chosen)chosen.focus();
+        }
+      });
+      trigger.setAttribute('aria-label','Select profile for this shortcut. Current: '+active.name);
+      trigger.setAttribute('aria-haspopup','listbox');
+      trigger.setAttribute('aria-expanded','false');
+      picker.appendChild(trigger);
+      const list=el('div','profile-list');
+      list.hidden=true;
+      list.setAttribute('role','listbox');
+      list.setAttribute('aria-label','Choose Organizer profile');
+      const closeList=()=>{
+        list.hidden=true;
+        trigger.setAttribute('aria-expanded','false');
+      };
+      for(const profile of profilesState.profiles) {
+        const option=button(profile.name+
+          (profile.id===profilesState.defaultId?' · Default':''),'profile-option',()=>{
+          closeList();
+          if(profile.id!==profilesState.activeId) {
+            if(!switchProfile(profile.id)){
+              quickSaveNotice='Could not switch profile. Please check local storage.';
+              renderQuickSaveEditor();
+              return;
+            }
+          }
+          quickSaveNotice='';
+          renderQuickSaveEditor();
+        });
+        option.setAttribute('role','option');
+        option.setAttribute('aria-selected',String(profile.id===active.id));
+        option.setAttribute('aria-current',String(profile.id===active.id));
+        option.addEventListener('keydown',event=>{
+          if(event.key==='Escape'){
+            event.preventDefault();event.stopPropagation();closeList();trigger.focus();
+          }else if(event.key==='ArrowDown'||event.key==='ArrowUp'){
+            event.preventDefault();
+            const options=[...list.querySelectorAll('button')];
+            const n=options.indexOf(option);
+            options[(n+(event.key==='ArrowDown'?1:-1)+options.length)%options.length].focus();
+          }else if(event.key==='Home'||event.key==='End'){
+            event.preventDefault();
+            const options=[...list.querySelectorAll('button')];
+            options[event.key==='Home'?0:options.length-1].focus();
+          }
+        });
+        list.appendChild(option);
+      }
+      picker.appendChild(list);
+      quickSavePopover.appendChild(picker);
+      quickSavePopover.appendChild(el('div','profile-context',
+        'Switching here changes the active ChatGPT Categories profile in this tab. '+
+        'The shortcut itself is shared; category placements are independent.'));
+    }
+
+    const titleLabel=el('label','','SwiftClick display name (shared)');
     const name=el('input');
-    name.type='text'; name.maxLength=140;
+    name.type='text';name.maxLength=140;
     name.value=item.saved?item.saved.title:'';
-    if (!item.saved) {
-      // Explicit click is the only time we inspect a current page title.
+    if(!item.saved){
       const found=item.type==='project'?currentProjectForManualIntake():currentChatForManualIntake();
-      if (found?.key===item.key) name.value=cleanIntakeName(found.title);
+      if(found?.key===item.key)name.value=cleanIntakeName(found.title);
     }
     name.placeholder=item.type==='project'?'Project name':'Chat title';
-    titleLabel.appendChild(name);quickSavePopover.appendChild(titleLabel);
-    quickSavePopover.appendChild(el('div','hint','Choose a category'));
+    titleLabel.appendChild(name);
+    quickSavePopover.appendChild(titleLabel);
+    quickSavePopover.appendChild(el('div','hint','Category in this profile'));
     const choices=el('div','choices');
     choices.setAttribute('role','group');
-    choices.setAttribute('aria-label','SwiftClick category');
+    choices.setAttribute('aria-label','Category in active profile');
     let selected=item.category;
     const buttons=[];
-    for(const c of CATEGORIES) {
+    for(const c of CATEGORIES){
       const option=button(c.icon+' '+c.label,'choice',()=>{
         selected=c.id;
-        for(const b of buttons)b.setAttribute('aria-pressed',String(b.dataset.categoryId===selected));
+        for(const b of buttons)b.setAttribute('aria-pressed',
+          String(b.dataset.categoryId===selected));
       });
       option.dataset.categoryId=c.id;
       option.setAttribute('aria-pressed',String(selected===c.id));
       buttons.push(option);choices.appendChild(option);
     }
     quickSavePopover.appendChild(choices);
+    const feedback=el('div','success',quickSaveNotice);
+    feedback.setAttribute('role','status');
+    quickSavePopover.appendChild(feedback);
     const error=el('div','error');
     error.setAttribute('role','alert');
     quickSavePopover.appendChild(error);
     const actions=el('div','actions');
-    actions.appendChild(button(item.saved?'Save changes':'Add to SwiftClick','action primary',()=>{
-      if(!name.value.trim()) {error.textContent='Please enter a display name.';name.focus();return;}
+    actions.appendChild(button(item.saved?'Save placement':'Add to SwiftClick','action primary',()=>{
+      if(!name.value.trim()){error.textContent='Please enter a display name.';name.focus();return;}
+      const profileName=profileMode?
+        profilesState.profiles.find(p=>p.id===profilesState.activeId).name:'current categories';
       if(!persistQuickSave(item,'save',name.value,selected)){
         error.textContent='Could not save. Check storage and shortcut limits.';return;
       }
-      closeQuickSave();refreshQuickSave(true);
+      quickSaveNotice='Saved in '+profileName+'. You can select another profile to organize it there, too.';
+      refreshQuickSave(true);
     }));
-    if(item.saved) actions.appendChild(button('Remove','action danger',()=>{
-      if(!window.confirm('Remove this SwiftClick shortcut? The original ChatGPT '+item.type+' will not change.'))return;
+    if(item.saved)actions.appendChild(button('Remove everywhere','action danger',()=>{
+      if(!window.confirm('Remove this saved shortcut from ALL SwiftClick profiles? '+
+        'The original ChatGPT '+item.type+' will not change.'))return;
       if(!persistQuickSave(item,'remove','',item.category)){
         error.textContent='Could not remove the shortcut.';return;
       }
-      closeQuickSave();refreshQuickSave(true);
+      quickSaveNotice='';
+      refreshQuickSave(true);
     }));
     actions.appendChild(button('Close','action',()=>{closeQuickSave();quickSaveButton.focus();}));
     quickSavePopover.appendChild(actions);

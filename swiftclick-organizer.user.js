@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.34
+// @version      0.1.0-alpha.35
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -18,20 +18,20 @@
   'use strict';
 
   const APP_ID = 'swiftclick-organizer-poc';
-  const STORAGE_KEY = APP_ID + '.assignments.v1';
   const MANUAL_PROJECTS_KEY = APP_ID + '.manualProjects.v1';
   const SAVED_CHATS_KEY = APP_ID + '.savedChats.v1';
-  const ORDER_KEY = APP_ID + '.categoryOrder.v1';
-  const CATEGORY_DEFS_KEY = APP_ID + '.categoryDefinitions.v1';
-  const CATEGORY_SETUP_KEY = APP_ID + '.categorySetup.v1';
-  const PROFILES_KEY = APP_ID + '.profiles.v1'; // Immutable alpha.33 recovery data
   const PROFILES_V2_KEY = APP_ID + '.profiles.v2';
+  // Read-only legacy indicators. They are never rewritten or auto-migrated.
+  const LEGACY_ORGANIZER_KEYS = [
+    APP_ID + '.profiles.v1', APP_ID + '.assignments.v1',
+    APP_ID + '.categoryOrder.v1', APP_ID + '.categoryDefinitions.v1',
+    APP_ID + '.categorySetup.v1'
+  ];
   const ACTIVE_PROFILE_TAB_KEY = APP_ID + '.activeProfileTab.v1';
   const QUICK_LINKS_KEY = APP_ID + '.quickLinks.v1';
   const QUICK_LINKS_V2_KEY = APP_ID + '.quickLinks.v2';
   const CHATGPT_TOOLS_KEY = APP_ID + '.chatgptTools.v1';
   const SUPPRESS_NEXT_HOME_AUTOOPEN_KEY = APP_ID + '.suppressNextHomeAutoOpen.v1';
-  const LEGACY_PENDING_INTAKE_KEY = APP_ID + '.pendingProjectNavigation.v1';
   // Flat virtual categories only; do not introduce nested categories in this MVP.
   // Only first-time installations receive these public, non-personal starters.
   // Changing this catalog must never rewrite a stored user's category list.
@@ -42,8 +42,7 @@
     { id: 'interests', label: 'Ideas & Interests', icon: '💡' },
     { id: 'uncategorized', label: 'Uncategorized', icon: '▤' }
   ];
-  // Historical built-in IDs stay valid forever so upgrades cannot discard
-  // customized categories, saved assignments or per-category ordering.
+  // Historical category identifiers remain valid inside existing V2 profiles.
   const LEGACY_CATEGORY_DEFINITIONS_V1 = [
     { id: 'family', label: 'Family', icon: '👪' },
     { id: 'health', label: 'My Health', icon: '♡' },
@@ -57,7 +56,7 @@
   const KNOWN_CATEGORY_DEFINITIONS = [...LEGACY_CATEGORY_DEFINITIONS_V1,
     ...DEFAULT_CATEGORIES.filter((c) =>
       !LEGACY_CATEGORY_DEFINITIONS_V1.some((old) => old.id === c.id))];
-  // Runtime categories are selected once from saved data, or seeded on first load.
+  // Runtime categories come from the active V2 profile.
   let CATEGORIES = DEFAULT_CATEGORIES.map((category) => ({ ...category }));
 
   // Built-in searchable icon library: no remote assets or font dependencies.
@@ -192,20 +191,6 @@
     return cleaned;
   }
 
-  // No definitions key on an older installation does not mean a fresh user:
-  // preserve that installation's original catalog if any other Organizer
-  // state exists. Persist the choice once, never reseed on future updates.
-  function chooseInitialCategoryDefinitions(stored, hasPriorState) {
-    if (stored !== null && stored !== undefined) {
-      return { categories: sanitizeCategoryDefinitions(stored),
-        seed: 'saved', shouldPersist: false };
-    }
-    const seed = hasPriorState ? 'legacy-v1' : 'starter-v1';
-    const source = hasPriorState ? LEGACY_CATEGORY_DEFINITIONS_V1 : DEFAULT_CATEGORIES;
-    return { categories: source.map((c) => ({ ...c })),
-      seed, shouldPersist: true };
-  }
-
   function createCategoryModel(categories, label, id) {
     const name = categoryLabel(label);
     if (!name || name.length > 50 || categoryLabelTaken(categories, name) ||
@@ -269,8 +254,7 @@
     return cleanIntakeName(savedName) || cleanIntakeName(destinationTitle);
   }
 
-  // One-time compatibility mapping for assignments saved by alpha.1–5.
-  // Convert virtual subcategories into their parent WITHOUT losing linked chats.
+  // Historical category aliases remain understood within existing V2 assignments.
   const LEGACY_CATEGORIES = Object.freeze({
     henry: 'family',
     bradley: 'family',
@@ -406,20 +390,17 @@
     return selectedId === null || normalizeCategoryId(assignedId) === selectedId;
   }
 
-  function migrateAssignments(rawAssignments, categories = CATEGORIES) {
+  // Sanitize assignments within a V2 profile, without legacy storage migration.
+  function sanitizeProfileAssignments(rawAssignments, categories = CATEGORIES) {
     const clean = {};
-    let migrated = false;
-    if (!rawAssignments || typeof rawAssignments !== 'object' || Array.isArray(rawAssignments)) {
-      return { assignments: clean, migrated: false };
-    }
-    for (const [key, oldId] of Object.entries(rawAssignments)) {
+    if (!rawAssignments || typeof rawAssignments !== 'object' ||
+        Array.isArray(rawAssignments)) return clean;
+    for (const [key, category] of Object.entries(rawAssignments)) {
       if (!/^(chat|project):[a-zA-Z0-9-]{1,160}$/.test(key)) continue;
-      const id = normalizeCategoryId(oldId, categories);
-      if (id !== oldId) migrated = true;
-      // Uncategorized is the default and requires no explicit stored label.
+      const id = normalizeCategoryId(category, categories);
       if (id !== 'uncategorized') clean[key] = id;
     }
-    return { assignments: clean, migrated };
+    return clean;
   }
 
   function parseItemLink(href, rawTitle, origin) {
@@ -831,13 +812,6 @@
     return {...state,profiles:state.profiles.map(p=>p.id===profileId?
       profileWithMembership(p,key,category,include):p)};
   }
-  function upgradeProfilesToV2(v1,libraryKeys) {
-    if(!v1 || v1.version!==1 || !Array.isArray(v1.profiles) ||
-      !Array.isArray(libraryKeys))return null;
-    const keys=[...new Set(libraryKeys)];
-    return {version:2,activeId:v1.activeId,defaultId:v1.defaultId,
-      profiles:v1.profiles.map(p=>({...p,members:[...keys]}))};
-  }
   function sanitizeProfilesState(raw) {
     if(!raw || raw.version!==2 || !Array.isArray(raw.profiles) ||
       !raw.profiles.length || raw.profiles.length>PROFILE_LIMIT)return null;
@@ -858,7 +832,7 @@
         new Set(p.members).size!==p.members.length)return null;
       const categories=sanitizeCategoryDefinitions({version:1,categories:p.categories});
       if(categories.length!==p.categories.length)return null;
-      const {assignments}=migrateAssignments(p.assignments,categories);
+      const assignments=sanitizeProfileAssignments(p.assignments,categories);
       const allowed=new Set(p.members);
       const cleaned=Object.fromEntries(Object.entries(assignments)
         .filter(([key])=>allowed.has(key)));
@@ -901,13 +875,13 @@
       promptCatalog:PROMPT_CATALOG,validatePromptCatalog,promptMissingFields,assemblePrompt,filterPromptTemplates,
       promptHasWork,
       formatCategoryItemCounts,
-      normalizeCategoryId, itemInCategory, migrateAssignments, sanitizeSavedChat,
+      normalizeCategoryId, itemInCategory, sanitizeProfileAssignments, sanitizeSavedChat,
       renameSavedShortcutModel,
       cleanIntakeName, chooseProjectName, headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
-      sanitizeCategoryDefinitions, chooseInitialCategoryDefinitions,
+      sanitizeCategoryDefinitions,
       quickSaveStateForRoute,
       firstProfileState,sanitizeProfilesState,profileSnapshot,profileWithSnapshot,
-      upgradeProfilesToV2,memberInProfile,isMemberAnywhere,profileWithMembership,profileMemberUpdate,
+      memberInProfile,isMemberAnywhere,profileWithMembership,profileMemberUpdate,
       newProfileState,deleteProfileState,
       legacyCategoryDefinitions: LEGACY_CATEGORY_DEFINITIONS_V1,
       starterCategoryDefinitions: DEFAULT_CATEGORIES,
@@ -929,32 +903,6 @@
 
   if (!document.documentElement || !document.body) return;
   if (document.getElementById(APP_ID + '-overlay')) return;
-
-  // Initialize category definitions before the existing assignment and order
-  // stores read category IDs; old installations have no definitions key.
-  let firstRunCategorySeed=false;
-  try {
-    const existing = GM_getValue(CATEGORY_DEFS_KEY, null);
-    const otherKeys = [STORAGE_KEY, MANUAL_PROJECTS_KEY, SAVED_CHATS_KEY,
-      ORDER_KEY, QUICK_LINKS_KEY, QUICK_LINKS_V2_KEY, CHATGPT_TOOLS_KEY];
-    const hasPriorState = otherKeys.some((key) => GM_getValue(key, null) !== null);
-    const chosen = chooseInitialCategoryDefinitions(existing, hasPriorState);
-    firstRunCategorySeed=chosen.shouldPersist && chosen.seed==='starter-v1';
-    CATEGORIES = chosen.categories;
-    if (chosen.shouldPersist) {
-      // Write the definitions before the setup marker. If saving fails, do not
-      // mark initialization complete and do not mutate any previous records.
-      GM_setValue(CATEGORY_DEFS_KEY, {
-        version: 1, categories: CATEGORIES.map(({ id, label, icon }) =>
-          ({ id, label, icon }))
-      });
-      GM_setValue(CATEGORY_SETUP_KEY, {
-        version: 1, seed: chosen.seed, categorySchemaVersion: 1
-      });
-    }
-  } catch (error) {
-    console.warn('[SwiftClick Organizer] Could not initialize categories; saved data was not reset:', error);
-  }
 
   const seen = new Map(); // Session-only inventory: no cross-account stored chat titles/links.
   let activeTab = 'categories';
@@ -994,17 +942,7 @@
   let profileAdminExpanded = false;
   let categoryManagerError = '';
 
-  function saveCategoryDefinitions() {
-    if(profileMode)return persistCurrentProfile();
-    try {
-      GM_setValue(CATEGORY_DEFS_KEY,{version:1,
-        categories:CATEGORIES.map(({id,label,icon})=>({id,label,icon}))});
-      return true;
-    } catch(error) {
-      console.warn('[SwiftClick Organizer] Could not save legacy categories:',error);
-      return false;
-    }
-  }
+  function saveCategoryDefinitions() { return persistCurrentProfile(); }
 
   function applyCategoryDefinitions(next) {
     if (!next) return false;
@@ -1111,21 +1049,8 @@
     }
   }
 
-  function readCategoryOrders() {
-    try {
-      return sanitizeCategoryOrders(GM_getValue(ORDER_KEY, { version: 1, categories: {} }));
-    } catch (error) {
-      console.warn('[SwiftClick Organizer] Could not read local item order:', error);
-      return {};
-    }
-  }
-  let categoryOrders = readCategoryOrders();
-
-  function persistCategoryOrders() {
-    if(profileMode)return persistCurrentProfile();
-    try {GM_setValue(ORDER_KEY,{version:1,categories:categoryOrders});return true;}
-    catch(error){console.warn('[SwiftClick Organizer] Could not save local order:',error);return false;}
-  }
+  let categoryOrders = {};
+  function persistCategoryOrders() { return persistCurrentProfile(); }
 
   function forgetItemOrder(key) {
     let modified = false;
@@ -1165,25 +1090,9 @@
     }
   }
 
-  function readAssignments() {
-    try {
-      const value = GM_getValue(STORAGE_KEY, {});
-      if (!value || typeof value !== 'object' || typeof value.assignments !== 'object') return {};
-      // Migration into profiles is read-only. The pre-profile source is kept
-      // intact as a recovery snapshot, even if its IDs need normalization.
-      const { assignments: clean } = migrateAssignments(value.assignments);
-      return clean;
-    } catch (error) {
-      console.warn('[SwiftClick Organizer] Could not read local labels:', error);
-      return {};
-    }
-  }
-  let assignments = readAssignments();
+  let assignments = {};
 
-  // Bootstrap once from the actual legacy state; never rewrite those keys.
-  // If migration cannot be persisted, keep using the old single-profile layout.
   let profilesState=null;
-  let profileMode=false;
   let profilesError='';
   let profileNameDraft='';
   let profileCreateMode='';
@@ -1237,17 +1146,15 @@
     return true;
   }
   function setActiveProfileMembership(key,category,included) {
-    if(!profileMode || !validCategory(category))return false;
+    if(!validCategory(category))return false;
     const next=profileMemberUpdate(profilesState,profilesState.activeId,
       key,category,included);
     return Boolean(next && persistProfiles(next));
   }
   function isInActiveProfile(key) {
-    if(!profileMode)return true;
     return memberInProfile(profilesState.profiles.find(p=>p.id===profilesState.activeId),key);
   }
   function persistCurrentProfile() {
-    if(!profileMode)return false;
     const next=profileWithSnapshot(profilesState,profilesState.activeId,
       profileSnapshot(CATEGORIES,assignments,categoryOrders,
         profilesState.profiles.find(p=>p.id===profilesState.activeId).members));
@@ -1257,7 +1164,7 @@
     return false;
   }
   function switchProfile(id,makeDefault=false) {
-    if(!profileMode || !profilesState.profiles.some(p=>p.id===id))return false;
+    if(!profilesState.profiles.some(p=>p.id===id))return false;
     if(!persistProfiles({...profilesState,activeId:id,
       defaultId:makeDefault?id:profilesState.defaultId}))return false;
     try {
@@ -1308,38 +1215,46 @@
   let savedChats = readSavedChats();
   for (const chat of savedChats) seen.set(chat.key, chat);
 
-  // V1 remains untouched. Only the V2 key is read/written after migration.
-  // Perform migration after loading the shared shortcut inventory, so the
-  // previous visible link set can be explicitly included in every old profile.
+  // V2 is the only active organizational store. Older records remain untouched.
   try {
     const storedV2=GM_getValue(PROFILES_V2_KEY,null);
     if(storedV2!==null) {
       const loaded=sanitizeProfilesState(storedV2);
       if(!loaded)throw Error('V2 profile data failed validation; refusing to overwrite.');
-      profilesState=loaded;profileMode=true;
+      profilesState=loaded;
     }else{
-      const libraryKeys=[...new Set([...manualProjects,...savedChats].map(i=>i.key))];
-      const old=GM_getValue(PROFILES_KEY,null);
-      const candidate=old!==null?
-        upgradeProfilesToV2(old,libraryKeys):
-        firstProfileState(CATEGORIES,assignments,categoryOrders,
-          firstRunCategorySeed?'Starter':'My Organization',libraryKeys);
-      const loaded=sanitizeProfilesState(candidate);
-      if(!loaded)throw Error('Cannot validate migration; old data is unchanged.');
-      GM_setValue(PROFILES_V2_KEY,loaded);
-      profilesState=loaded;profileMode=true;
+      const oldData=LEGACY_ORGANIZER_KEYS.some(key=>GM_getValue(key,null)!==null) ||
+        manualProjects.length>0 || savedChats.length>0;
+      if(oldData)throw Error('Older Organizer data without V2; run alpha.34 first.');
+      const created=sanitizeProfilesState(firstProfileState(DEFAULT_CATEGORIES,{}, {},'Starter',[]));
+      if(!created)throw Error('Could not validate starter profile.');
+      GM_setValue(PROFILES_V2_KEY,created);
+      profilesState=created;
     }
     let tabChoice=null;
-    try {tabChoice=window.sessionStorage.getItem(ACTIVE_PROFILE_TAB_KEY);}catch(_){}
+    try{tabChoice=window.sessionStorage.getItem(ACTIVE_PROFILE_TAB_KEY);}catch(_){}
     const chosen=profilesState.profiles.find(p=>p.id===tabChoice) ||
       profilesState.profiles.find(p=>p.id===profilesState.defaultId);
     profilesState={...profilesState,activeId:chosen.id};
     activateProfileSnapshot(chosen);
   }catch(error){
-    console.warn('[SwiftClick Organizer] Membership migration failed; reverting to legacy layout:',error);
-    profilesError='Profile migration failed. Existing saved shortcuts and profiles are preserved.';
+    console.error('[SwiftClick Organizer] Could not load V2 profiles; no data was overwritten:',error);
+    profilesError='Could not safely load Organizer profiles. Stored data was not changed.';
   }
-
+  if(!profilesState){
+    // Fail closed. Never show a writable empty starter instead of saved data.
+    const warning=document.createElement('div');
+    warning.id=APP_ID+'-storage-error';
+    warning.setAttribute('role','alert');
+    warning.textContent=profilesError+' If updating from an older alpha, run alpha.34 first.';
+    warning.style.position='fixed';warning.style.top='16px';
+    warning.style.right='16px';warning.style.zIndex='2147483600';
+    warning.style.maxWidth='350px';warning.style.padding='12px 15px';
+    warning.style.background='#182b3e';warning.style.color='#fff';
+    warning.style.border='1px solid #7992aa';warning.style.borderRadius='10px';
+    document.body.appendChild(warning);
+    return;
+  }
 
   function saveSavedChats() {
     try {
@@ -1360,7 +1275,7 @@
     try{GM_setValue(SAVED_CHATS_KEY,next.map(({href,title})=>({href,title})));}
     catch(error){console.warn('[SwiftClick Organizer] Chat shortcut save failed:',error);return false;}
     savedChats=next;
-    if(profileMode && !setActiveProfileMembership(parsed.key,category,true)){
+    if(!setActiveProfileMembership(parsed.key,category,true)){
       try{GM_setValue(SAVED_CHATS_KEY,existing.map(({href,title})=>({href,title})));}
       catch(_){}
       savedChats=existing;
@@ -1379,7 +1294,7 @@
   }
 
   // One type of project, regardless of whether its link was discovered or added by hand.
-  // Keep the existing storage key for backwards compatibility with alpha.2–4.
+  // Keep the existing shared shortcut key stable across versions.
   function saveProjectShortcut(project,category='uncategorized') {
     const parsed=sanitizeManualProject(project,location.origin);
     if(!parsed)return false;
@@ -1391,7 +1306,7 @@
     try{GM_setValue(MANUAL_PROJECTS_KEY,next.map(({href,title})=>({href,title})));}
     catch(error){console.warn('[SwiftClick Organizer] Project shortcut save failed:',error);return false;}
     manualProjects=next;
-    if(profileMode && !setActiveProfileMembership(parsed.key,category,true)){
+    if(!setActiveProfileMembership(parsed.key,category,true)){
       try{GM_setValue(MANUAL_PROJECTS_KEY,existing.map(({href,title})=>({href,title})));}
       catch(_){}
       manualProjects=existing;
@@ -1402,22 +1317,8 @@
   }
 
   function removeSavedShortcut(item) {
-    if(profileMode) {
-      if(!isInActiveProfile(item.key))return false;
-      // Last membership removal also removes this shared shortcut from storage.
-      return setActiveProfileMembership(item.key,'uncategorized',false);
-    }
-    const isProject=item.type==='project';
-    const existing=isProject?manualProjects:savedChats;
-    if(!existing.some(x=>x.key===item.key))return false;
-    const storageKey=isProject?MANUAL_PROJECTS_KEY:SAVED_CHATS_KEY;
-    const next=existing.filter(x=>x.key!==item.key);
-    try {GM_setValue(storageKey,next.map(({href,title})=>({href,title})));}
-    catch(error){console.warn('[SwiftClick Organizer] Shortcut deletion failed:',error);return false;}
-    if(isProject)manualProjects=next;else savedChats=next;
-    seen.delete(item.key);delete assignments[item.key];
-    forgetItemOrder(item.key);saveAssignments();
-    return true;
+    if(!isInActiveProfile(item.key))return false;
+    return setActiveProfileMembership(item.key,'uncategorized',false);
   }
 
   function renameSavedShortcut(item, newName) {
@@ -1441,11 +1342,7 @@
     return true;
   }
 
-  function saveAssignments() {
-    if(profileMode)return persistCurrentProfile();
-    try {GM_setValue(STORAGE_KEY,{version:2,assignments});return true;}
-    catch(error){console.warn('[SwiftClick Organizer] Could not save labels:',error);return false;}
-  }
+  function saveAssignments() { return persistCurrentProfile(); }
 
   function el(tag, className, text) {
     const node = document.createElement(tag);
@@ -1481,13 +1378,11 @@
     ':host{display:block;position:fixed;z-index:2147483600;pointer-events:none;font-family:system-ui,-apple-system,sans-serif;}',
     ':host([data-placement="header"]){transform:none;}',
     ':host([data-placement="fallback"]){right:10px;top:50%;transform:translateY(-50%);}',
-    'button{pointer-events:auto;display:grid;place-items:center;cursor:pointer;width:32px;height:32px;padding:0;border:0;border-radius:9px;background:transparent;color:var(--sc-launcher-color,#64748b);box-shadow:none;}',
-    'button:hover{background:var(--sc-launcher-hover,rgba(125,140,155,.13));}',
-    'button[aria-expanded="true"]{background:var(--sc-launcher-hover,rgba(125,140,155,.17));}',
+    'button{pointer-events:auto;display:grid;place-items:center;cursor:pointer;width:32px;height:32px;padding:0;border:1px solid #7992aa;border-radius:9px;background:#182b3e;color:#e3f0ff;box-shadow:0 4px 14px #0004;}',
+    'button:hover{background:#294760;}',
+    'button[aria-expanded="true"]{background:#294760;}',
     'button:focus-visible{outline:2px solid #499cfa;outline-offset:2px;}',
-    'svg{display:block;width:19px;height:19px;stroke:currentColor;stroke-width:1.9;stroke-linejoin:round;fill:none;}',
-    ':host([data-placement="fallback"]) button{background:#17212f;color:#fff;border:1px solid #778397;box-shadow:0 4px 16px #0003;}',
-    ':host([data-placement="fallback"]) button:hover{background:#26374b;}'
+    'svg{display:block;width:19px;height:19px;stroke:currentColor;stroke-width:2;stroke-linejoin:round;fill:none;}'
   ].join('\n');
 
   const OVERLAY_CSS = [
@@ -1790,8 +1685,6 @@
       const overlap = hit && !launcherHost.contains(hit) && hit.closest &&
         hit.closest('button,a,[role="button"],input,[role="textbox"]');
       if (!overlap) {
-        const computed = window.getComputedStyle(candidate);
-        launcherHost.style.setProperty('--sc-launcher-color', computed.color);
         launcherHost.style.left = geometry.x + 'px';
         launcherHost.style.top = geometry.y + 'px';
         launcherHost.style.right = 'auto';
@@ -1920,20 +1813,10 @@
     try {GM_setValue(storageKey,serialize(next));}
     catch(error){console.warn('[SwiftClick Organizer] Shortcut write failed:',error);return false;}
     let success=false;
-    if(profileMode){
-      // Only the selected profile gains membership. The shared title/URL is
-      // updated once and appears consistently wherever the link is included.
-      const target=profileMemberUpdate(profilesState,profilesState.activeId,
-        item.key,category,true);
-      success=Boolean(target && persistProfiles(target));
-    }else{
-      const nextAssignments={...assignments};
-      if(category==='uncategorized')delete nextAssignments[item.key];
-      else nextAssignments[item.key]=category;
-      try {GM_setValue(STORAGE_KEY,{version:2,assignments:nextAssignments});
-        assignments=nextAssignments;success=true;}
-      catch(error){console.warn('[SwiftClick Organizer] Assignment write failed:',error);}
-    }
+    // Only the active profile gains membership. The shared title/URL remains global.
+    const target=profileMemberUpdate(profilesState,profilesState.activeId,
+      item.key,category,true);
+    success=Boolean(target && persistProfiles(target));
     if(!success){
       try {GM_setValue(storageKey,serialize(existing));}
       catch(error){console.warn('[SwiftClick Organizer] Shortcut rollback failed:',error);}
@@ -1941,7 +1824,6 @@
     }
     if(item.type==='project')manualProjects=next;else savedChats=next;
     seen.set(item.key,entry);
-    if(!profileMode && category!==item.category)forgetItemOrder(item.key);
     if(open)render();
     return true;
   }
@@ -1955,11 +1837,9 @@
     quickSavePopover.appendChild(el('div','hint',
       item.type==='project'?'Current project':'Current conversation'));
     const included=Boolean(item.saved && isInActiveProfile(item.key));
-    const membershipCount=profileMode?
-      profilesState.profiles.filter(p=>memberInProfile(p,item.key)).length:
-      (item.saved?1:0);
+    const membershipCount=profilesState.profiles.filter(p=>memberInProfile(p,item.key)).length;
 
-    if(profileMode) {
+    {
       const picker=el('div','profile-picker');
       const heading=el('div','profile-label','Organize in profile');
       picker.appendChild(heading);
@@ -2066,8 +1946,7 @@
     const actions=el('div','actions');
     actions.appendChild(button(included?'Save placement':'Add to this profile','action primary',()=>{
       if(!name.value.trim()){error.textContent='Please enter a display name.';name.focus();return;}
-      const profileName=profileMode?
-        profilesState.profiles.find(p=>p.id===profilesState.activeId).name:'current categories';
+      const profileName=profilesState.profiles.find(p=>p.id===profilesState.activeId).name;
       if(!persistQuickSave(item,'save',name.value,selected)){
         error.textContent='Could not save. Check storage and shortcut limits.';return;
       }
@@ -2075,8 +1954,7 @@
       refreshQuickSave(true);
     }));
     if(included)actions.appendChild(button('Remove from profile','action danger',()=>{
-      const profileName=profileMode?
-        profilesState.profiles.find(p=>p.id===profilesState.activeId).name:'Organizer';
+      const profileName=profilesState.profiles.find(p=>p.id===profilesState.activeId).name;
       const last=membershipCount===1;
       if(!window.confirm('Remove this shortcut from "'+profileName+'"? '+
         (last?'This is its last profile; the saved SwiftClick shortcut will also be removed. ':
@@ -2098,9 +1976,9 @@
     if(quickSaveHost.hidden){closeQuickSave();quickSaveActiveKey=null;return;}
     if(item.key!==quickSaveActiveKey){closeQuickSave();quickSaveActiveKey=item.key;}
     const snapshot=item.key+':'+Boolean(item.saved)+':'+item.category+':'+
-      (profileMode?profilesState.activeId+':'+
-        profilesState.profiles.filter(p=>memberInProfile(p,item.key)).length+':'+
-        isInActiveProfile(item.key):'legacy');
+      profilesState.activeId+':'+
+      profilesState.profiles.filter(p=>memberInProfile(p,item.key)).length+':'+
+      isInActiveProfile(item.key);
     if(force||snapshot!==quickSaveSnapshot){
       quickSaveSnapshot=snapshot;
       const included=Boolean(item.saved && isInActiveProfile(item.key));
@@ -2109,7 +1987,7 @@
       quickSaveButton.dataset.saved=String(included);
       quickSaveButton.setAttribute('aria-label',
         (included?'Manage this ':'Add this ')+item.type+
-        (profileMode?' in '+profilesState.profiles.find(p=>p.id===profilesState.activeId).name:' in SwiftClick'));
+        ' in '+profilesState.profiles.find(p=>p.id===profilesState.activeId).name);
       quickSaveButton.title=included?'Included in active profile · Manage':
         item.saved?'Saved in another profile · Add here':'Add to SwiftClick';
       if(!quickSavePopover.hidden)renderQuickSaveEditor();
@@ -2447,8 +2325,8 @@
   }
 
   function visibleItems(categoryId) {
-    const active=profileMode?profilesState.profiles.find(p=>p.id===profilesState.activeId):null;
-    return [...seen.values()].filter(item=>(!profileMode || memberInProfile(active,item.key)) &&
+    const active=profilesState.profiles.find(p=>p.id===profilesState.activeId);
+    return [...seen.values()].filter(item=>memberInProfile(active,item.key) &&
       itemInCategory(categoryFor(item),categoryId));
   }
 
@@ -2476,12 +2354,6 @@
   function makeProfileSelector(className, ariaLabel) {
     const select=el('select',className);
     select.setAttribute('aria-label',ariaLabel);
-    if (!profileMode) {
-      select.disabled=true;
-      const opt=el('option','','Legacy categories');opt.value='legacy';
-      select.appendChild(opt);
-      return select;
-    }
     for(const p of profilesState.profiles) {
       const opt=el('option','',p.name+(p.id===profilesState.defaultId?' · Default':''));
       opt.value=p.id;
@@ -2513,7 +2385,7 @@
   function makeCategoryManager() {
     const wrapper = el('div', 'category-manager');
     wrapper.appendChild(el('h2', '', 'Manage Profiles & Categories'));
-    if (profileMode) {
+    {
       wrapper.appendChild(makeProfileManagerIntro());
       const expand=button(profileAdminExpanded?'▾ Hide profile management':'▸ Manage profiles…',
         'action profile-admin-toggle',()=>{
@@ -3482,12 +3354,11 @@
           .find((node) => node.dataset.itemKey === item.key);
         if (focused) focused.focus();
       }));
-      if (item.manual || profileMode) {
-        const remove = button(profileMode?'Remove from profile':'Remove shortcut',
+      {
+        const remove = button('Remove from profile',
           'action remove-action', () => {
-          const activeName=profileMode?
-            profilesState.profiles.find(p=>p.id===profilesState.activeId).name:'Organizer';
-          const last=profileMode&&profilesState.profiles.filter(p=>memberInProfile(p,item.key)).length===1;
+          const activeName=profilesState.profiles.find(p=>p.id===profilesState.activeId).name;
+          const last=profilesState.profiles.filter(p=>memberInProfile(p,item.key)).length===1;
           if (!window.confirm('Remove this shortcut from "'+activeName+'"? '+
               (last?'It is the final membership; the stored shortcut will also be removed. ':'')+
               'The original ChatGPT '+item.type+' will not change.'))return;
@@ -3588,11 +3459,6 @@
         message.textContent = 'Could not save the chat shortcut (or the 500-chat limit was reached).';
         return;
       }
-      if(!profileMode){
-        if(selector.value==='uncategorized')delete assignments[item.key];
-        else assignments[item.key]=selector.value;
-        saveAssignments();
-      }
       addingChat = false;
       intakeChat = null;
       query = '';
@@ -3662,11 +3528,6 @@
       if (!saveProjectShortcut(parsed,selector.value)) {
         message.textContent = 'Could not save the project shortcut (or the 200-project limit was reached).';
         return;
-      }
-      if(!profileMode){
-        if(selector.value==='uncategorized')delete assignments[parsed.key];
-        else assignments[parsed.key]=selector.value;
-        saveAssignments();
       }
       addingProject = false;
       intakeProject = null;
@@ -4034,11 +3895,6 @@
     wrapper.appendChild(el('h2','','Profiles'));
     wrapper.appendChild(el('p','hint',
       'Choose a profile to edit its categories below. Create, rename or delete profiles here. Saved ChatGPT shortcuts remain shared across profiles.'));
-    if(!profileMode){
-      wrapper.appendChild(el('p','profile-error',profilesError ||
-        'Profiles could not initialize; your previous Organizer remains available.'));
-      return wrapper;
-    }
     if(profilesError)wrapper.appendChild(el('div','profile-error',profilesError));
     const active=profilesState.profiles.find(p=>p.id===profilesState.activeId);
     const creator=el('form','profile-create');
@@ -4298,7 +4154,7 @@
     });
     const searchRow=el('div','category-search-row');
     searchRow.appendChild(search);
-    if (profileMode) {
+    {
       const profileSelect=makeProfileSelector('category-profile-select','Switch active Organizer profile');
       const selectorLabel=el('label','category-profile-switch','Profile');
       selectorLabel.appendChild(profileSelect);
@@ -4347,9 +4203,7 @@
     panel.appendChild(content);
 
     const footer = el('div', 'foot');
-    const visibleLinks=profileMode?
-      profilesState.profiles.find(p=>p.id===profilesState.activeId).members.length:
-      manualProjects.length+savedChats.length;
+    const visibleLinks=profilesState.profiles.find(p=>p.id===profilesState.activeId).members.length;
     footer.appendChild(el('span','hint',
       visibleLinks+' saved shortcuts in this profile.'));
     const footerActions = el('div', 'footer-actions');
@@ -4541,10 +4395,6 @@
   window.addEventListener('scroll', scheduleRefresh, { passive: true, capture: true });
   positionProjectMenuAction();
   refreshQuickSave();
-  // Clear any orphaned navigation intent left by alpha.12's Project Home
-  // auto-click mechanism; this version never resumes an automatic navigation.
-  try { window.sessionStorage.removeItem(LEGACY_PENDING_INTAKE_KEY); } catch (_) { /* storage optional */ } // Full page navigation should not lose an intake.
-
   // The ordinary home page auto-opens. New Chat navigations do not reopen
   // the launcher, and Temporary Chat should remain unobstructed.
   let autoOpenMarker = null;

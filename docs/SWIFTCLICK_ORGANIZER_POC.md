@@ -1,10 +1,10 @@
 # SwiftClick Organizer — Technical Proof of Concept
 
-> **Current handoff (2026-11-14):** See [SwiftClick Organizer — Development Handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) for the authoritative alpha.34 behavior, initial owner Firefox acceptance, storage/migration safety requirements, CI and open risks. This lengthy document preserves the historical alpha-by-alpha decisions; earlier descriptions of a shared global Uncategorized pool or a separate Profiles top-level tab are **superseded** by Stage 1.5. The current implementation is still experimental on the development branch, not merged to `main`.
+> **Current alpha.35 baseline:** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.34)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.35)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -815,3 +815,13 @@ The page-level bookmark now includes a labeled **Organize in profile** picker wi
 10. Check Quick Links, ChatGPT Tools, Prompt Builder, category order, project-menu action, and short-window bookmark overflow. Avoid concurrent multi-tab edits during these tests.
 
 **Known scope:** Master-library management is intentionally hidden. To add an existing shortcut to a profile, navigate to its ChatGPT page or paste its URL through the Organizer Add flow. AI-generated category/profile import remains a separate future stage.
+
+## Alpha.35 — Matching navy header launcher and V2-only cleanup (2026-11-14)
+
+**Only routine user-interface change:** the existing 2×2-square Organizer header launcher now uses the bookmark widget's navy fill (`#182b3e`), pale border (`#7992aa`), white-blue SVG stroke (`#e3f0ff`), subtle shadow and navy hover state (`#294760`). The launcher remains 32×32 pixels, anchored outside React-owned controls with the same collision guard and right-edge fallback. The Quick Save bookmark itself and all other interface surfaces are unchanged. This is an obvious visual confirmation of installing alpha.35.
+
+**V2-only data model:** `swiftclick-organizer-poc.profiles.v2` remains the authoritative live profile store; `manualProjects.v1` and `savedChats.v1` remain the shared link library. Existing V2 profiles, category definitions, assignments, memberships, order, active/default behavior, and orphan-cleanup semantics are unchanged. Removed the old alpha.33-to-alpha.34 migration function, old pre-profile category initialization, and legacy-mode read/write branches throughout the interface. Category aliases and previously valid built-in category IDs continue to be recognized *inside current V2 profiles*, not as separate active storage formats.
+
+**Safe startup:** first-time installations with no existing organizational data directly create an empty V2 Starter profile. Existing installations load and validate V2 without rewriting old keys. A missing or corrupt V2 with pre-existing legacy data now fails closed and shows a visible warning rather than overwriting the saved configuration. Anyone still on a pre-alpha.34 version must first run alpha.34 to migrate, then update to alpha.35. Historical Tampermonkey keys are not deleted. The independent Quick Links V1/V2 fallback remains in place.
+
+**Test/acceptance focus:** syntax check and regression suite; current V2 profile preservation on reload; blank-starter initialization; invalid/missing V2 storage behavior; profile add/remove and final-reference cleanup; fixed blue launcher visible in header and right-edge fallback; modal/bookmark appearance unaffected. Test multiple tabs and storage write failures before public release. Alpha.35 stays exclusively on the development branch and draft PR #6; no merge or release is authorized. Stage 2 remains deferred.

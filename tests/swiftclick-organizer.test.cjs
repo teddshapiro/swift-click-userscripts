@@ -478,67 +478,47 @@ test('Quick Links opens real new-tab anchors and is isolated from ChatGPT invent
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 
-test('fresh installs use public starter categories and preserve no private link inventory', () => {
-  const setup = hooks.chooseInitialCategoryDefinitions(null, false);
-  assert.equal(setup.seed, 'starter-v1');
-  assert.equal(setup.shouldPersist, true);
-  assert.deepEqual(Array.from(setup.categories,(c)=>c.id),
+test('fresh installations create a blank V2 Starter profile directly', () => {
+  const initial=hooks.firstProfileState(hooks.starterCategoryDefinitions,{}, {},'Starter',[]);
+  const checked=hooks.sanitizeProfilesState(initial);
+  assert.equal(checked.version,2);
+  assert.equal(checked.profiles[0].name,'Starter');
+  assert.deepEqual(Array.from(checked.profiles[0].categories,c=>c.id),
     ['work','personal','learning','interests','uncategorized']);
-  assert.equal(setup.categories.some((c)=>c.id==='family' || c.id==='business'),false);
-  assert.match(script,/const CATEGORY_SETUP_KEY = APP_ID \+ '\.categorySetup\.v1'/);
-  assert.match(script,/GM_setValue\(CATEGORY_DEFS_KEY/);
-  assert.match(script,/GM_setValue\(CATEGORY_SETUP_KEY/);
+  assert.deepEqual(Array.from(checked.profiles[0].members),[]);
+  assert.match(script,/firstProfileState\(DEFAULT_CATEGORIES,\{\}, \{\},'Starter',\[\]\)/);
+  assert.match(script,/GM_setValue\(PROFILES_V2_KEY,created\)/);
 });
 
-test('preexisting Organizer state without category definitions is seeded with legacy catalog', () => {
-  const setup = hooks.chooseInitialCategoryDefinitions(null, true);
-  assert.equal(setup.seed,'legacy-v1');
-  assert.equal(setup.shouldPersist,true);
-  assert.deepEqual(Array.from(setup.categories,(c)=>c.id),
-    ['family','health','finances','home','business','ai','hobbies','uncategorized']);
-  assert.match(script,/const hasPriorState = otherKeys\.some/);
+test('pre-V2 installations cannot silently initialize over saved data', () => {
+  assert.match(script,/LEGACY_ORGANIZER_KEYS\.some\(key=>GM_getValue\(key,null\)!==null\)/);
+  assert.match(script,/manualProjects\.length>0 \|\| savedChats\.length>0/);
+  assert.match(script,/if\(oldData\)throw Error/);
+  assert.match(script,/if\(!profilesState\)/);
+  assert.match(script,/warning\.setAttribute\('role','alert'\)/);
+  assert.doesNotMatch(script,/upgradeProfilesToV2|chooseInitialCategoryDefinitions/);
+  assert.doesNotMatch(script,/GM_setValue\(STORAGE_KEY|GM_setValue\(ORDER_KEY|GM_setValue\(CATEGORY_DEFS_KEY/);
 });
 
-test('saved customized categories survive an update without reseeding', () => {
-  const stored={version:1,categories:[
+test('V2 custom categories, assignments and ordering survive validation', () => {
+  const categories=hooks.sanitizeCategoryDefinitions({version:1,categories:[
     {id:'business',label:'My studio',icon:'🎨'},
     {id:'custom-work123',label:'Client work',icon:'💼'},
-    {id:'family',label:'Family archive',icon:'👪'},
     {id:'uncategorized',label:'Uncategorized',icon:'▤'}
-  ]};
-  const result=hooks.chooseInitialCategoryDefinitions(stored,true);
-  assert.equal(result.shouldPersist,false);
-  assert.equal(result.seed,'saved');
-  assert.deepEqual(Array.from(result.categories,c=>c.id),
-    ['business','custom-work123','family','uncategorized']);
-  assert.equal(result.categories[0].label,'My studio');
-  assert.equal(result.categories[0].icon,'🎨');
-  const assignments=hooks.migrateAssignments({
-    'project:g-p-client':'custom-work123','chat:family':'family'
-  },result.categories);
-  assert.equal(assignments.migrated,false);
-  assert.equal(assignments.assignments['project:g-p-client'],'custom-work123');
-  assert.equal(assignments.assignments['chat:family'],'family');
-  const order=hooks.sanitizeCategoryOrders({version:1,categories:{
-    'custom-work123':['project:g-p-client'],family:['chat:family']
-  }},result.categories);
-  assert.deepEqual(Array.from(order['custom-work123']),['project:g-p-client']);
-  assert.deepEqual(Array.from(order.family),['chat:family']);
-  const absent=hooks.chooseInitialCategoryDefinitions({version:1,categories:[
-    {id:'custom-only1',label:'My only category'}
-  ]},true);
-  assert.equal(absent.categories.some(c=>c.id==='work'),false);
-});
-
-test('existing category definitions are authoritative even without other saved data', () => {
-  const existing={version:1,categories:[{id:'hobbies',label:'Cinema'},
-    {id:'uncategorized',label:'Uncategorized'}]};
-  const result=hooks.chooseInitialCategoryDefinitions(existing,false);
-  assert.equal(result.shouldPersist,false);
-  assert.deepEqual(Array.from(result.categories,c=>c.id),['hobbies','uncategorized']);
-  assert.equal(hooks.sanitizeCategoryDefinitions({version:1,categories:[
-    {id:'learning',label:'Courses'}
-  ]})[0].id,'learning');
+  ]});
+  const initial=hooks.firstProfileState(categories,
+    {'project:g-p-client':'custom-work123','chat:family':'business'},
+    {'custom-work123':['project:g-p-client']},'Private profile',
+    ['project:g-p-client','chat:family']);
+  const result=hooks.sanitizeProfilesState(initial);
+  assert.deepEqual(Array.from(result.profiles[0].categories,c=>c.id),
+    ['business','custom-work123','uncategorized']);
+  assert.equal(result.profiles[0].categories[0].label,'My studio');
+  assert.equal(result.profiles[0].assignments['chat:family'],'business');
+  assert.deepEqual(Array.from(result.profiles[0].categoryOrders['custom-work123']),
+    ['project:g-p-client']);
+  assert.deepEqual(Array.from(result.profiles[0].members),
+    ['project:g-p-client','chat:family']);
 });
 
 test('category catalog defaults and persists custom names, order and deletion', () => {
@@ -605,21 +585,18 @@ test('custom categories preserve assignments and ordering across reload', () => 
   const saved = hooks.sanitizeCategoryDefinitions({version:1,
     categories:Array.from(catalog,(c)=>({id:c.id,label:c.label}))});
   assert.equal(hooks.validCategory('custom-services', saved), true);
-  const migrated = hooks.migrateAssignments({'project:g-p-a':'custom-services',
+  const cleaned = hooks.sanitizeProfileAssignments({'project:g-p-a':'custom-services',
     'chat:one':'home'}, saved);
-  assert.equal(migrated.assignments['project:g-p-a'], 'custom-services');
-  assert.equal(migrated.assignments['chat:one'], 'home');
-  assert.equal(migrated.migrated, false);
+  assert.equal(cleaned['project:g-p-a'], 'custom-services');
+  assert.equal(cleaned['chat:one'], 'home');
   const ordered = hooks.sanitizeCategoryOrders({version:1,categories:{
     'custom-services':['project:g-p-a'], home:['chat:one']
   }}, saved);
   assert.deepEqual(Array.from(ordered['custom-services']), ['project:g-p-a']);
   assert.deepEqual(Array.from(ordered.home), ['chat:one']);
   const removed = hooks.deleteCategoryModel(saved, 'custom-services');
-  assert.equal(hooks.migrateAssignments({'project:g-p-a':'custom-services'},removed)
-    .assignments['project:g-p-a'],undefined);
-  assert.equal(hooks.migrateAssignments({'project:g-p-a':'custom-services'},removed)
-    .migrated,true);
+  assert.equal(hooks.sanitizeProfileAssignments({'project:g-p-a':'custom-services'},removed)
+    ['project:g-p-a'],undefined);
 });
 
 
@@ -684,10 +661,9 @@ test('Manage Categories contains an accessible offline icon picker', () => {
 });
 
 test('category editor is isolated from chat sidebar and keeps destructive reset in manager', () => {
-  assert.match(script, /const CATEGORY_DEFS_KEY = APP_ID \+ '\.categoryDefinitions\.v1'/);
-  assert.match(script, /CATEGORIES = chosen\.categories/);
-  assert.match(script, /chooseInitialCategoryDefinitions\(existing, hasPriorState\)/);
-  assert.match(script, /GM_setValue\(CATEGORY_DEFS_KEY/);
+  assert.match(script, /activateProfileSnapshot\(chosen\)/);
+  assert.match(script, /function saveCategoryDefinitions\(\) \{ return persistCurrentProfile\(\); \}/);
+  assert.doesNotMatch(script, /GM_setValue\(CATEGORY_DEFS_KEY/);
   assert.match(script, /const wrapper = el\('div', 'category-manager'\)/);
   assert.match(script, /button\('⚙ Manage Profiles & Categories', 'action'/);
   assert.match(script, /content\.appendChild\(makeCategoryManager\(\)\)/);
@@ -718,36 +694,19 @@ test('categories are flat and contain only projects or chats', () => {
   assert.equal(hooks.itemInCategory('learning', 'learning'), true);
 });
 
-test('legacy assignments migrate to top-level categories without losing links', () => {
-  const old = {
-    'chat:transcript': 'cinema',
-    'project:cinema': 'hobbies',
-    'chat:henry': 'henry',
-    'chat:bradley': 'bradley',
-    'project:another': 'family-other',
-    'chat:health': 'health',
-    'project:ai-video': 'hobbies',
-    'project:house': 'home',
-    'chat:retirement': 'finances'
-  };
-  const legacy = hooks.sanitizeCategoryDefinitions({version:1,categories:hooks.legacyCategoryDefinitions});
-  const { assignments, migrated } = hooks.migrateAssignments(old, legacy);
-  assert.equal(migrated, true);
-  assert.equal(Object.keys(assignments).length, Object.keys(old).length);
-  assert.equal(assignments['chat:transcript'], 'hobbies');
-  assert.equal(assignments['project:cinema'], 'hobbies');
-  assert.equal(assignments['chat:henry'], 'family');
-  assert.equal(assignments['chat:bradley'], 'family');
-  assert.equal(assignments['project:another'], 'family');
-  assert.equal(assignments['chat:health'], 'health');
-  assert.equal(assignments['project:ai-video'], 'hobbies');
-  assert.equal(assignments['project:house'], 'home');
-  assert.equal(assignments['chat:retirement'], 'finances');
-  assert.equal(hooks.migrateAssignments(assignments, legacy).migrated, false);
-  assert.equal(hooks.normalizeCategoryId('cinema', legacy), 'hobbies');
-  assert.equal(hooks.normalizeCategoryId('henry', legacy), 'family');
-  assert.equal(hooks.normalizeCategoryId('nonexistent'), 'uncategorized');
-  assert.equal(hooks.normalizeCategoryId('hobbies', legacy), 'hobbies');
+test('historical category aliases are normalized within V2 profiles', () => {
+  const legacy=hooks.sanitizeCategoryDefinitions({version:1,
+    categories:hooks.legacyCategoryDefinitions});
+  const assignments=hooks.sanitizeProfileAssignments({
+    'chat:transcript':'cinema','chat:henry':'henry','chat:bradley':'bradley',
+    'project:house':'home','chat:retirement':'finances'
+  },legacy);
+  assert.equal(assignments['chat:transcript'],'hobbies');
+  assert.equal(assignments['chat:henry'],'family');
+  assert.equal(assignments['chat:bradley'],'family');
+  assert.equal(assignments['project:house'],'home');
+  assert.equal(assignments['chat:retirement'],'finances');
+  assert.equal(hooks.normalizeCategoryId('nonexistent'),'uncategorized');
 });
 
 test('new category assignment remains a flat selector without nested navigation', () => {
@@ -755,8 +714,8 @@ test('new category assignment remains a flat selector without nested navigation'
   assert.doesNotMatch(script, /directChildren|categoryPath\(/);
   assert.match(script, /if \(!hasSearch && currentCategory === null\)/);
   assert.match(script, /CATEGORIES\.forEach\(\(category\) => cards\.appendChild\(makeCategoryCard\(category\)\)\)/);
-  assert.match(script, /const \{ assignments: clean \} = migrateAssignments\(value\.assignments\)/);
-  assert.match(script, /if\(profileMode\)return persistCurrentProfile\(\)/);
+  assert.match(script, /sanitizeProfileAssignments\(p\.assignments,categories\)/);
+  assert.match(script, /function saveAssignments\(\) \{ return persistCurrentProfile\(\); \}/);
 });
 
 test('organized chats save a validated local shortcut for later visits', () => {
@@ -836,7 +795,7 @@ test('edit popover saves name and category together and keeps remove action sepa
   assert.match(script, /button\('Save changes', 'action', saveChanges\)/);
   assert.match(script, /title !== item\.title && !renameSavedShortcut\(item, title\)/);
   assert.match(script, /if \(selector\.value !== categoryFor\(item\)\)/);
-  assert.match(script, /button\(profileMode\?'Remove from profile':'Remove shortcut'/);
+  assert.match(script, /button\('Remove from profile'/);
   assert.doesNotMatch(script, /selector\.addEventListener\('change'/);
   assert.match(script, /GM_setValue\(storageKey, updated\.map/);
   assert.match(script, /seen\.set\(item\.key, renamed\)/);
@@ -932,8 +891,8 @@ test('category order deserialization removes invalid and duplicate IDs', () => {
 });
 
 test('drag handle changes virtual order only; search results stay non-draggable', () => {
-  assert.match(script, /const ORDER_KEY = APP_ID \+ '\.categoryOrder\.v1'/);
-  assert.match(script, /GM_setValue\(ORDER_KEY,\{version:1,categories:categoryOrders\}\)/);
+  assert.match(script, /function persistCategoryOrders\(\) \{ return persistCurrentProfile\(\); \}/);
+  assert.doesNotMatch(script, /GM_setValue\(ORDER_KEY/);
   assert.match(script, /handle\.draggable = true/);
   assert.match(script, /handle\.addEventListener\('dragstart'/);
   assert.match(script, /row\.addEventListener\('dragover'/);
@@ -1118,6 +1077,20 @@ test('icon launcher is visually header-anchored, without injecting into native c
   assert.doesNotMatch(script, /sidebar\.insertBefore|header\.appendChild\(launcherHost\)|searchButton\.parentNode\.insertBefore/);
 });
 
+test('header launcher uses matching navy bookmark styling, preserving alignment', () => {
+  const css=script.slice(script.indexOf('const LAUNCHER_CSS'),
+    script.indexOf('const OVERLAY_CSS'));
+  assert.match(css,/width:32px;height:32px/);
+  assert.match(css,/border:1px solid #7992aa/);
+  assert.match(css,/background:#182b3e;color:#e3f0ff/);
+  assert.match(css,/box-shadow:0 4px 14px #0004/);
+  assert.match(css,/button:hover\{background:#294760/);
+  assert.doesNotMatch(css,/background:transparent|--sc-launcher-color/);
+  assert.match(script,/const size = 32/);
+  assert.match(script,/launcherHost\.dataset\.placement = 'header'/);
+  assert.match(script,/launcherHost\.dataset\.placement = 'fallback'/);
+});
+
 test('launcher is completely outside native ChatGPT navigation', () => {
   // The previous launcher was inserted as the first child of an existing
   // nav/sidebar. That DOM mutation can disrupt ChatGPT project hover buttons.
@@ -1207,7 +1180,7 @@ test('bookmark widget is isolated and keeps user-initiated mutations local', () 
   assert.match(script,/document\.body\.appendChild\(quickSaveHost\)/);
   assert.match(script,/function persistQuickSave\(item,operation,title,category\)/);
   assert.match(script,/GM_setValue\(storageKey,serialize\(next\)\)/);
-  assert.match(script,/GM_setValue\(STORAGE_KEY,\{version:2,assignments:nextAssignments\}\)/);
+  assert.match(script,/const target=profileMemberUpdate\(profilesState,profilesState\.activeId,/);
   assert.match(script,/currentProjectForManualIntake\(\):currentChatForManualIntake\(\)/);
   assert.match(script,/if\(item\.key!==quickSaveActiveKey\)\{closeQuickSave\(\)/);
   assert.match(script,/Remove from profile/);
@@ -1246,7 +1219,7 @@ test('Quick Save category grid expands naturally and only scrolls when viewport-
 });
 
 
-test('profile migration captures old definitions, assignments and item order independently',()=>{
+test('V2 profile snapshots preserve definitions, assignments and item order independently',()=>{
   const old=hooks.sanitizeCategoryDefinitions({version:1,categories:[
     {id:'business',label:'Clients',icon:'◈'},
     {id:'custom-work123',label:'Personal projects',icon:'🎨'},
@@ -1303,7 +1276,7 @@ test('new users receive a named Starter profile with generic categories',()=>{
   assert.equal(starter.profiles[0].name,'Starter');
   assert.equal(starter.profiles[0].categories.length,5);
   assert.equal(hooks.sanitizeProfilesState(starter).profiles[0].name,'Starter');
-  assert.match(script,/firstRunCategorySeed\?'Starter':'My Organization'/);
+  assert.match(script,/firstProfileState\(DEFAULT_CATEGORIES,\{\}, \{\},'Starter',\[\]\)/);
 });
 
 test('invalid profile storage fails closed rather than resetting user categories',()=>{
@@ -1318,31 +1291,24 @@ test('invalid profile storage fails closed rather than resetting user categories
   assert.equal(hooks.deleteProfileState(base,'profile-original'),null);
 });
 
-test('profiles use a dedicated versioned store and retain legacy recovery keys',()=>{
-  const reader=script.slice(script.indexOf('function readAssignments()'),
-    script.indexOf('let assignments = readAssignments()'));
-  assert.doesNotMatch(reader,/GM_setValue\(STORAGE_KEY/);
-  assert.match(script,/function removeSavedShortcut\(item\)/);
-  assert.match(script,/if\(!removeSavedShortcut\(item\)\)/);
-  assert.match(script,/profileMemberUpdate\(profilesState,profilesState\.activeId,/);
-
-  assert.match(script,/const PROFILES_KEY = APP_ID \+ '\.profiles\.v1'/);
+test('V2 profile store is authoritative and obsolete storage keys are read-only guards',()=>{
   assert.match(script,/const PROFILES_V2_KEY = APP_ID \+ '\.profiles\.v2'/);
   assert.match(script,/const ACTIVE_PROFILE_TAB_KEY = APP_ID \+ '\.activeProfileTab\.v1'/);
-  assert.match(script,/GM_getValue\(PROFILES_KEY,null\)/);
-  assert.match(script,/GM_setValue\(PROFILES_V2_KEY,loaded\)/);
+  assert.match(script,/GM_getValue\(PROFILES_V2_KEY,null\)/);
+  assert.match(script,/GM_setValue\(PROFILES_V2_KEY,created\)/);
   assert.match(script,/GM_setValue\(PROFILES_V2_KEY,checked\)/);
-  assert.doesNotMatch(script,/GM_setValue\(PROFILES_KEY,/);
-  assert.match(script,/if\(profileMode\)return persistCurrentProfile\(\)/);
-  assert.match(script,/function makeProfilesManager\(\)/);
+  assert.match(script,/function saveCategoryDefinitions\(\) \{ return persistCurrentProfile\(\); \}/);
+  assert.match(script,/function persistCategoryOrders\(\) \{ return persistCurrentProfile\(\); \}/);
+  assert.match(script,/function saveAssignments\(\) \{ return persistCurrentProfile\(\); \}/);
+  assert.match(script,/function removeSavedShortcut\(item\)/);
+  assert.match(script,/profileMemberUpdate\(profilesState,profilesState\.activeId,/);
   assert.match(script,/newProfileState\(profilesState,id,entry\.value,source\)/);
   assert.match(script,/deleteProfileState\(profilesState,p\.id\)/);
   assert.match(script,/wrapper\.appendChild\(makeProfileManagerIntro\(\)\)/);
-  assert.doesNotMatch(script,/\{ id: 'profiles', title: 'Profiles' \}/);
-  assert.match(script,/profileMemberUpdate\(profilesState,profilesState\.activeId,/);
+  assert.doesNotMatch(script,/\bprofileMode\b|upgradeProfilesToV2|migrateAssignments\(/);
+  assert.doesNotMatch(script,/GM_setValue\(PROFILES_KEY|GM_setValue\(STORAGE_KEY|GM_setValue\(ORDER_KEY/);
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
-
 
 test('profile switching is scoped to ChatGPT Categories, with admin and category editor combined',()=>{
   const start=script.indexOf('function render()');
@@ -1371,7 +1337,7 @@ test('bookmark can switch among profiles without altering the default',()=>{
   const start=script.indexOf('function renderQuickSaveEditor()');
   const end=script.indexOf('function refreshQuickSave(force=false)',start);
   const ui=script.slice(start,end);
-  assert.match(ui,/if\(profileMode\)/);
+  assert.doesNotMatch(ui,/profileMode/);
   assert.match(ui,/const active=profilesState\.profiles\.find\(p=>p\.id===profilesState\.activeId\)/);
   assert.match(ui,/for\(const profile of profilesState\.profiles\)/);
   assert.match(ui,/trigger\.setAttribute\('aria-label','Select profile for this shortcut/);
@@ -1404,26 +1370,17 @@ test('bookmark profile list remains visible, keyboard usable and non-HTML-inject
 });
 
 
-test('Stage 1.5 migration explicitly includes previous links in every existing profile',()=>{
-  const v1={
-    version:1,activeId:'profile-original',defaultId:'profile-original',
-    profiles:[{id:'profile-original',name:'Original',
-      categories:hooks.starterCategoryDefinitions,
-      assignments:{'chat:a':'work'},categoryOrders:{work:['chat:a']}},
-      {id:'profile-second123',name:'Second',
-      categories:hooks.starterCategoryDefinitions,
-      assignments:{},categoryOrders:{}}]
-  };
-  const library=['chat:a','chat:b','project:g-p-x'];
-  const migrated=hooks.upgradeProfilesToV2(v1,library);
-  const parsed=hooks.sanitizeProfilesState(migrated);
-  assert.equal(parsed.version,2);
-  for(const p of parsed.profiles)assert.deepEqual(Array.from(p.members),library);
+test('V2-only startup preserves validated data and refuses legacy-only auto-upgrade',()=>{
+  const initial=hooks.firstProfileState(hooks.starterCategoryDefinitions,
+    {'chat:a':'work'},{work:['chat:a']},'Existing',['chat:a','chat:b']);
+  const parsed=hooks.sanitizeProfilesState(initial);
+  assert.deepEqual(Array.from(parsed.profiles[0].members),['chat:a','chat:b']);
   assert.equal(parsed.profiles[0].assignments['chat:a'],'work');
   assert.deepEqual(Array.from(parsed.profiles[0].categoryOrders.work),['chat:a']);
-  assert.equal(migrated.profiles[1].assignments['chat:a'],undefined);
-  assert.equal(v1.profiles[0].members,undefined);
-  assert.equal(hooks.upgradeProfilesToV2({version:999},library),null);
+  assert.match(script,/if\(storedV2!==null\)/);
+  assert.match(script,/const loaded=sanitizeProfilesState\(storedV2\)/);
+  assert.match(script,/if\(oldData\)throw Error/);
+  assert.doesNotMatch(script,/upgradeProfilesToV2/);
 });
 
 test('Stage 1.5 independent membership supports Uncategorized and profile-specific removal',()=>{
@@ -1476,15 +1433,14 @@ test('Stage 1.5 preserves per-category item ordering when placement unchanged',(
 test('Stage 1.5 wiring filters profile lists and cleans orphans without rewriting V1',()=>{
   assert.match(script,/const PROFILES_V2_KEY/);
   assert.match(script,/GM_getValue\(PROFILES_V2_KEY,null\)/);
-  assert.match(script,/upgradeProfilesToV2\(old,libraryKeys\)/);
-  assert.match(script,/firstProfileState\(CATEGORIES,assignments,categoryOrders,/);
+  assert.match(script,/firstProfileState\(DEFAULT_CATEGORIES,\{\}, \{\},'Starter',\[\]\)/);
   assert.match(script,/memberInProfile\(active,item\.key\)/);
   assert.match(script,/function isInActiveProfile\(key\)/);
   assert.match(script,/function setActiveProfileMembership\(key,category,included\)/);
   assert.match(script,/lost=previous\?/);
   assert.match(script,/\.filter\(key=>!isMemberAnywhere\(checked,key\)\)/);
   assert.match(script,/GM_setValue\(PROFILES_V2_KEY,checked\)/);
-  assert.match(script,/if\(profileMode\) \{/);
+  assert.doesNotMatch(script,/\bprofileMode\b/);
   assert.match(script,/setActiveProfileMembership\(parsed\.key,category,true\)/);
   assert.match(script,/setActiveProfileMembership\(item\.key,'uncategorized',false\)/);
   assert.match(script,/const included=Boolean\(item\.saved && isInActiveProfile\(item\.key\)\)/);
@@ -1504,10 +1460,10 @@ test('profile deletion warns before last-reference shortcut cleanup',()=>{
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.34/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.35/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);
   assert.match(script, /attachShadow\(\{ mode: 'open' \}\)/);
-  assert.match(script, /GM_setValue\(STORAGE_KEY/);
+  assert.match(script, /GM_setValue\(PROFILES_V2_KEY/);
 });

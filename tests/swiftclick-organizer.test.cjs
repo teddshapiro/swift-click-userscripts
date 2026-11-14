@@ -1029,13 +1029,14 @@ test('menu status distinguishes ID-verified saved, unique-title possible, and un
 });
 
 test('project menu action is click-based, status-safe and never navigates natively', () => {
-  assert.match(script, /menuActionButton\.textContent = isSaved \? '✓ Already in Organizer'/);
-  assert.match(script, /isPossible \? '\? Possible match — Review'/);
+  assert.match(script, /menuActionButton\.textContent=isSaved\?'✓ Already in this profile'/);
+  assert.match(script, /isPossible\?'\? Possible match — Review'/);
   assert.match(script, /const context = menuActionSnapshot \|\|/);
   assert.match(script, /menuPressActive = true/);
   assert.match(script, /menuActionSnapshot = menuContextFor\(activeNativeProjectHome\)/);
   assert.match(script, /function handleProjectMenuAction\(\)/);
   assert.match(script, /if \(context\.status === 'saved' \|\| context\.status === 'possible'\)/);
+  assert.match(script,/context\.status === 'saved' && context\.project && !isInActiveProfile/);
   assert.match(script, /openProjectManualIntake\(context\.title\)/);
   assert.match(script, /currentCategory = categoryFor\(project\)/);
   assert.doesNotMatch(script, /home\.click\(\)|resolveNativeProjectIntake|pendingNativeProject/);
@@ -1490,6 +1491,15 @@ test('Stage 1.5 wiring filters profile lists and cleans orphans without rewritin
   assert.match(script,/Not included in this profile/);
   assert.match(script,/Remove from profile/);
   assert.doesNotMatch(script,/GM_setValue\(PROFILES_KEY,/);
+});
+
+test('profile deletion warns before last-reference shortcut cleanup',()=>{
+  assert.match(script,/const exclusive=p\.members\.filter\(key=>/);
+  assert.match(script,/exist only in this profile and will be removed from the SwiftClick library/);
+  assert.match(script,/Links included in other profiles will remain/);
+  assert.match(script,/No original ChatGPT projects or chats are deleted/);
+  assert.match(script,/isInActiveProfile\(context\.project\.key\)/);
+  assert.match(script,/Saved in SwiftClick but not included in this profile/);
 });
 
 test('script stays isolated from production distribution until review', () => {

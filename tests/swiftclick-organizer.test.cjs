@@ -1213,8 +1213,27 @@ test('bookmark widget is isolated and keeps user-initiated mutations local', () 
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 
+test('Quick Save CSS uses real rule separators and keeps the bookmark clickable', () => {
+  const start=script.indexOf('const QUICK_SAVE_CSS = [');
+  const end=script.indexOf('const quickSaveHost =',start);
+  assert.ok(start>=0 && end>start);
+  const section=script.slice(start,end);
+  // A literal backslash-n leaves rules concatenated into invalid CSS;
+  // this caused a blank, inert rectangle in the initial bookmark build.
+  assert.ok(section.includes("].join('\\n');"));
+  assert.equal(section.includes("].join('\\\\n');"),false);
+  assert.match(section, /pointer-events:auto;width:36px;height:36px/);
+  assert.match(section, /svg\{width:20px;height:20px/);
+  assert.match(section, /\.popover\{pointer-events:auto/);
+  const saveStart=script.indexOf('function persistQuickSave(');
+  const saveEnd=script.indexOf('function renderQuickSaveEditor(',saveStart);
+  const save=script.slice(saveStart,saveEnd);
+  assert.ok(save.includes("replace(/\\s+/g,' ').trim()"));
+  assert.equal(save.includes("replace(/\\\\s+/g,' ').trim()"),false);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.28/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.29/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

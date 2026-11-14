@@ -679,7 +679,7 @@ test('Manage Categories contains an accessible offline icon picker', () => {
   assert.match(script,/changeCategoryIconModel\(CATEGORIES, category\.id, choice\.icon\)/);
   assert.match(script,/option\.setAttribute\('aria-pressed'/);
   assert.match(script,/button\('Cancel icon selection'/);
-  assert.match(script,/categories: CATEGORIES\.map\(\(\{ id, label, icon \}\) => \(\{ id, label, icon \}\)\)/);
+  assert.match(script,/profileSnapshot\(CATEGORIES,assignments,categoryOrders\)/);
   assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 
@@ -756,7 +756,7 @@ test('new category assignment remains a flat selector without nested navigation'
   assert.match(script, /if \(!hasSearch && currentCategory === null\)/);
   assert.match(script, /CATEGORIES\.forEach\(\(category\) => cards\.appendChild\(makeCategoryCard\(category\)\)\)/);
   assert.match(script, /GM_setValue\(STORAGE_KEY, \{ version: 2, assignments: clean \}\)/);
-  assert.match(script, /GM_setValue\(STORAGE_KEY, \{ version: 2, assignments \}\)/);
+  assert.match(script, /if\(profileMode\)return persistCurrentProfile\(\)/);
 });
 
 test('organized chats save a validated local shortcut for later visits', () => {
@@ -933,7 +933,7 @@ test('category order deserialization removes invalid and duplicate IDs', () => {
 
 test('drag handle changes virtual order only; search results stay non-draggable', () => {
   assert.match(script, /const ORDER_KEY = APP_ID \+ '\.categoryOrder\.v1'/);
-  assert.match(script, /GM_setValue\(ORDER_KEY, \{ version: 1, categories: categoryOrders \}\)/);
+  assert.match(script, /GM_setValue\(ORDER_KEY,\{version:1,categories:categoryOrders\}\)/);
   assert.match(script, /handle\.draggable = true/);
   assert.match(script, /handle\.addEventListener\('dragstart'/);
   assert.match(script, /row\.addEventListener\('dragover'/);

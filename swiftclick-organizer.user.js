@@ -1950,10 +1950,11 @@
     if (!item) {closeQuickSave();return;}
     quickSavePopover.replaceChildren();
     quickSavePopover.appendChild(el('div','heading',
-      item.saved?'✓ Saved in SwiftClick':'Add to SwiftClick'));
+      item.saved?(isInActiveProfile(item.key)?'✓ Included in this profile':
+        'Add saved shortcut to this profile'):'Add to SwiftClick'));
     quickSavePopover.appendChild(el('div','hint',
       item.type==='project'?'Current project':'Current conversation'));
-    const included=isInActiveProfile(item.key);
+    const included=Boolean(item.saved && isInActiveProfile(item.key));
     const membershipCount=profileMode?
       profilesState.profiles.filter(p=>memberInProfile(p,item.key)).length:
       (item.saved?1:0);
@@ -2305,7 +2306,9 @@
       menuActionHost.hidden = true;
       return;
     }
-    if (context.status === 'saved' || context.status === 'possible') {
+    if (context.status === 'saved' && context.project && !isInActiveProfile(context.project.key)) {
+      openProjectIntake(context.project);
+    } else if (context.status === 'saved' || context.status === 'possible') {
       openSavedProjectCategory(context.project);
     } else if (context.status === 'add' && context.project) {
       openProjectIntake(context.project);
@@ -2329,21 +2332,27 @@
     }
     activeNativeProjectHome = found.home;
     const context = menuContextFor(found.home);
-    const isSaved = context && context.status === 'saved';
-    const isPossible = context && context.status === 'possible';
-    menuActionButton.textContent = isSaved ? '✓ Already in Organizer'
-      : isPossible ? '? Possible match — Review'
-        : '＋ Add to SwiftClick Organizer';
-    menuActionButton.setAttribute('aria-label', isSaved
-      ? 'Already in SwiftClick Organizer. Open its category.'
-      : isPossible ? 'Project name matches a saved shortcut. Review its category.'
-        : 'Add this ChatGPT project to SwiftClick Organizer');
-    menuActionButton.title = (isSaved || isPossible)
-      ? (isSaved ? 'Saved in ' : 'Name matches a project in ') +
-        labelFor(categoryFor(context.project)) + '. Click to review.'
-      : context && context.status === 'manual'
-        ? 'Project URL unavailable here. Intake will request its link instead of navigating.'
-        : 'Add this project to SwiftClick Organizer';
+    const inProfile=context && context.project &&
+      context.status==='saved' && isInActiveProfile(context.project.key);
+    const libraryOnly=context && context.project &&
+      context.status==='saved' && !inProfile;
+    const isSaved=Boolean(inProfile);
+    const isPossible=context && context.status==='possible';
+    menuActionButton.textContent=isSaved?'✓ Already in this profile'
+      :libraryOnly?'＋ Add to this profile'
+      :isPossible?'? Possible match — Review':'＋ Add to SwiftClick Organizer';
+    menuActionButton.setAttribute('aria-label',isSaved
+      ?'Already in this SwiftClick profile. Open its category.'
+      :libraryOnly?'Add existing saved project to the active profile.'
+      :isPossible?'Project name matches a saved shortcut. Review its category.'
+      :'Add this ChatGPT project to SwiftClick Organizer');
+    menuActionButton.title=(isSaved||isPossible)
+      ?(isSaved?'Saved in ':'Name matches a project in ')+
+        labelFor(categoryFor(context.project))+'. Click to review.'
+      :libraryOnly?'Saved in SwiftClick but not included in this profile. Click to add.'
+      :context && context.status==='manual'
+        ?'Project URL unavailable here. Intake will request its link instead of navigating.'
+        :'Add this project to SwiftClick Organizer';
     const rect = found.menu.getBoundingClientRect();
     if (!rect.width || !rect.height) {
       menuActionHost.hidden = true;
@@ -2416,13 +2425,13 @@
   function openProjectIntake(project) {
     if (!project || project.type !== 'project' || !project.key) return;
     const saved = manualProjects.find((item) => item.key === project.key);
-    if (saved) {
+    if(saved && isInActiveProfile(project.key)){
       openSavedProjectCategory(saved);
       return;
     }
-    menuActionHost.hidden = true;
+    menuActionHost.hidden=true;
     show();
-    intakeProject = project;
+    intakeProject=saved||project;
     addingProject = true;
     render();
   }

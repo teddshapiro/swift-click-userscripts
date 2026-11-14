@@ -784,7 +784,7 @@ test('saved chats persist only via explicit actions, not background observation'
   assert.match(script, /currentChatForManualIntake\(\)/);
   assert.match(script, /Save chat shortcut/);
   assert.match(script, /saveChatShortcut\(item\)/);
-  assert.match(script, /savedChats\.filter\(\(c\) => c\.key !== item\.key\)/);
+  assert.match(script, /function removeSavedShortcut\(item\)/);
   assert.doesNotMatch(script, /collectLoadedLinks|function indexAnchor\(/);
 });
 

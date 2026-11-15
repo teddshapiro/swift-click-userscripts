@@ -1383,7 +1383,7 @@ test('V2 profile store is authoritative and obsolete storage keys are read-only 
   assert.match(script,/function saveAssignments\(\) \{ return persistCurrentProfile\(\); \}/);
   assert.match(script,/function removeSavedShortcut\(item\)/);
   assert.match(script,/profileMemberUpdate\(profilesState,profilesState\.activeId,/);
-  assert.match(script,/newProfileState\(profilesState,id,entry\.value,source\)/);
+  assert.match(script,/newProfileState\(profilesState,id,name,source\)/);
   assert.match(script,/deleteProfileState\(profilesState,p\.id\)/);
   assert.match(script,/wrapper\.appendChild\(makeProfileManagerIntro\(\)\)/);
   assert.doesNotMatch(script,/\bprofileMode\b|upgradeProfilesToV2|migrateAssignments\(/);

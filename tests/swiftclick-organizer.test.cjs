@@ -180,12 +180,12 @@ test('alpha.42 hides Find Workspaces by default but never overwrites saved visib
   assert.equal(hooks.sanitizeToolPrefs(null).hidden.includes('find-workspaces'),true);
 });
 
-test('alpha.42 classifies direct URLs, guided Personalization and setup-only tools',()=>{
+test('alpha.43 classifies direct Personalization URL and setup-only tools',()=>{
   const fresh=hooks.sanitizeToolPrefs(null);
   const byId=id=>hooks.toolCatalog.find(x=>x.id===id);
-  assert.equal(byId('personalization').status,'action');
-  assert.equal(hooks.toolHref(byId('personalization'),fresh),null);
-  assert.equal(hooks.toolActionKind(byId('personalization'),fresh),'guided');
+  assert.equal(byId('personalization').status,'verified');
+  assert.equal(hooks.toolHref(byId('personalization'),fresh),'https://chatgpt.com/settings/personalization');
+  assert.equal(hooks.toolActionKind(byId('personalization'),fresh),'link');
   assert.equal(hooks.toolActionKind(byId('find-workspaces'),fresh),'setup');
   assert.equal(hooks.toolActionKind(byId('help-center'),fresh),'link');
   assert.equal(hooks.toolActionKind(byId('new-chat'),fresh),'new-chat');
@@ -199,7 +199,7 @@ test('alpha.42 classifies direct URLs, guided Personalization and setup-only too
   const customized=hooks.editToolPrefs(fresh,'personalization',
     {urlOverride:'https://chatgpt.com/settings'});
   assert.equal(hooks.toolActionKind(byId('personalization'),customized),'link');
-  assert.equal(hooks.toolActionKind(byId('personalization'),fresh),'guided');
+  assert.equal(hooks.toolActionKind(byId('personalization'),fresh),'link');
 });
 
 test('alpha.42 missing-URL tiles are real buttons that open contextual configuration',()=>{
@@ -241,14 +241,14 @@ test('alpha.42 setup notice navigates directly to its editor and remains accessi
   assert.doesNotMatch(code,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML/);
 });
 
-test('alpha.42 Personalization offers supported settings route without inventing a deep link',()=>{
+test('alpha.43 Personalization retains Settings fallback guidance while preferring verified direct link',()=>{
   const begin=script.indexOf('  function openToolNotice(item,trigger) {');
   const end=script.indexOf('  function toolTile(item) {',begin);
   const code=script.slice(begin,end);
   assert.match(script,/const PERSONALIZATION_SETTINGS_URL = 'https:\/\/chatgpt\.com\/settings'/);
   assert.match(code,/Open ChatGPT Personalization/);
-  assert.match(code,/open your profile menu, choose Settings, then Personalization/);
-  assert.match(code,/not a guaranteed deep link to the Personalization pane/);
+  assert.match(code,/open your ChatGPT profile menu, choose Settings, then Personalization/);
+  assert.match(code,/the general ChatGPT Settings destination as a fallback/);
   assert.match(code,/button\('Open ChatGPT Settings','action'/);
   assert.match(code,/navigateTool\(PERSONALIZATION_SETTINGS_URL\)/);
   // User-provided HTTPS URL overrides work as direct links rather than forcing the guide.
@@ -924,7 +924,7 @@ test('edit popover saves name and category together and keeps remove action sepa
   assert.match(script, /GM_setValue\(storageKey, updated\.map/);
   assert.match(script, /seen\.set\(item\.key, renamed\)/);
   assert.match(script, /const storageKey = isProject \? MANUAL_PROJECTS_KEY : SAVED_CHATS_KEY/);
-  assert.match(script, /Only the SwiftClick shortcut name changes, not the title in ChatGPT/);
+  assert.match(script, /Only the Organizer shortcut name changes, not the title in ChatGPT/);
 });
 
 test('two-column grid offers compact cards with edit-only secondary actions', () => {
@@ -1024,7 +1024,7 @@ test('drag handle changes virtual order only; search results stay non-draggable'
   assert.match(script, /keyboardReorder\(item, event\.key === 'ArrowUp'/);
   assert.match(script, /!hasSearch && currentCategory !== null && ordered\.length <= 250/);
   assert.match(script, /forgetItemOrder\(item\.key\)/);
-  assert.match(script, /event\.dataTransfer\.setData\('text\/plain', 'SwiftClick Organizer'\)/);
+  assert.match(script, /event\.dataTransfer\.setData\('text\/plain', 'AI Workspace Organizer'\)/);
   assert.doesNotMatch(script, /row\.draggable = true/);
 });
 
@@ -1334,7 +1334,7 @@ test('Quick Save category grid expands naturally and only scrolls when viewport-
   const start=script.indexOf('const QUICK_SAVE_CSS = [');
   const end=script.indexOf('const quickSaveHost =',start);
   const css=script.slice(start,end);
-  assert.match(css,/\.popover\{[^']*max-height:calc\(100dvh - 145px\)/);
+  assert.match(css,/\.popover\{[^']*max-height:min\(62dvh,calc\(100dvh - 120px\)\)/);
   assert.match(css,/\.popover\{[^']*display:flex;flex-direction:column/);
   assert.match(css,/\.choices\{[^']*display:grid;grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
   assert.match(css,/\.choices\{[^']*flex:0 1 auto;min-height:0;max-height:none;overflow-y:auto/);
@@ -1633,11 +1633,11 @@ test('Stage 1.5 wiring filters profile lists and cleans orphans without rewritin
 
 test('profile deletion warns before last-reference shortcut cleanup',()=>{
   assert.match(script,/const exclusive=p\.members\.filter\(key=>/);
-  assert.match(script,/exist only in this profile and will be removed from the SwiftClick library/);
+  assert.match(script,/exist only in this profile and will be removed from the Organizer library/);
   assert.match(script,/Links included in other profiles will remain/);
   assert.match(script,/No original ChatGPT projects or chats are deleted/);
   assert.match(script,/isInActiveProfile\(context\.project\.key\)/);
-  assert.match(script,/Saved in SwiftClick but not included in this profile/);
+  assert.match(script,/Saved in Organizer but not included in this profile/);
 });
 
 test('Conversation Overrun Warning settings default to Off and reject unknown choices',()=>{
@@ -2091,7 +2091,7 @@ test('Home auto-open respects user preference without disabling the manual launc
   assert.match(script,/window\.setTimeout\(\(\) => \{\s+if \(organizerSettings\.autoOpenOnHome && !aiProfileNewChatStart/);
   assert.match(script,/shouldAutoOpenHome\(location\.pathname, location\.search, autoOpenMarker\) && !open\) show\(true\)/);
   assert.match(script,/const launcherButton = button\('', '', \(\) => open \? hide\(\) : show\(\)\)/);
-  assert.match(script,/GM_registerMenuCommand\('Open SwiftClick Organizer', show\)/);
+  assert.match(script,/GM_registerMenuCommand\('Open AI Workspace Organizer', show\)/);
   assert.equal(hooks.shouldAutoOpenHome('/',''),true);
   assert.equal(hooks.shouldAutoOpenHome('/','?swiftclick-organizer-skip-autoopen=1'),false);
   assert.equal(hooks.shouldAutoOpenHome('/','?temporary-chat=true'),false);
@@ -2108,7 +2108,7 @@ test('Welcome dialog is accessible, user-dismissable, and contains only user-ini
   assert.match(code,/dialog\.setAttribute\('role','dialog'\)/);
   assert.match(code,/dialog\.setAttribute\('aria-modal','true'\)/);
   assert.match(code,/dialog\.setAttribute\('aria-labelledby','swiftclick-welcome-title'\)/);
-  assert.match(code,/Welcome to SwiftClick Organizer!/);
+  assert.match(code,/Welcome to AI Workspace Organizer!/);
   assert.match(code,/Read the User Guide/);
   assert.match(code,/Getting Started/);
   assert.match(code,/Support SwiftClick \(optional\)/);
@@ -2144,8 +2144,55 @@ test('Welcome can be manually reopened even with automatic popup Off, and modal 
   assert.doesNotMatch(script,/GM_setValue\([^)]*welcomeOnOpen/);
 });
 
+
+test('alpha.43 uses the final product identity in visible script metadata and UI',()=>{
+  assert.match(script,/\/\/ @name\s+AI Workspace Organizer by SwiftClick/);
+  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.43/);
+  assert.match(script,/brand\.appendChild\(el\('div', 'brand', '▦  AI Workspace Organizer'\)\)/);
+  assert.match(script,/by SwiftClick · A personal front door to ChatGPT/);
+  assert.match(script,/launcherButton\.title = 'AI Workspace Organizer'/);
+  assert.match(script,/panel\.setAttribute\('aria-label', 'AI Workspace Organizer'\)/);
+  assert.match(script,/GM_registerMenuCommand\('Open AI Workspace Organizer', show\)/);
+  assert.doesNotMatch(script,/SwiftClick Organizer/);
+  assert.match(script,/const APP_ID = 'swiftclick-organizer-poc'/);
+  assert.match(script,/const AI_PROFILE_PACKAGE_SCHEMA='swiftclick-organizer-categories'/);
+  assert.match(script,/swiftclick-organizer-skip-autoopen=1/);
+  assert.match(script,/Support SwiftClick/);
+});
+
+test('alpha.43 Personalization is a functioning, user-overridable starter URL',()=>{
+  const tool=hooks.toolCatalog.find(t=>t.id==='personalization');
+  const fresh=hooks.sanitizeToolPrefs(null);
+  assert.equal(tool.href,'https://chatgpt.com/settings/personalization');
+  assert.equal(tool.status,'verified');
+  assert.equal(hooks.toolActionKind(tool,fresh),'link');
+  assert.equal(hooks.toolHref(tool,fresh),tool.href);
+  const override=hooks.editToolPrefs(fresh,'personalization',{urlOverride:'https://chatgpt.com/settings'});
+  assert.equal(hooks.toolHref(tool,override),'https://chatgpt.com/settings');
+  assert.equal(hooks.toolActionKind(tool,override),'link');
+  const reset=hooks.editToolPrefs(override,'personalization',{urlOverride:''});
+  assert.equal(hooks.toolHref(tool,reset),tool.href);
+  assert.equal(hooks.toolActionKind(tool,reset),'link');
+  assert.equal(hooks.toolActionKind(hooks.toolCatalog.find(t=>t.id==='find-workspaces'),fresh),'setup');
+});
+
+test('alpha.43 repositions only the bookmark widget and opens its editor upwards',()=>{
+  const quickCss=script.slice(script.indexOf('  const QUICK_SAVE_CSS = ['),
+    script.indexOf('  const quickSaveHost ='));
+  assert.match(quickCss,/:host\{position:fixed;right:12px;top:80%;transform:translateY\(-50%\)/);
+  assert.match(quickCss,/\.popover\{pointer-events:auto;position:absolute;right:0;bottom:44px/);
+  assert.match(quickCss,/max-height:min\(62dvh,calc\(100dvh - 120px\)\)/);
+  assert.match(quickCss,/@media\(max-width:600px\)\{:host\{right:8px;top:80%\}/);
+  assert.doesNotMatch(quickCss,/:host\{position:fixed;right:12px;top:82px/);
+  assert.doesNotMatch(quickCss,/\.popover\{[^']*top:44px/);
+  const launcherCss=script.slice(script.indexOf('  const LAUNCHER_CSS = ['),
+    script.indexOf('  const OVERLAY_CSS = ['));
+  assert.match(launcherCss,/:host\(\[data-placement="fallback"\]\)\{right:10px;top:50%/);
+  assert.match(script,/const QUICK_LINKS_V2_KEY = APP_ID \+ '\.quickLinks\.v2'/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.42/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.43/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

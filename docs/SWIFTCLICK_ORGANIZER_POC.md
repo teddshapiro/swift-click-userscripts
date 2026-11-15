@@ -1,12 +1,12 @@
 # SwiftClick Organizer — Technical Proof of Concept
 
-> **Current alpha.36 baseline:** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.37 development candidate (alpha.36 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.36)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.37)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -855,3 +855,39 @@ The full evergreen guide is maintained in [Web App Development Standards — Org
 - **AI-assisted organization (future work)** should import an opt-in preview as a new editable profile, preserving existing taxonomies and boundaries by default.
 
 These guidelines generalize the lessons but do not impose Organizer's precise implementation on unrelated products. **Approved baseline:** alpha.36 (owner's initial Firefox acceptance); no merge to `main`, no public release, Stage 2 deferred.
+
+## Alpha.37 — Settings and Conversation Continuity Beta (2026-11-14)
+
+**Status:** Development candidate; owner Firefox acceptance still required. Alpha.36 remains the accepted baseline. Keep draft PR #6 unmerged; no release to `main`.
+
+### Settings scope and entry
+- `⚙ Settings` is an accessible header control adjacent to Close and opens a dedicated Settings panel. It is **not** a fifth category tab; returning restores the existing Organizer section.
+- Preferences are saved locally under `swiftclick-organizer-poc.settings.v1`, schema `{version:1,continuityLevel:"off"|"low"|"medium"|"high"}`. Unknown or unsupported values are sanitized to `off`. Failed saves preserve the previous in-memory setting and show a visible error.
+- The first entry is **Conversation Continuity (Beta)**. It is Off by default. Turning Off clears the in-tab activity ledger. The editable manual handoff request is available even when Off.
+
+### Reminder method: deliberate limits
+- The beta is an **activity nudge**, not a context-budget monitor or reliable impending-cutoff prediction. OpenAI notes that context consumption depends on message sizes, and ChatGPT does not provide a dependable remaining-context measurement to this userscript.
+- When opted in, the script counts only trusted human Enter gestures in a recognized composer or clicks on known Send controls, on recognized named conversation URLs. It does not inspect input contents, message text, reply text, rendered chat history, output, hidden internal state, or token counts. No network calls or new privileges. Unrecognized composer implementations, new chats without a named URL, voice input, and other routes may be missed. Send **attempts**, not verified successful sends, are counted.
+- Per-tab session state is capped at 30 conversation IDs and contains only `chat:` identifier, observed-send count, snooze threshold, and dismissal flag; no titles, message bodies, or transcripts. Session storage may be unavailable, in which case in-memory counts remain for the current page. Counts do not reconcile across tabs, visits, or browsers and do not include earlier messages before opting in.
+- Thresholds (observed send attempts **in this tab since enabling**): High first 12, repeat at +15 after postponing; Medium first 25, repeat at +20; Low first 45, repeat at +30; Off disables. These values are provisional ergonomic choices, **not** model limits. If reminder is dismissed for a named chat, it stays dismissed for that tab session. A preview control on a named chat can show a sample banner even with reminders Off; preview does not count send actions.
+- The notice uses a dedicated Shadow DOM host, with **Prepare handoff**, **Remind later**, and **Dismiss for this chat**. Never interfere with host input. Host navigation hides the notice as appropriate; a currently open Organizer suppresses it.
+
+### Handoff workflow
+- Prepare handoff opens Settings with a prefilled editable instruction asking ChatGPT to summarize only available context, distinguish work completed from planned, flag gaps, and end with a ready-to-paste opening prompt.
+- The script **only copies** the instruction using a user-clicked button and clipboard fallback, never types or submits it into ChatGPT. The user pastes and submits it in the current chat, reviews the generated handoff, and opens a new conversation themselves. The script never extracts generated output.
+- This flow is always accessible through Settings independent of automatic reminders.
+
+### Safe code cleanup
+- Removed the final `quickLinks.v1` **reader/import path** and V1 parser. `quickLinks.v2` is authoritative. V1 remains an untouched read-only sentinel; when V1 exists without V2, the script refuses to seed a new Quick Links list and displays a blocking error directing the user through alpha.36. Invalid V2 and failed fresh V2 writes also fail closed without silent overwrite.
+- Historical profile category aliases and V2 validation/recovery remain: they may be needed for legitimate existing stored categories. Shared-link last-reference cleanup and save-failure rollback remain.
+- No user data is deleted by upgrading. Because this is a private alpha with an approved alpha.36 migration pass, the V1 import bridge can be retired without promising equivalent behavior for future public release channels.
+
+### Acceptance priorities
+1. Upgrade from alpha.36 with existing custom Quick Links, headings, categories and profiles. Confirm no reset; V2 data stays intact.
+2. Header Settings opens and returns, keyboard Esc works, layout and focus are readable, preferences survive page reload; default is Off.
+3. Off shows no unsolicited notice. On a named conversation, use **Preview reminder in this chat** and try Prepare handoff, Remind later, and Dismiss. Confirm the request is copied only when clicked; nothing is auto-submitted.
+4. Turn on High and test genuine user send actions in a disposable chat; verify the counter counts a normal gesture at most once, without reading content. (A full threshold test is optional with a preview control available.) Confirm Off clears the activity ledger.
+5. Test reload, a second browser tab, returning from Settings, browser widths, Temporary Chat, and changes between chats. There are no promises of warning accuracy; record observed false positives and false negatives.
+6. Confirm all existing Organizer tabs, profile deletion, Quick Save, and prompt flow still function; check syntax, no unsafe HTML sinks, no new network usage, and automated regression suite.
+
+**Sources:** [OpenAI ChatGPT Free Tier FAQ](https://help.openai.com/en/articles/9275245-chatgpt-free-tier-faq) (no fixed message count) and [OpenAI Terms of Use](https://openai.com/policies/terms-of-use/) (avoid automatic/programmatic extraction). This feature deliberately avoids content extraction.

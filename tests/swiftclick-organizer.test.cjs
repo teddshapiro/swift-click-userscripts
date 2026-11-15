@@ -179,7 +179,7 @@ test('ChatGPT Tools URL overrides are safe and New Chat cannot be overridden', (
 
 
 test('Quick Link subheadings coexist with links in stable ordered v2 storage', () => {
-  const old = hooks.sanitizeQuickLinks({version:1,links:[
+  const old = hooks.sanitizeQuickLinks({version:2,entries:[
     {id:'google-drive',title:'Google Drive',href:'https://drive.google.com/',icon:'📁'},
     {id:'youtube',title:'YouTube',href:'https://www.youtube.com/',icon:'🎬'}
   ]});
@@ -206,24 +206,28 @@ test('Quick Link subheadings coexist with links in stable ordered v2 storage', (
   assert.equal(hooks.sanitizeQuickLinks({version:2,entries:[]}).length,0);
 });
 
-test('Quick Links promote existing V1 safely to V2 without changing contents',()=>{
-  const legacy={version:1,links:[
-    {id:'google-drive',title:'Drive',href:'https://drive.google.com/',icon:'📁'},
+test('Quick Links V2-only startup retains safety guards instead of auto-importing V1',()=>{
+  const v2={version:2,entries:[
     {id:'youtube',title:'YouTube',href:'https://youtube.com/',icon:'🎬'}
   ]};
-  const upgraded=hooks.serializeQuickLinksV2(hooks.sanitizeQuickLinks(legacy));
-  assert.equal(upgraded.version,2);
-  assert.deepEqual(Array.from(upgraded.entries,x=>x.id),['google-drive','youtube']);
-  assert.deepEqual(Array.from(hooks.sanitizeQuickLinks(upgraded),x=>x.id),['google-drive','youtube']);
-  assert.deepEqual(Array.from(hooks.sanitizeQuickLinks({version:1,links:[]})),[]);
-  assert.deepEqual(Array.from(hooks.serializeQuickLinksV2([]).entries),[]);
-  assert.equal(legacy.links.length,2); // Recovery source untouched.
-  const code=script.slice(script.indexOf('function readQuickLinks()'),
+  const valid=hooks.planQuickLinksStartup(v2,{version:1,links:[]});
+  assert.equal(valid.status,'ok');
+  assert.deepEqual(Array.from(valid.items,x=>x.id),['youtube']);
+  assert.equal(hooks.planQuickLinksStartup(null,{version:1,links:[]}).status,'needs-v2');
+  assert.equal(hooks.planQuickLinksStartup({version:2,entries:'bad'},null).status,'blocked');
+  assert.equal(hooks.planQuickLinksStartup({version:3,entries:[]},null).status,'blocked');
+  const blank=hooks.planQuickLinksStartup(null,null);
+  assert.equal(blank.status,'new');
+  assert.deepEqual(Array.from(blank.items,x=>x.id),['youtube','google-drive']);
+  assert.equal(hooks.sanitizeQuickLinks({version:1,links:v2.entries}).length,0);
+  assert.deepEqual(Array.from(hooks.sanitizeQuickLinks({version:2,entries:[]}),x=>x.id),[]);
+  const runtime=script.slice(script.indexOf('function readQuickLinks()'),
     script.indexOf('let quickLinks = readQuickLinks()'));
-  assert.match(code,/if \(savedV2 !== null\) return sanitizeQuickLinks\(savedV2\)/);
-  assert.match(code,/GM_setValue\(QUICK_LINKS_V2_KEY, serializeQuickLinksV2\(initial\)\)/);
-  assert.match(code,/!Array\.isArray\(oldV1\.links\)/);
-  assert.doesNotMatch(code,/GM_setValue\(QUICK_LINKS_KEY/);
+  assert.match(runtime,/planQuickLinksStartup\(savedV2,oldV1\)/);
+  assert.match(runtime,/quickLinksLocked=true/);
+  assert.doesNotMatch(runtime,/serializeQuickLinksV2\(initial\)|sanitizeQuickLinks\(oldV1\)/);
+  assert.doesNotMatch(runtime,/GM_setValue\(QUICK_LINKS_KEY/);
+  assert.match(script,/manageLinks\.disabled=quickLinksLocked/);
 });
 
 test('Quick Link subheadings rename, move, and delete without deleting their links', () => {
@@ -275,8 +279,8 @@ test('Quick Link headings reject unsafe and malformed records without losing oth
 
 test('Quick Link subheadings render section breaks and share link drag order', () => {
   assert.match(script,/const QUICK_LINKS_V2_KEY = APP_ID \+ '\.quickLinks\.v2'/);
-  assert.match(script,/const savedV2 = GM_getValue\(QUICK_LINKS_V2_KEY, null\)/);
-  assert.match(script,/if \(savedV2 !== null\) return sanitizeQuickLinks\(savedV2\)/);
+  assert.match(script,/const savedV2=GM_getValue\(QUICK_LINKS_V2_KEY,null\)/);
+  assert.match(script,/planQuickLinksStartup\(savedV2,oldV1\)/);
   assert.match(script,/function makeQuickLinksSections\(items\)/);
   assert.match(script,/sections\.appendChild\(el\('h3', 'quick-section-title', item\.title\)\)/);
   assert.match(script,/sections\.appendChild\(cards\)/);
@@ -398,8 +402,8 @@ test('Quick Links start with YouTube and Google Drive only for uninitialized sto
   assert.deepEqual(Array.from(defaults, (item) => item.title), ['YouTube', 'Google Drive']);
   assert.equal(defaults[0].href, 'https://www.youtube.com/');
   assert.equal(defaults[1].href, 'https://drive.google.com/');
-  assert.deepEqual(Array.from(hooks.sanitizeQuickLinks({version:1,links:[]})), []);
-  assert.deepEqual(Array.from(hooks.sanitizeQuickLinks({version:1,links:[]}), (i)=>i.id), []);
+  assert.deepEqual(Array.from(hooks.sanitizeQuickLinks({version:2,entries:[]})), []);
+  assert.deepEqual(Array.from(hooks.sanitizeQuickLinks({version:1,links:[defaults[0]]})), []);
   assert.equal(defaults[0].icon, '🎬');
   assert.equal(defaults[1].icon, '📁');
 });
@@ -1536,8 +1540,111 @@ test('profile deletion warns before last-reference shortcut cleanup',()=>{
   assert.match(script,/Saved in SwiftClick but not included in this profile/);
 });
 
+test('Conversation Continuity settings default to Off and reject unknown choices',()=>{
+  assert.deepEqual(JSON.parse(JSON.stringify(hooks.sanitizeOrganizerSettings(null))),
+    {version:1,continuityLevel:'off'});
+  assert.equal(hooks.sanitizeOrganizerSettings({version:1,continuityLevel:'medium'}).continuityLevel,'medium');
+  assert.equal(hooks.sanitizeOrganizerSettings({version:1,continuityLevel:'high'}).continuityLevel,'high');
+  assert.equal(hooks.sanitizeOrganizerSettings({version:1,continuityLevel:'low'}).continuityLevel,'low');
+  assert.equal(hooks.sanitizeOrganizerSettings({version:1,continuityLevel:'maximum'}).continuityLevel,'off');
+  assert.equal(hooks.sanitizeOrganizerSettings({version:999,continuityLevel:'high'}).continuityLevel,'off');
+  assert.equal(hooks.sanitizeOrganizerSettings({version:1}).continuityLevel,'off');
+});
+
+test('Conversation Continuity applies only to named non-temporary conversation routes',()=>{
+  assert.equal(hooks.continuityConversationKey('/c/abc-123'),'chat:abc-123');
+  assert.equal(hooks.continuityConversationKey('/g/g-p-project123/c/CHAT-123/'),'chat:chat-123');
+  assert.equal(hooks.continuityConversationKey('/c/ABC','?x=1&temporary-chat=true'),null);
+  assert.equal(hooks.continuityConversationKey('/'),null);
+  assert.equal(hooks.continuityConversationKey('/c/'),null);
+  assert.equal(hooks.continuityConversationKey('/g/g-p-x/project'),null);
+  assert.equal(hooks.continuityConversationKey('/share/abc-123'),null);
+  assert.equal(hooks.continuityConversationKey('https://example.com/c/test'),null);
+});
+
+test('Conversation Continuity ledger is bounded, validated, and content-free',()=>{
+  const bad=[
+    {id:'chat:abc',sends:30,nextAt:47,dismissed:true},
+    {id:'chat:abc',sends:19,nextAt:0,dismissed:false},
+    {id:'chat:<script>',sends:1},
+    {id:'chat:def',sends:-2,nextAt:12000,dismissed:'true'},
+    {id:'other',sends:5},
+    ...Array.from({length:41},(_,i)=>({
+      id:'chat:a'+String(i).padStart(3,'0'),sends:i,nextAt:i+10
+    }))
+  ];
+  const result=hooks.sanitizeContinuityLedger({version:1,entries:bad});
+  assert.ok(result.entries.length<=30);
+  assert.ok(result.entries.every(x=>/^chat:[a-z0-9-]+$/.test(x.id)));
+  assert.equal(hooks.sanitizeContinuityLedger({version:2,entries:bad}).entries.length,0);
+  const one=hooks.sanitizeContinuityLedger({version:1,entries:bad.slice(0,4)});
+  assert.equal(one.entries[0].sends,30);
+  assert.equal(one.entries[0].dismissed,true);
+  assert.equal(one.entries[1].sends,0);
+  assert.equal(one.entries[1].nextAt,0);
+  assert.equal(one.entries[1].dismissed,false);
+});
+
+test('Conversation Continuity thresholds are reminders, not token-limit predictions',()=>{
+  const at=n=>({sends:n,nextAt:0,dismissed:false});
+  assert.equal(hooks.continuityShouldRemind('off',at(10000)),false);
+  assert.equal(hooks.continuityShouldRemind('high',at(11)),false);
+  assert.equal(hooks.continuityShouldRemind('high',at(12)),true);
+  assert.equal(hooks.continuityShouldRemind('medium',at(24)),false);
+  assert.equal(hooks.continuityShouldRemind('medium',at(25)),true);
+  assert.equal(hooks.continuityShouldRemind('low',at(44)),false);
+  assert.equal(hooks.continuityShouldRemind('low',at(45)),true);
+  assert.equal(hooks.continuityShouldRemind('high',{...at(30),nextAt:35}),false);
+  assert.equal(hooks.continuityShouldRemind('high',{...at(35),nextAt:35}),true);
+  assert.equal(hooks.continuityShouldRemind('high',{...at(100),dismissed:true}),false);
+});
+
+test('Settings and handoff are a separate user-controlled screen, not another tab',()=>{
+  assert.match(script,/const ORGANIZER_SETTINGS_KEY = APP_ID \+ '\.settings\.v1'/);
+  assert.match(script,/GM_getValue\(ORGANIZER_SETTINGS_KEY,null\)/);
+  assert.match(script,/GM_setValue\(ORGANIZER_SETTINGS_KEY,next\)/);
+  assert.match(script,/settingsButton=button\(settingsOpen\?'← Back':'⚙ Settings'/);
+  assert.match(script,/if\(settingsOpen\)\{/);
+  assert.match(script,/main\.appendChild\(makeSettingsPanel\(\)\)/);
+  assert.match(script,/Conversation Continuity/);
+  assert.match(script,/BETA/);
+  assert.match(script,/Copy handoff request/);
+  assert.match(script,/copyPromptToClipboard\(area\.value,area\)/);
+  assert.match(script,/Preview reminder in this chat/);
+  assert.match(script,/role','status'/);
+  assert.match(script,/settingsOpen=false;render\(\)/);
+  assert.equal((script.match(/\{ id: 'settings', title:/g)||[]).length,0);
+});
+
+test('Handoff text requests a reviewable new-chat prompt and does not claim unseen work',()=>{
+  const prompt=hooks.continuityHandoffRequest;
+  assert.ok(prompt.includes('NEW ChatGPT conversation'));
+  assert.ok(prompt.includes('READY-TO-PASTE OPENING PROMPT'));
+  assert.ok(prompt.includes('Do not invent facts'));
+  assert.ok(prompt.includes('missing earlier context'));
+  assert.ok(prompt.includes('Do not open a new chat or submit'));
+});
+
+test('Reminder respects privacy: no transcript extraction, message text, network or auto-submit',()=>{
+  assert.match(script,/if\(organizerSettings\.continuityLevel==='off'\)return/);
+  assert.match(script,/if\(!event\.isTrusted\)return/);
+  assert.match(script,/target\.closest\('#prompt-textarea,\[data-testid="prompt-textarea"\]'\)/);
+  assert.match(script,/button\[data-testid="send-button"\]/);
+  assert.match(script,/countContinuitySend\(\)/);
+  assert.match(script,/continuityHost\.hidden=!eligible/);
+  assert.match(script,/continuityRoot\.appendChild\(notice\)/);
+  assert.match(script,/snoozeContinuity\(id\)/);
+  assert.match(script,/dismissContinuity\(id\)/);
+  assert.match(script,/window\.sessionStorage\.setItem\(CONTINUITY_TAB_KEY/);
+  assert.match(script,/window\.sessionStorage\.removeItem\(CONTINUITY_TAB_KEY\)/);
+  assert.doesNotMatch(script,/data-message-author-role|\.textContent\s*=\s*.*querySelector\(/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+  assert.doesNotMatch(script,/(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);
+  assert.doesNotMatch(script,/document\.querySelectorAll\('.*(?:message|conversation)/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.36/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.37/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

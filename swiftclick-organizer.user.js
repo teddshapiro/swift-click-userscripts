@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.36
+// @version      0.1.0-alpha.37
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -31,6 +31,8 @@
   const QUICK_LINKS_KEY = APP_ID + '.quickLinks.v1';
   const QUICK_LINKS_V2_KEY = APP_ID + '.quickLinks.v2';
   const CHATGPT_TOOLS_KEY = APP_ID + '.chatgptTools.v1';
+  const ORGANIZER_SETTINGS_KEY = APP_ID + '.settings.v1';
+  const CONTINUITY_TAB_KEY = APP_ID + '.continuityTab.v1';
   const SUPPRESS_NEXT_HOME_AUTOOPEN_KEY = APP_ID + '.suppressNextHomeAutoOpen.v1';
   // Flat virtual categories only; do not introduce nested categories in this MVP.
   // Only first-time installations receive these public, non-personal starters.
@@ -499,8 +501,7 @@
 
   function sanitizeQuickLinks(raw) {
     if (raw == null) return DEFAULT_QUICK_LINKS.map((entry) => ({ ...entry }));
-    const source = raw && raw.version === 2 ? raw.entries :
-      raw && raw.version === 1 ? raw.links : null;
+    const source = raw && raw.version === 2 ? raw.entries : null;
     if (!Array.isArray(source)) return [];
     const result = [];
     const ids = new Set();
@@ -875,12 +876,70 @@
     return {...state,profiles,activeId:nextActive,defaultId:nextDefault};
   }
 
+  // Counts only user send actions observed locally in this tab (no content).
+  const CONTINUITY_LEVELS = Object.freeze({
+    off:null, low:Object.freeze({first:45,interval:30}),
+    medium:Object.freeze({first:25,interval:20}),
+    high:Object.freeze({first:12,interval:15})
+  });
+  const CONTINUITY_HANDOFF_REQUEST = [
+    'Please prepare a self-contained handoff for continuing our work in a NEW ChatGPT conversation.',
+    'Use only information available in this chat and clearly flag possibly missing earlier context.',
+    'Describe our goal, current state, confirmed decisions, requirements, important facts, and exact references.',
+    'Distinguish completed work from pending work, unresolved questions, risks, and the next concrete steps.',
+    'Do not invent facts, file changes, URLs, code changes, approvals, or test results.',
+    'End with a READY-TO-PASTE OPENING PROMPT for the new conversation.',
+    'If vital information is unavailable, identify what I need to provide myself.',
+    'Do not open a new chat or submit anything on my behalf.'
+  ].join('\n');
+  function sanitizeOrganizerSettings(raw) {
+    const level=raw && raw.version===1 ? raw.continuityLevel : 'off';
+    return {version:1,continuityLevel:
+      Object.prototype.hasOwnProperty.call(CONTINUITY_LEVELS,level)?level:'off'};
+  }
+  function continuityConversationKey(path,search='') {
+    if(/(?:^|[?&])temporary-chat=(?:true|1)(?:&|$)/i.test(String(search||'')))return null;
+    const match=String(path||'').match(/^\/(?:g\/g-p-[a-z0-9-]+\/)?c\/([a-z0-9-]{3,128})\/?$/i);
+    return match?'chat:'+match[1].toLowerCase():null;
+  }
+  function sanitizeContinuityLedger(raw) {
+    const entries=[];
+    if(raw && raw.version===1 && Array.isArray(raw.entries)){
+      for(const item of raw.entries.slice(-30)){
+        if(!item || typeof item.id!=='string' ||
+          !/^chat:[a-z0-9-]{3,128}$/.test(item.id) ||
+          entries.some(other=>other.id===item.id))continue;
+        const safe=(value)=>Number.isSafeInteger(value)&&value>=0&&value<=10000?value:0;
+        entries.push({id:item.id,sends:safe(item.sends),
+          nextAt:safe(item.nextAt),dismissed:item.dismissed===true});
+      }
+    }
+    return {version:1,entries};
+  }
+  function continuityShouldRemind(level,entry) {
+    const limit=CONTINUITY_LEVELS[level];
+    return Boolean(limit && entry && !entry.dismissed &&
+      entry.sends>=Math.max(limit.first,entry.nextAt||0));
+  }
+  function planQuickLinksStartup(v2,v1) {
+    if(v2!==null){
+      if(!v2 || v2.version!==2 || !Array.isArray(v2.entries))
+        return {status:'blocked',items:[]};
+      return {status:'ok',items:sanitizeQuickLinks(v2)};
+    }
+    if(v1!==null)return {status:'needs-v2',items:[]};
+    return {status:'new',items:sanitizeQuickLinks(null)};
+  }
+
   // Node regression tests opt in to helpers, bypassing browser initialization.
   if (typeof globalThis !== 'undefined' && globalThis.__SC_ORGANIZER_TEST_HOOKS__) {
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
       isHomeRoute, shouldAutoOpenHome, parseItemLink, sanitizeManualProject, validCategory,
       promptCatalog:PROMPT_CATALOG,validatePromptCatalog,promptMissingFields,assemblePrompt,filterPromptTemplates,
       promptHasWork,
+      sanitizeOrganizerSettings,continuityConversationKey,sanitizeContinuityLedger,
+      continuityShouldRemind,continuityLevels:CONTINUITY_LEVELS,
+      continuityHandoffRequest:CONTINUITY_HANDOFF_REQUEST,planQuickLinksStartup,
       formatCategoryItemCounts,
       normalizeCategoryId, itemInCategory, sanitizeProfileAssignments, sanitizeSavedChat,
       renameSavedShortcutModel,
@@ -913,6 +972,11 @@
 
   const seen = new Map(); // Session-only inventory: no cross-account stored chat titles/links.
   let activeTab = 'categories';
+  let settingsOpen = false;
+  let settingsError = '';
+  let continuityPreview = false;
+  let continuityLastSendAt = 0;
+  let continuityLastSendKey = '';
   let promptTemplateId='';
   let promptCategory='';
   let promptInitializedId=null;
@@ -929,6 +993,7 @@
   let quickLinkAdding = false;
   let quickHeadingAdding = false;
   let quickLinkError = '';
+  let quickLinksLocked = false;
   let quickLinkDragged = null;
   let currentCategory = null;
   let query = '';
@@ -989,6 +1054,83 @@
     render();
     return true;
   }
+  function readOrganizerSettings() {
+    try{return sanitizeOrganizerSettings(GM_getValue(ORGANIZER_SETTINGS_KEY,null));}
+    catch(error){console.warn('[SwiftClick Organizer] Settings read failed:',error);
+      return sanitizeOrganizerSettings(null);}
+  }
+  let organizerSettings=readOrganizerSettings();
+  function readContinuityLedger() {
+    try{return sanitizeContinuityLedger(JSON.parse(
+      window.sessionStorage.getItem(CONTINUITY_TAB_KEY)||'null'));}
+    catch(_){return sanitizeContinuityLedger(null);}
+  }
+  let continuityLedger=organizerSettings.continuityLevel==='off'
+    ? sanitizeContinuityLedger(null) : readContinuityLedger();
+  if(organizerSettings.continuityLevel==='off'){
+    try{window.sessionStorage.removeItem(CONTINUITY_TAB_KEY);}catch(_){}
+  }
+  function persistContinuityLedger() {
+    try{window.sessionStorage.setItem(CONTINUITY_TAB_KEY,JSON.stringify(continuityLedger));}
+    catch(_){/* In-memory behavior still works if storage is blocked. */}
+  }
+  function continuityEntry(id,create=false) {
+    let record=continuityLedger.entries.find(item=>item.id===id);
+    if(!record && create){
+      record={id,sends:0,nextAt:0,dismissed:false};
+      continuityLedger.entries.push(record);
+      if(continuityLedger.entries.length>30)continuityLedger.entries.shift();
+    }
+    return record;
+  }
+  function applyOrganizerSettings(raw) {
+    const next=sanitizeOrganizerSettings(raw);
+    try{GM_setValue(ORGANIZER_SETTINGS_KEY,next);}
+    catch(error){console.warn('[SwiftClick Organizer] Settings save failed:',error);
+      settingsError='Could not save settings. Previous choice retained.';render();return false;}
+    if(next.continuityLevel==='off' && organizerSettings.continuityLevel!=='off'){
+      continuityLedger=sanitizeContinuityLedger(null);
+      try{window.sessionStorage.removeItem(CONTINUITY_TAB_KEY);}catch(_){}
+      continuityPreview=false;
+    }
+    organizerSettings=next;settingsError='';
+    render();refreshContinuityReminder();
+    return true;
+  }
+  function snoozeContinuity(id) {
+    continuityPreview=false;
+    const record=continuityEntry(id);
+    if(record){
+      const limit=CONTINUITY_LEVELS[organizerSettings.continuityLevel];
+      record.nextAt=record.sends+(limit?limit.interval:20);
+      persistContinuityLedger();
+    }
+    refreshContinuityReminder();
+  }
+  function dismissContinuity(id) {
+    continuityPreview=false;
+    if(organizerSettings.continuityLevel==='off'){
+      refreshContinuityReminder();
+      return;
+    }
+    const record=continuityEntry(id,true);
+    record.dismissed=true;
+    persistContinuityLedger();
+    refreshContinuityReminder();
+  }
+  function countContinuitySend() {
+    if(organizerSettings.continuityLevel==='off')return;
+    const id=continuityConversationKey(location.pathname,location.search);
+    if(!id)return;
+    const now=Date.now();
+    if(id===continuityLastSendKey && now-continuityLastSendAt<1300)return;
+    continuityLastSendKey=id;continuityLastSendAt=now;
+    const record=continuityEntry(id,true);
+    record.sends=Math.min(record.sends+1,10000);
+    persistContinuityLedger();
+    refreshContinuityReminder();
+  }
+
   function shiftTool(id,delta) {
     const tool=CHATGPT_TOOL_CATALOG.find((x)=>x.id===id);
     if (!tool) return;
@@ -1013,32 +1155,31 @@
   }
   function readQuickLinks() {
     try {
-      const savedV2 = GM_getValue(QUICK_LINKS_V2_KEY, null);
-      if (savedV2 !== null) return sanitizeQuickLinks(savedV2);
-      // Final preservation bridge: write a V2 snapshot for V1-only installs
-      // and first-time defaults. Never overwrite or remove the original V1.
-      const oldV1 = GM_getValue(QUICK_LINKS_KEY, null);
-      const initial = sanitizeQuickLinks(oldV1);
-      if(oldV1 !== null && (!oldV1 || oldV1.version !== 1 ||
-        !Array.isArray(oldV1.links))) {
-        console.warn('[SwiftClick Organizer] Unrecognized Quick Links V1; not migrating.');
-        return initial;
+      const savedV2=GM_getValue(QUICK_LINKS_V2_KEY,null);
+      // The old key is a read-only sentinel, not a migration source.
+      const oldV1=savedV2===null?GM_getValue(QUICK_LINKS_KEY,null):null;
+      const startup=planQuickLinksStartup(savedV2,oldV1);
+      if(startup.status==='ok')return startup.items;
+      if(startup.status==='new'){
+        GM_setValue(QUICK_LINKS_V2_KEY,serializeQuickLinksV2(startup.items));
+        return startup.items;
       }
-      try {
-        GM_setValue(QUICK_LINKS_V2_KEY, serializeQuickLinksV2(initial));
-      } catch (error) {
-        // Display the original links and allow a later explicit edit to retry V2.
-        console.warn('[SwiftClick Organizer] Could not initialize Quick Links V2:',error);
-      }
-      return initial;
-    } catch (error) {
-      console.warn('[SwiftClick Organizer] Could not read Quick Links:', error);
-      return DEFAULT_QUICK_LINKS.map((entry) => ({ ...entry }));
+      quickLinksLocked=true;
+      quickLinkError=startup.status==='needs-v2'
+        ? 'Older Quick Links data found without a V2 snapshot. Run alpha.36 once first; data was not changed.'
+        : 'Quick Links V2 could not be validated. Editing is disabled to protect your links.';
+      return [];
+    }catch(error){
+      console.warn('[SwiftClick Organizer] Could not safely load Quick Links:',error);
+      quickLinksLocked=true;
+      quickLinkError='Quick Links could not be loaded safely. Stored data was not changed.';
+      return [];
     }
   }
   let quickLinks = readQuickLinks();
 
   function applyQuickLinks(next) {
+    if(quickLinksLocked)return false;
     if (!next) return false;
     try {
       GM_setValue(QUICK_LINKS_V2_KEY, serializeQuickLinksV2(next));
@@ -1394,6 +1535,25 @@
     '.backdrop{position:fixed;inset:0;background:#050c16c9;z-index:2147483601;display:flex;align-items:center;justify-content:center;padding:16px;}',
     '.panel{width:min(1080px,100%);height:min(760px,calc(100vh - 32px));min-height:300px;display:flex;flex-direction:column;border-radius:18px;background:#111b29;box-shadow:0 20px 90px #0009;border:1px solid #35475d;overflow:hidden;}',
     '.head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:17px 20px;border-bottom:1px solid #304052;}',
+    '.head-actions{display:flex;align-items:center;gap:8px;}',
+    '.settings-trigger{font-weight:700;white-space:nowrap;}',
+    '.settings-panel{max-width:810px;margin:auto;display:grid;gap:18px;}',
+    '.settings-panel h2{margin:0;font-size:21px;}',
+    '.settings-panel h3{margin:0;font-size:16px;}',
+    '.settings-section{display:grid;gap:12px;background:#1b2b3f;border:1px solid #415872;padding:18px;border-radius:12px;}',
+    '.settings-beta{border:1px solid #617a93;border-radius:12px;padding:2px 8px;color:#c6def3;font-size:11px;font-weight:700;}',
+    '.settings-choice-list{display:grid;gap:8px;border:0;margin:0;padding:0;min-width:0;}',
+    '.settings-choice-list legend{font-size:12px;font-weight:700;color:#d1e5fc;padding-bottom:9px;}',
+    '.settings-choice{display:flex;gap:10px;align-items:flex-start;background:#20354b;border:1px solid #4a6681;border-radius:9px;padding:11px;cursor:pointer;font-size:13px;}',
+    '.settings-choice:has(input:checked){background:#294862;border-color:#8dc2f4;}',
+    '.settings-choice input{accent-color:#86c1ff;flex:none;margin:2px 0 0;}',
+    '.settings-choice-label{display:grid;gap:4px;}',
+    '.settings-choice .hint{line-height:1.45;}',
+    '.settings-handoff{width:100%;min-height:155px;resize:vertical;border:1px solid #6684a1;border-radius:9px;background:#122338;color:#f1f7ff;padding:12px;font:12px/1.5 ui-monospace,Consolas,monospace;}',
+    '.settings-actions{display:flex;gap:9px;flex-wrap:wrap;}',
+    '.settings-feedback{font-size:12px;color:#b6ddff;min-height:14px;}',
+    '.settings-warning{font-size:12px;color:#f9d6a1;line-height:1.5;}',
+    '@media(max-width:520px){.head{padding:12px}.head-actions{gap:5px}.settings-section{padding:12px}}',
     '.brand{font-size:17px;font-weight:750;letter-spacing:-.3px;}',
     '.muted{color:#a7b7cc;font-size:12px;}',
     '.main{padding:20px;flex:1;overflow:auto;}',
@@ -1717,6 +1877,60 @@
     if (event.target === backdrop) hide();
   });
 
+
+  // Dedicated Shadow DOM reminder: no ChatGPT message text is inspected.
+  const CONTINUITY_NOTICE_CSS = [
+    ':host{position:fixed;bottom:92px;right:16px;z-index:2147483550;pointer-events:none;color:#eaf3ff;font:13px system-ui;}',
+    ':host([hidden]){display:none!important;}',
+    '*{box-sizing:border-box;}',
+    '.notice{pointer-events:auto;width:min(360px,calc(100vw - 32px));padding:15px;background:#182b3f;border:1px solid #7293b4;border-radius:13px;box-shadow:0 14px 40px #0008;display:grid;gap:10px;}',
+    'h3{margin:0;font-size:14px;color:#fff;}',
+    'p{margin:0;line-height:1.45;color:#c8d9eb;font-size:12px;}',
+    '.actions{display:flex;gap:7px;flex-wrap:wrap;}',
+    'button{background:#2b4561;border:1px solid #7193b4;border-radius:8px;color:#fff;font:inherit;font-size:12px;padding:8px 10px;cursor:pointer;}',
+    'button:hover,button:focus-visible{background:#396389;border-color:#a6d3f9;}',
+    'button:focus-visible{outline:2px solid #9ad4ff;outline-offset:2px;}'
+  ].join('\n');
+  const continuityHost=el('div');
+  continuityHost.id=APP_ID+'-continuity-reminder';
+  continuityHost.hidden=true;
+  const continuityRoot=continuityHost.attachShadow({mode:'open'});
+  let continuityRenderedKey='';
+  stylesheet(continuityRoot,CONTINUITY_NOTICE_CSS);
+  document.body.appendChild(continuityHost);
+
+  function refreshContinuityReminder() {
+    const id=continuityConversationKey(location.pathname,location.search);
+    const record=id?continuityEntry(id):null;
+    const eligible=Boolean(id && !open &&
+      (continuityPreview || continuityShouldRemind(organizerSettings.continuityLevel,record)));
+    continuityHost.hidden=!eligible;
+    if(!eligible){continuityRenderedKey='';return;}
+    const viewKey=id+':'+(continuityPreview?'preview':record.sends);
+    if(continuityRenderedKey===viewKey)return;
+    continuityRenderedKey=viewKey;
+    continuityRoot.querySelector('.notice')?.remove();
+    const notice=el('section','notice');
+    notice.setAttribute('role','status');
+    notice.appendChild(el('h3','',
+      continuityPreview?'Conversation Continuity — Preview (Beta)':'Conversation Continuity reminder (Beta)'));
+    notice.appendChild(el('p','',continuityPreview
+      ? 'This is how an optional reminder looks. No messages were examined.'
+      : 'You have made '+record.sends+' observed send attempts in this tab. This is NOT a measure of remaining ChatGPT context. Consider a handoff if the work is important.'));
+    const actions=el('div','actions');
+    actions.appendChild(button('Prepare handoff','',()=>{
+      snoozeContinuity(id);
+      if(!open)show(false);
+      settingsOpen=true;
+      render();
+      const text=panel.querySelector('textarea.settings-handoff');
+      if(text)text.focus();
+    }));
+    actions.appendChild(button('Remind later','',()=>snoozeContinuity(id)));
+    actions.appendChild(button('Dismiss for this chat','',()=>dismissContinuity(id)));
+    notice.appendChild(actions);
+    continuityRoot.appendChild(notice);
+  }
 
   // Quick Save is mounted in a dedicated Shadow DOM outside native ChatGPT UI.
   // Routine updates inspect only the current URL and previously saved IDs.
@@ -4009,6 +4223,73 @@
     return wrapper;
   }
 
+  function makeSettingsPanel() {
+    const root=el('div','settings-panel');
+    root.appendChild(el('h2','','Organizer Settings'));
+    root.appendChild(el('p','hint',
+      'Settings are local to this browser and do not change your ChatGPT account.'));
+    const section=el('section','settings-section');
+    const title=el('div','settings-actions');
+    title.appendChild(el('h3','','Conversation Continuity'));
+    title.appendChild(el('span','settings-beta','BETA'));
+    section.appendChild(title);
+    section.appendChild(el('p','hint',
+      'Optional reminders to consider creating a handoff before a long project chat becomes difficult to continue. This is an activity reminder, NOT a context-limit meter.'));
+    const choices=el('fieldset','settings-choice-list');
+    choices.appendChild(el('legend','','Reminder sensitivity'));
+    for(const [level,label,description] of [
+      ['off','Off (default)','No automatic monitoring or reminders.'],
+      ['low','Low','First reminder after 45 observed sends; every 30 more after postponing.'],
+      ['medium','Medium','First reminder after 25 observed sends; every 20 more after postponing.'],
+      ['high','High','First reminder after 12 observed sends; every 15 more after postponing.']
+    ]){
+      const choice=el('label','settings-choice');
+      const radio=el('input');radio.type='radio';radio.name=APP_ID+'-continuity-level';
+      radio.value=level;radio.checked=organizerSettings.continuityLevel===level;
+      radio.addEventListener('change',()=>{
+        if(radio.checked)applyOrganizerSettings({version:1,continuityLevel:level});
+      });
+      choice.appendChild(radio);
+      const descriptionBox=el('span','settings-choice-label');
+      descriptionBox.appendChild(el('strong','',label));
+      descriptionBox.appendChild(el('span','hint',description));
+      choice.appendChild(descriptionBox);choices.appendChild(choice);
+    }
+    section.appendChild(choices);
+    section.appendChild(el('p','settings-warning',
+      'Beta limitation: SwiftClick counts only user send attempts it sees in this tab while enabled. It does not read messages, count tokens, inspect model responses, or know how much context ChatGPT has left. Earlier turns and sends in other tabs are not included. Reminders may come too early, too late, or not at all.'));
+    if(settingsError)section.appendChild(el('p','error',settingsError));
+    root.appendChild(section);
+
+    const handoff=el('section','settings-section');
+    handoff.appendChild(el('h3','','Prepare a handoff (available even when reminders are Off)'));
+    handoff.appendChild(el('p','hint',
+      'Copy the request below, paste it into your CURRENT conversation, then send it yourself. Review ChatGPT’s reply and copy the resulting handoff into a new chat. This never automatically submits or extracts a response.'));
+    const area=el('textarea','settings-handoff');
+    area.setAttribute('aria-label','Editable handoff request');
+    area.value=CONTINUITY_HANDOFF_REQUEST;
+    handoff.appendChild(area);
+    const notice=el('p','settings-feedback');
+    notice.setAttribute('role','status');
+    const actions=el('div','settings-actions');
+    actions.appendChild(button('Copy handoff request','action',async()=>{
+      const copied=await copyPromptToClipboard(area.value,area);
+      notice.textContent=copied?'Request copied. Paste it into the current chat and send manually.':
+        'Clipboard unavailable. Select the request text above and copy it manually.';
+    }));
+    const id=continuityConversationKey(location.pathname,location.search);
+    if(id){
+      actions.appendChild(button('Preview reminder in this chat','action',()=>{
+        continuityPreview=true;
+        hide();
+        refreshContinuityReminder();
+      }));
+    }
+    handoff.appendChild(actions);handoff.appendChild(notice);
+    root.appendChild(handoff);
+    return root;
+  }
+
   function render() {
     panel.replaceChildren();
     // Upgrade every select after this synchronous render has completed.
@@ -4018,8 +4299,26 @@
     brand.appendChild(el('div', 'brand', '▦  SwiftClick Organizer'));
     brand.appendChild(el('div', 'muted', 'A personal front door to ChatGPT · Technical PoC'));
     header.appendChild(brand);
-    header.appendChild(button('✕ Close', 'action', hide));
+    const headActions=el('div','head-actions');
+    const settingsButton=button(settingsOpen?'← Back':'⚙ Settings','action settings-trigger',()=>{
+      settingsOpen=!settingsOpen;
+      render();
+    });
+    settingsButton.setAttribute('aria-label',settingsOpen?'Back to Organizer':'Open Organizer Settings');
+    settingsButton.setAttribute('aria-pressed',String(settingsOpen));
+    headActions.appendChild(settingsButton);
+    headActions.appendChild(button('✕ Close','action',hide));
+    header.appendChild(headActions);
     panel.appendChild(header);
+    if(settingsOpen){
+      const main=el('div','main');
+      main.appendChild(makeSettingsPanel());
+      panel.appendChild(main);
+      const foot=el('div','foot');
+      foot.appendChild(el('span','hint','Local preferences · No conversation text is stored.'));
+      panel.appendChild(foot);
+      return;
+    }
 
     const tabs = el('div', 'section-tabs');
     tabs.setAttribute('role', 'tablist');
@@ -4109,9 +4408,10 @@
         title.appendChild(el('span', 'hint', 'Open your favorite websites in a new browser tab.'));
         content.appendChild(title);
         const sections = makeQuickLinksSections(quickLinks);
-        if (!quickLinks.length) sections.appendChild(el('p', 'empty',
+        if(!quickLinks.length && !quickLinksLocked)sections.appendChild(el('p','empty',
           'No links saved yet. Choose Manage Quick Links to add a website or subheading.'));
         content.appendChild(sections);
+        if(quickLinksLocked)content.appendChild(el('p','quick-error',quickLinkError));
         panel.appendChild(content);
         const linkCount = quickLinks.filter((entry) => !isQuickHeading(entry)).length;
         const headingCount = quickLinks.length - linkCount;
@@ -4119,11 +4419,14 @@
         footer.appendChild(el('span', 'hint',
           linkCount + ' quick link' + (linkCount === 1 ? '' : 's') + ' · ' +
           headingCount + ' subheading' + (headingCount === 1 ? '' : 's') + ' saved locally.'));
-        footer.appendChild(button('⚙ Manage Quick Links', 'action', () => {
-          managingQuickLinks = true;
-          quickLinkError = '';
+        const manageLinks=button('⚙ Manage Quick Links','action',()=>{
+          if(quickLinksLocked)return;
+          managingQuickLinks=true;
+          quickLinkError='';
           render();
-        }));
+        });
+        manageLinks.disabled=quickLinksLocked;
+        footer.appendChild(manageLinks);
         panel.appendChild(footer);
       }
       return;
@@ -4272,6 +4575,7 @@
 
   function show(automatic = false) {
     clearPromptDraft();
+    settingsOpen=false;
     activeTab = 'categories';
     managingTools = false;
     editingToolId = null;
@@ -4287,6 +4591,7 @@
     categoryManagerError = '';
     open = true;
     refreshQuickSave();
+    refreshContinuityReminder();
     launcherButton.setAttribute('aria-expanded', 'true');
     launcherButton.setAttribute('aria-label', 'Close SwiftClick Organizer');
     currentCategory = null;
@@ -4311,6 +4616,7 @@
   }
 
   function hide() {
+    settingsOpen=false;
     clearPromptDraft();
     managingTools = false;
     editingToolId = null;
@@ -4330,13 +4636,16 @@
     launcherButton.setAttribute('aria-label', 'Open SwiftClick Organizer');
     overlayHost.hidden = true;
     refreshQuickSave();
+    refreshContinuityReminder();
     launcherButton.focus();
   }
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && open) {
       event.preventDefault();
-      if (activeTab === 'tools' && managingTools && editingToolId !== null) {
+      if (settingsOpen) {
+        settingsOpen=false;render();
+      } else if (activeTab === 'tools' && managingTools && editingToolId !== null) {
         editingToolId = null;render();
       } else if (activeTab === 'tools' && managingTools) {
         managingTools=false;render();
@@ -4379,6 +4688,27 @@
     }
   }, true);
 
+  // Listen only to trusted send gestures. Never inspect input values,
+  // message bodies or model output; do not interfere with ChatGPT's handlers.
+  document.addEventListener('keydown',event=>{
+    if(!event.isTrusted || event.key!=='Enter' || event.shiftKey ||
+      event.ctrlKey || event.altKey || event.metaKey ||
+      event.isComposing || event.repeat)return;
+    const target=event.target;
+    if(target instanceof Element &&
+      target.closest('#prompt-textarea,[data-testid="prompt-textarea"]'))
+      countContinuitySend();
+  },true);
+  document.addEventListener('click',event=>{
+    if(!event.isTrusted)return;
+    const target=event.target;
+    if(!(target instanceof Element))return;
+    const send=target.closest(
+      'button[data-testid="send-button"],button[data-testid="composer-submit-button"],' +
+      'button[aria-label="Send prompt"],button[aria-label="Send message"]');
+    if(send && !send.disabled)countContinuitySend();
+  },true);
+
   function scheduleRefresh() {
     if (refreshTimer) window.clearTimeout(refreshTimer);
     refreshTimer = window.setTimeout(() => {
@@ -4386,11 +4716,12 @@
       positionLauncher();
       positionProjectMenuAction();
       refreshQuickSave();
+      refreshContinuityReminder();
     }, 150);
   }
 
   const observer = new MutationObserver((records) => {
-    if (records.every((r) => launcherHost.contains(r.target) || overlayHost.contains(r.target) || menuActionHost.contains(r.target) || quickSaveHost.contains(r.target))) return;
+    if (records.every((r) => launcherHost.contains(r.target) || overlayHost.contains(r.target) || menuActionHost.contains(r.target) || quickSaveHost.contains(r.target) || continuityHost.contains(r.target))) return;
     scheduleRefresh();
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
@@ -4398,10 +4729,12 @@
   window.setInterval(() => {
     if (lastRoute !== location.pathname) {
       lastRoute = location.pathname;
+      continuityPreview=false;
       if (open) hide(); // Ordinary navigation closes the organizer.
       scheduleRefresh();
     }
     refreshQuickSave();
+    refreshContinuityReminder();
     positionLauncher();
     positionProjectMenuAction();
   }, 1000);
@@ -4415,6 +4748,7 @@
   window.addEventListener('scroll', scheduleRefresh, { passive: true, capture: true });
   positionProjectMenuAction();
   refreshQuickSave();
+  refreshContinuityReminder();
   // The ordinary home page auto-opens. New Chat navigations do not reopen
   // the launcher, and Temporary Chat should remain unobstructed.
   let autoOpenMarker = null;

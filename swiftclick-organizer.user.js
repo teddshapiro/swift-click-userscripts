@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.40
+// @version      0.1.0-alpha.41
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -898,9 +898,13 @@
     'Do not open a new chat or submit anything on my behalf.'
   ].join('\n');
   function sanitizeOrganizerSettings(raw) {
-    const level=raw && raw.version===1 ? raw.continuityLevel : 'off';
-    return {version:1,continuityLevel:
-      Object.prototype.hasOwnProperty.call(CONTINUITY_LEVELS,level)?level:'off'};
+    const valid=raw && raw.version===1;
+    const level=valid ? raw.continuityLevel : 'off';
+    return {version:1,
+      continuityLevel:Object.prototype.hasOwnProperty.call(CONTINUITY_LEVELS,level)?level:'off',
+      // Treat missing/invalid new flags as On when upgrading older settings.
+      autoOpenOnHome:!(valid && raw.autoOpenOnHome===false),
+      welcomeOnOpen:!(valid && raw.welcomeOnOpen===false)};
   }
   function continuityConversationKey(path,search='') {
     if(/(?:^|[?&])temporary-chat=(?:true|1)(?:&|$)/i.test(String(search||'')))return null;
@@ -1107,6 +1111,7 @@
   const seen = new Map(); // Session-only inventory: no cross-account stored chat titles/links.
   let activeTab = 'categories';
   let settingsOpen = false;
+  let startupSettingsExpanded = false;
   let settingsFeatureExpanded = false;
   let settingsError = '';
   let continuityPreview = false;
@@ -1222,7 +1227,7 @@
     }
     return record;
   }
-  function applyOrganizerSettings(raw) {
+  function applyOrganizerSettings(raw, focusSelector=null) {
     const next=sanitizeOrganizerSettings(raw);
     const priorMain=panel.querySelector('.main');
     const previousScroll=priorMain?priorMain.scrollTop:0;
@@ -1238,7 +1243,8 @@
     render();
     const nextMain=panel.querySelector('.main');
     if(nextMain)nextMain.scrollTop=previousScroll;
-    const selected=panel.querySelector('input[name="'+APP_ID+'-overrun-level"][value="'+next.continuityLevel+'"]');
+    const selected=panel.querySelector(focusSelector ||
+      'input[name="'+APP_ID+'-overrun-level"][value="'+next.continuityLevel+'"]');
     if(selected)selected.focus({preventScroll:true});
     refreshContinuityReminder();
     return true;
@@ -1707,6 +1713,23 @@
     '.settings-actions{display:flex;gap:9px;flex-wrap:wrap;}',
     '.settings-feedback{font-size:12px;color:#b6ddff;min-height:14px;}',
     '.settings-warning{font-size:12px;color:#f9d6a1;line-height:1.5;}',
+    '.settings-toggle{align-items:center;}',
+    '.settings-toggle input[type=checkbox]{width:19px;height:19px;cursor:pointer;accent-color:#9cd4ff;}',
+    '.welcome-help{white-space:nowrap;}',
+    '.welcome-backdrop{position:fixed;inset:0;z-index:2147483622;display:flex;align-items:center;justify-content:center;padding:16px;background:#040e1bdf;}',
+    '.welcome-dialog{width:min(540px,100%);max-height:calc(100vh - 32px);overflow-y:auto;scrollbar-width:auto;scrollbar-color:#b3d9fa #22364c;background:#182d44;border:1px solid #8bb9df;color:#ebf6ff;border-radius:16px;box-shadow:0 20px 75px #000b;padding:24px;display:grid;gap:15px;font:14px/1.55 system-ui;}',
+    '.welcome-dialog h2{font-size:23px;line-height:1.2;margin:0;}',
+    '.welcome-dialog p{color:#c3d9eb;margin:0;}',
+    '.welcome-kicker{font-size:11px;letter-spacing:.1em;font-weight:800;color:#a9d9ff;text-transform:uppercase;}',
+    '.welcome-links{display:grid;gap:9px;}',
+    '.welcome-links a{display:flex;justify-content:space-between;gap:9px;padding:11px 13px;border:1px solid #537797;background:#213d57;color:#ecf7ff;border-radius:9px;text-decoration:none;font-size:13px;font-weight:700;}',
+    '.welcome-links a:hover,.welcome-links a:focus-visible{background:#2e5575;border-color:#9bd5ff;text-decoration:underline;}',
+    '.welcome-choice{display:flex;align-items:center;gap:10px;font-size:13px;color:#e1efff;cursor:pointer;}',
+    '.welcome-choice input{width:18px;height:18px;accent-color:#9cd4ff;}',
+    '.welcome-actions{display:flex;justify-content:flex-end;gap:10px;flex-wrap:wrap;}',
+    '.welcome-actions button{font-weight:700;padding:10px 15px;}',
+    '.welcome-status{font-size:12px;color:#ffbcb7;min-height:0;}',
+    '.welcome-dialog :is(a,button,input):focus-visible{outline:2px solid #b5e0ff;outline-offset:3px;}',
     '.support-footer-action{background:transparent;border:1px solid #526981;border-radius:8px;color:#d6e8f9;font-size:12px;padding:7px 10px;cursor:pointer;white-space:nowrap;}',
     '.support-footer-action:hover,.support-footer-action:focus-visible{background:#294760;border-color:#96c9ee;color:#fff;}',
     '.support-backdrop{position:fixed;inset:0;z-index:2147483620;display:flex;align-items:center;justify-content:center;padding:18px;background:#030914db;}',
@@ -4706,9 +4729,8 @@
     return wrapper;
   }
 
-  // The settings hub is deliberately an accordion of independent features.
-  // Keep the first feature collapsed on ordinary entry and group its handoff
-  // workflow with its warning controls rather than creating a separate card.
+  // The settings hub is an accordion of independent features. Startup comes
+  // first; the overrun handoff and warning controls stay together in the second.
   // Optional support is a user-initiated pop-up, never an interruption.
   // No off-site navigation happens until Visit Ko-fi is clicked.
   const SWIFTCLICK_SUPPORT_URL='https://ko-fi.com/teddshapiro';
@@ -4771,11 +4793,156 @@
     panel.appendChild(footer);
   }
 
+  // First-run orientation is intentionally simple: no third-party requests,
+  // no chat data access, and no permanent dismissal without user consent.
+  const ORGANIZER_GUIDE_URL='https://organizer.swiftclicktools.com/';
+  let welcomeBackdrop=null;
+  let welcomeReturnFocus=null;
+  function closeWelcomePopup(restoreFocus=true) {
+    if(!welcomeBackdrop)return;
+    welcomeBackdrop.remove();
+    welcomeBackdrop=null;
+    const previous=welcomeReturnFocus;
+    welcomeReturnFocus=null;
+    if(restoreFocus){
+      const candidate=previous&&previous.isConnected?previous:
+        panel.querySelector('input.search,.welcome-help,.settings-startup-expand,.settings-trigger');
+      if(candidate)candidate.focus({preventScroll:true});
+    }
+  }
+  function openWelcomePopup(trigger=null) {
+    if(!open || welcomeBackdrop)return;
+    welcomeReturnFocus=trigger||null;
+    const backdropNode=el('div','welcome-backdrop');
+    backdropNode.addEventListener('click',event=>{
+      if(event.target===backdropNode)closeWelcomePopup();
+    });
+    const dialog=el('section','welcome-dialog');
+    dialog.setAttribute('role','dialog');
+    dialog.setAttribute('aria-modal','true');
+    dialog.setAttribute('aria-labelledby','swiftclick-welcome-title');
+    dialog.appendChild(el('span','welcome-kicker','SwiftClick Organizer · Welcome'));
+    const heading=el('h2','','Welcome to SwiftClick Organizer!');
+    heading.id='swiftclick-welcome-title';
+    dialog.appendChild(heading);
+    dialog.appendChild(el('p','',
+      'Your personal front door to ChatGPT. Save your favorite projects and conversations, organize them into categories and profiles, and keep useful tools close at hand.'));
+    const links=el('nav','welcome-links');
+    links.setAttribute('aria-label','SwiftClick help and documentation links');
+    for(const [label,url] of [
+      ['Read the User Guide',ORGANIZER_GUIDE_URL],
+      ['Getting Started',ORGANIZER_GUIDE_URL+'#start'],
+      ['☕ Support SwiftClick (optional)',SWIFTCLICK_SUPPORT_URL]
+    ]){
+      const link=el('a','',label+' ↗');
+      link.href=url;
+      link.target='_blank';
+      link.rel='noopener noreferrer';
+      links.appendChild(link);
+    }
+    dialog.appendChild(links);
+    const choice=el('label','welcome-choice');
+    const checkbox=el('input');
+    checkbox.type='checkbox';
+    checkbox.checked=false;
+    checkbox.setAttribute('aria-label',"Don't show this again");
+    choice.appendChild(checkbox);
+    choice.appendChild(el('span','',"Don't show this again"));
+    dialog.appendChild(choice);
+    const status=el('p','welcome-status');
+    status.setAttribute('role','status');
+    dialog.appendChild(status);
+    const actions=el('div','welcome-actions');
+    const continueButton=button('Continue to Organizer','action',()=>{
+      if(checkbox.checked){
+        // This uses the same versioned settings record and rollback behavior
+        // as the Startup & Welcome configuration toggles.
+        if(!applyOrganizerSettings({...organizerSettings,welcomeOnOpen:false},'.welcome-help')){
+          status.textContent='Could not save the preference. Try again or leave it unchecked.';
+          return;
+        }
+      }
+      closeWelcomePopup();
+    });
+    actions.appendChild(continueButton);
+    dialog.appendChild(actions);
+    dialog.addEventListener('keydown',event=>{
+      if(event.key!=='Tab')return;
+      const focusable=[...dialog.querySelectorAll('a[href],input:not(:disabled),button:not(:disabled)')];
+      if(!focusable.length)return;
+      const first=focusable[0],last=focusable[focusable.length-1];
+      const active=dialog.getRootNode().activeElement;
+      if(event.shiftKey&&active===first){event.preventDefault();last.focus();}
+      else if(!event.shiftKey&&active===last){event.preventDefault();first.focus();}
+    });
+    backdropNode.appendChild(dialog);
+    overlayRoot.appendChild(backdropNode);
+    welcomeBackdrop=backdropNode;
+    continueButton.focus();
+  }
+
   function makeSettingsPanel() {
     const root=el('div','settings-panel');
     root.appendChild(el('h2','','Organizer Settings'));
     root.appendChild(el('p','hint',
       'Settings are local to this browser and do not change your ChatGPT account.'));
+    if(settingsError)root.appendChild(el('p','error',settingsError));
+
+    // First setting: independent, initially collapsed startup preferences.
+    const startup=el('section','settings-section');
+    const startupSummary=el('div','settings-summary');
+    const startupInfo=el('div','settings-summary-info');
+    startupInfo.appendChild(el('h3','','Startup & Welcome'));
+    startupInfo.appendChild(el('p','settings-summary-description',
+      'Choose when Organizer opens and whether its welcome message appears.'));
+    startupInfo.appendChild(el('span','hint',
+      'Open on home: '+(organizerSettings.autoOpenOnHome?'On':'Off')+
+      ' · Welcome: '+(organizerSettings.welcomeOnOpen?'On':'Off')));
+    startupSummary.appendChild(startupInfo);
+    const startupExpand=button(startupSettingsExpanded?'▾ Close settings':'▸ Configure',
+      'action settings-expand settings-startup-expand',()=>{
+        startupSettingsExpanded=!startupSettingsExpanded;
+        render();
+        panel.querySelector('.settings-startup-expand')?.focus();
+      });
+    startupExpand.setAttribute('aria-expanded',String(startupSettingsExpanded));
+    startupExpand.setAttribute('aria-controls','swiftclick-startup-settings');
+    startupSummary.appendChild(startupExpand);
+    startup.appendChild(startupSummary);
+    const startupDetails=el('div','settings-feature-details');
+    startupDetails.id='swiftclick-startup-settings';
+    startupDetails.hidden=!startupSettingsExpanded;
+    if(startupSettingsExpanded){
+      for(const [key,title,description] of [
+        ['autoOpenOnHome','Automatically open Organizer on ChatGPT home',
+          'When On, Organizer opens automatically on regular ChatGPT home visits. When Off, use the launcher whenever you want to open it.'],
+        ['welcomeOnOpen','Show welcome message when Organizer opens',
+          'When On, show the welcome with guide links each time you open Organizer. When Off, open it yourself using the Help button.']
+      ]){
+        const option=el('label','settings-choice settings-toggle');
+        const input=el('input');
+        input.type='checkbox';
+        input.name=APP_ID+'-'+key;
+        input.checked=organizerSettings[key];
+        input.addEventListener('change',()=>{
+          const changed=applyOrganizerSettings({...organizerSettings,[key]:input.checked},
+            'input[name="'+APP_ID+'-'+key+'"]');
+          if(!changed)input.checked=organizerSettings[key];
+        });
+        option.appendChild(input);
+        const copy=el('span','settings-choice-label');
+        copy.appendChild(el('strong','',title));
+        copy.appendChild(el('span','hint',description));
+        option.appendChild(copy);
+        startupDetails.appendChild(option);
+      }
+      const startupActions=el('div','settings-actions');
+      startupActions.appendChild(button('Show welcome now','action',()=>openWelcomePopup(
+        panel.querySelector('.settings-startup-expand'))));
+      startupDetails.appendChild(startupActions);
+    }
+    startup.appendChild(startupDetails);
+    root.appendChild(startup);
 
     const section=el('section','settings-section');
     const summary=el('div','settings-summary');
@@ -4791,10 +4958,10 @@
       organizerSettings.continuityLevel.slice(1)));
     summary.appendChild(info);
     const expand=button(settingsFeatureExpanded?'▾ Close settings':'▸ Configure',
-      'action settings-expand',()=>{
+      'action settings-expand settings-overrun-expand',()=>{
         settingsFeatureExpanded=!settingsFeatureExpanded;
         render();
-        const toggle=panel.querySelector('.settings-expand');
+        const toggle=panel.querySelector('.settings-overrun-expand');
         if(toggle)toggle.focus();
       });
     expand.setAttribute('aria-expanded',String(settingsFeatureExpanded));
@@ -4819,7 +4986,7 @@
         radio.name=APP_ID+'-overrun-level';
         radio.value=level;radio.checked=organizerSettings.continuityLevel===level;
         radio.addEventListener('change',()=>{
-          if(radio.checked)applyOrganizerSettings({version:1,continuityLevel:level});
+          if(radio.checked)applyOrganizerSettings({...organizerSettings,continuityLevel:level});
         });
         choice.appendChild(radio);
         const descriptionBox=el('span','settings-choice-label');
@@ -4831,7 +4998,7 @@
       details.appendChild(choices);
       details.appendChild(el('p','settings-warning',
         'Beta limitation: This is an activity reminder, not a context-limit meter. It counts only user send attempts observed in this tab while enabled. It does not read messages, count tokens, or know how much context ChatGPT has left. Earlier turns and sends in other tabs are not included; reminders may be early, late, or absent.'));
-      if(settingsError)details.appendChild(el('p','error',settingsError));
+
 
       const handoff=el('div','settings-feature-handoff');
       handoff.appendChild(el('h3','','Prepare a handoff'));
@@ -4878,12 +5045,16 @@
     const headActions=el('div','head-actions');
     const settingsButton=button(settingsOpen?'← Back':'⚙ Settings','action settings-trigger',()=>{
       settingsOpen=!settingsOpen;
+      startupSettingsExpanded=false;
       settingsFeatureExpanded=false;
       render();
     });
     settingsButton.setAttribute('aria-label',settingsOpen?'Back to Organizer':'Open Organizer Settings');
     settingsButton.setAttribute('aria-pressed',String(settingsOpen));
     headActions.appendChild(settingsButton);
+    const helpButton=button('? Help','action welcome-help',()=>openWelcomePopup(helpButton));
+    helpButton.setAttribute('aria-label','Open welcome and user guide links');
+    headActions.appendChild(helpButton);
     headActions.appendChild(button('✕ Close','action',hide));
     header.appendChild(headActions);
     panel.appendChild(header);
@@ -5153,6 +5324,7 @@
   function show(automatic = false) {
     clearPromptDraft();
     settingsOpen=false;
+    startupSettingsExpanded=false;
     settingsFeatureExpanded=false;
     activeTab = 'categories';
     managingTools = false;
@@ -5188,15 +5360,17 @@
         else console.warn('[SwiftClick Organizer] Auto-open skipped: site styles blocked.');
         return;
       }
-      const search = panel.querySelector('input.search');
-      if (search) search.focus();
+      if (organizerSettings.welcomeOnOpen) openWelcomePopup();
+      else panel.querySelector('input.search,button.settings-trigger')?.focus();
     });
   }
 
   function hide() {
     closeAIProfileImportDialog(false);
+    closeWelcomePopup(false);
     closeSupportPopup();
     settingsOpen=false;
+    startupSettingsExpanded=false;
     settingsFeatureExpanded=false;
     clearPromptDraft();
     managingTools = false;
@@ -5226,10 +5400,12 @@
       event.preventDefault();
       if(aiProfileImportDialog) {
         closeAIProfileImportDialog();
+      } else if(welcomeBackdrop) {
+        closeWelcomePopup();
       } else if(supportBackdrop) {
         closeSupportPopup();
       } else if (settingsOpen) {
-        settingsOpen=false;settingsFeatureExpanded=false;render();
+        settingsOpen=false;startupSettingsExpanded=false;settingsFeatureExpanded=false;render();
       } else if (activeTab === 'tools' && managingTools && editingToolId !== null) {
         editingToolId = null;render();
       } else if (activeTab === 'tools' && managingTools) {
@@ -5344,9 +5520,10 @@
   // Capture the suppression flag at startup in case ChatGPT's router cleans
   // up the query string during the 750 ms auto-open delay.
   const aiProfileNewChatStart=location.search.includes(AI_PROFILE_NO_AUTOOPEN_QUERY);
-  if (!aiProfileNewChatStart && shouldAutoOpenHome(location.pathname, location.search, autoOpenMarker)) {
+  if (organizerSettings.autoOpenOnHome && !aiProfileNewChatStart &&
+      shouldAutoOpenHome(location.pathname, location.search, autoOpenMarker)) {
     window.setTimeout(() => {
-      if (!aiProfileNewChatStart &&
+      if (organizerSettings.autoOpenOnHome && !aiProfileNewChatStart &&
           shouldAutoOpenHome(location.pathname, location.search, autoOpenMarker) && !open) show(true);
     }, 750);
   }

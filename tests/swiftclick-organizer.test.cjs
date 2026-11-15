@@ -1542,7 +1542,7 @@ test('profile deletion warns before last-reference shortcut cleanup',()=>{
 
 test('Conversation Overrun Warning settings default to Off and reject unknown choices',()=>{
   assert.deepEqual(JSON.parse(JSON.stringify(hooks.sanitizeOrganizerSettings(null))),
-    {version:1,continuityLevel:'off'});
+    {version:1,continuityLevel:'off',autoOpenOnHome:true,welcomeOnOpen:true});
   assert.equal(hooks.sanitizeOrganizerSettings({version:1,continuityLevel:'medium'}).continuityLevel,'medium');
   assert.equal(hooks.sanitizeOrganizerSettings({version:1,continuityLevel:'high'}).continuityLevel,'high');
   assert.equal(hooks.sanitizeOrganizerSettings({version:1,continuityLevel:'low'}).continuityLevel,'low');
@@ -1938,8 +1938,114 @@ test('AI import focuses exclusively on editable review after successful validati
   assert.doesNotMatch(importer,/previewList\.appendChild/);
 });
 
+test('Startup defaults On and safely migrates existing settings without changing overrun levels',()=>{
+  const old=hooks.sanitizeOrganizerSettings({version:1,continuityLevel:'medium'});
+  assert.deepEqual(JSON.parse(JSON.stringify(old)),{
+    version:1,continuityLevel:'medium',autoOpenOnHome:true,welcomeOnOpen:true
+  });
+  const disabled=hooks.sanitizeOrganizerSettings({
+    version:1,continuityLevel:'high',autoOpenOnHome:false,welcomeOnOpen:false
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(disabled)),{
+    version:1,continuityLevel:'high',autoOpenOnHome:false,welcomeOnOpen:false
+  });
+  assert.equal(hooks.sanitizeOrganizerSettings({
+    version:1,continuityLevel:'low',autoOpenOnHome:true,welcomeOnOpen:false
+  }).continuityLevel,'low');
+  for(const value of [0,null,'false',undefined,{},[]]){
+    const x=hooks.sanitizeOrganizerSettings({version:1,autoOpenOnHome:value,welcomeOnOpen:value});
+    assert.equal(x.autoOpenOnHome,true);
+    assert.equal(x.welcomeOnOpen,true);
+  }
+  assert.equal(hooks.sanitizeOrganizerSettings({version:100,autoOpenOnHome:false,welcomeOnOpen:false}).autoOpenOnHome,true);
+});
+
+test('Startup & Welcome is first, independently collapsible, and saves both toggles',()=>{
+  const section=script.slice(script.indexOf('  function makeSettingsPanel() {'),
+    script.indexOf('  function render() {'));
+  assert.ok(section.indexOf("startupInfo.appendChild(el('h3','','Startup & Welcome'))") >= 0);
+  assert.ok(section.indexOf("startupInfo.appendChild(el('h3','','Startup & Welcome'))") <
+    section.indexOf("title.appendChild(el('h3','','Conversation Overrun Warning'))"));
+  assert.match(section,/startupDetails\.hidden=!startupSettingsExpanded/);
+  assert.match(section,/startupExpand\.setAttribute\('aria-expanded',String\(startupSettingsExpanded\)\)/);
+  assert.match(section,/startupExpand\.setAttribute\('aria-controls','swiftclick-startup-settings'\)/);
+  assert.match(section,/const startupExpand=button\(startupSettingsExpanded\?'▾ Close settings':'▸ Configure'/);
+  assert.match(section,/root\.appendChild\(startup\)/);
+  assert.match(section,/root\.appendChild\(section\)/);
+  assert.match(section,/autoOpenOnHome','Automatically open Organizer on ChatGPT home/);
+  assert.match(section,/welcomeOnOpen','Show welcome message when Organizer opens/);
+  assert.match(section,/input\.checked=organizerSettings\[key\]/);
+  assert.match(section,/applyOrganizerSettings\(\{\.\.\.organizerSettings,\[key\]:input\.checked\}/);
+  assert.match(section,/button\('Show welcome now','action',\(\)=>openWelcomePopup/);
+  assert.match(script,/let startupSettingsExpanded = false/);
+  assert.match(script,/settingsOpen=false;\s+startupSettingsExpanded=false;\s+settingsFeatureExpanded=false/);
+  assert.match(script,/settingsOpen=!settingsOpen;\s+startupSettingsExpanded=false;\s+settingsFeatureExpanded=false/);
+  assert.match(script,/settingsOpen=false;startupSettingsExpanded=false;settingsFeatureExpanded=false;render\(\)/);
+  assert.match(script,/settingsFeatureExpanded=true/);
+  assert.match(script,/const toggle=panel\.querySelector\('\.settings-overrun-expand'\)/);
+  assert.match(script,/applyOrganizerSettings\(\{\.\.\.organizerSettings,continuityLevel:level\}\)/);
+});
+
+test('Home auto-open respects user preference without disabling the manual launcher or skip behavior',()=>{
+  assert.match(script,/if \(organizerSettings\.autoOpenOnHome && !aiProfileNewChatStart &&/);
+  assert.match(script,/window\.setTimeout\(\(\) => \{\s+if \(organizerSettings\.autoOpenOnHome && !aiProfileNewChatStart/);
+  assert.match(script,/shouldAutoOpenHome\(location\.pathname, location\.search, autoOpenMarker\) && !open\) show\(true\)/);
+  assert.match(script,/const launcherButton = button\('', '', \(\) => open \? hide\(\) : show\(\)\)/);
+  assert.match(script,/GM_registerMenuCommand\('Open SwiftClick Organizer', show\)/);
+  assert.equal(hooks.shouldAutoOpenHome('/',''),true);
+  assert.equal(hooks.shouldAutoOpenHome('/','?swiftclick-organizer-skip-autoopen=1'),false);
+  assert.equal(hooks.shouldAutoOpenHome('/','?temporary-chat=true'),false);
+});
+
+test('Welcome dialog is accessible, user-dismissable, and contains only user-initiated links',()=>{
+  const start=script.indexOf('  function openWelcomePopup(trigger=null) {');
+  const end=script.indexOf('  function makeSettingsPanel() {',start);
+  const code=script.slice(start,end);
+  assert.ok(start>=0&&end>start);
+  assert.match(script,/const ORGANIZER_GUIDE_URL='https:\/\/organizer\.swiftclicktools\.com\/'/);
+  assert.match(code,/SWIFTCLICK_SUPPORT_URL/);
+  assert.match(code,/const dialog=el\('section','welcome-dialog'\)/);
+  assert.match(code,/dialog\.setAttribute\('role','dialog'\)/);
+  assert.match(code,/dialog\.setAttribute\('aria-modal','true'\)/);
+  assert.match(code,/dialog\.setAttribute\('aria-labelledby','swiftclick-welcome-title'\)/);
+  assert.match(code,/Welcome to SwiftClick Organizer!/);
+  assert.match(code,/Read the User Guide/);
+  assert.match(code,/Getting Started/);
+  assert.match(code,/Support SwiftClick \(optional\)/);
+  assert.match(code,/link\.target='_blank'/);
+  assert.match(code,/link\.rel='noopener noreferrer'/);
+  assert.match(code,/Don't show this again/);
+  assert.match(code,/checkbox\.checked=false/);
+  assert.match(code,/if\(checkbox\.checked\)\{/);
+  assert.match(code,/applyOrganizerSettings\(\{\.\.\.organizerSettings,welcomeOnOpen:false\}/);
+  assert.match(code,/button\('Continue to Organizer','action'/);
+  assert.match(code,/event\.key!=='Tab'/);
+  assert.match(code,/dialog\.getRootNode\(\)\.activeElement/);
+  assert.match(script,/const previous=welcomeReturnFocus/);
+  assert.match(code,/if\(event\.target===backdropNode\)closeWelcomePopup\(\)/);
+  assert.doesNotMatch(code,/GM_getValue|(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);
+  assert.doesNotMatch(code,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML/);
+  assert.match(script,/\.welcome-backdrop\{position:fixed/);
+  assert.match(script,/\.welcome-dialog\{/);
+  assert.match(script,/\.welcome-links a\{/);
+});
+
+test('Welcome can be manually reopened even with automatic popup Off, and modal Escape is prioritized',()=>{
+  assert.match(script,/const helpButton=button\('\? Help','action welcome-help',\(\)=>openWelcomePopup\(helpButton\)\)/);
+  assert.match(script,/helpButton\.setAttribute\('aria-label','Open welcome and user guide links'\)/);
+  assert.match(script,/if \(organizerSettings\.welcomeOnOpen\) openWelcomePopup\(\)/);
+  assert.match(script,/else panel\.querySelector\('input\.search,button\.settings-trigger'\)\?\.focus\(\)/);
+  assert.match(script,/if\(!open \|\| welcomeBackdrop\)return/);
+  assert.match(script,/closeWelcomePopup\(false\)/);
+  assert.match(script,/if\(aiProfileImportDialog\) \{/);
+  assert.match(script,/else if\(welcomeBackdrop\) \{\s+closeWelcomePopup\(\)/);
+  assert.match(script,/else if\(supportBackdrop\)/);
+  assert.match(script,/if\(selected\)selected\.focus\(\{preventScroll:true\}\)/);
+  assert.doesNotMatch(script,/GM_setValue\([^)]*welcomeOnOpen/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.40/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.41/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

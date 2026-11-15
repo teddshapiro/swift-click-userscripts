@@ -1,12 +1,12 @@
 # SwiftClick Organizer — Technical Proof of Concept
 
-> **Current alpha.40 development candidate (alpha.38 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.41 development candidate (alpha.40 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.40)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.41)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -982,3 +982,31 @@ This release does **not** add a payment processor, monetization restrictions or 
 - Paste valid JSON; confirm steps 1 and 2 disappear, and rename, reorder, delete, add work. Ensure an empty list or duplicate/reserved/invalid name disables Create; correct it, create and confirm order, names, icons and empty memberships persist.
 - Test the Back button, Cancel/Escape, profile limit, and preserved previous profile membership. Regression-test duplicate-current-profile, generic starter, Quick Links, four Organizer tabs, overrun warning and Ko-fi.
 - No transcript scraping, automatic ChatGPT submissions, new network requests, or userscript grants. The suggestion package remains user-pasted, and the final save remains user-confirmed.
+
+## Alpha.41 — Startup & Welcome settings and repeat-until-dismissed welcome dialog (2026-11-15)
+
+**Development status:** Awaiting owner Firefox acceptance. Alpha.40 approved; draft PR #6 remains unmerged, `main` unchanged.
+
+### Settings and compatibility
+- **Organizer Settings** now starts with **Startup & Welcome**, a collapsed accordion section. **Conversation Overrun Warning (Beta)** is the second, independent collapsed section; the existing warning levels, handoff editor, preview, and reminder-triggered expansion are preserved.
+- The first section has two checkbox controls, both **On by default**: **Automatically open Organizer on ChatGPT home** (`autoOpenOnHome`) and **Show welcome message when Organizer opens** (`welcomeOnOpen`). Toggle choices persist immediately. Each collapsed header shows current On/Off states.
+- These fields extend the existing `GM_getValue/GM_setValue` `APP_ID+'.settings.v1'` record, preserving `continuityLevel`. `sanitizeOrganizerSettings` supplies true defaults for absent or malformed flags and preserves valid legacy reminder choices. No V2 profile, shortcut, or Quick Links storage has changed.
+- **Auto-open Off** is evaluated before the ordinary home-route automatic display, including the delayed open callback, but does not disable the four-square launcher or Tampermonkey menu command. Temporary Chat and the established one-time new-chat/AI category suggestion suppression markers still prevent special auto-open where intended. Turning the option On does not force the panel to appear immediately in an existing tab; it applies on future eligible home-page loads.
+- **Welcome Off** suppresses the automatic welcome only; the user may reopen it from **? Help** in the Organizer header or **Show welcome now** in the Startup section. Turning the option On takes effect on subsequent Organizer openings, not the currently open screen.
+
+### Welcome UI
+- The welcome is a modal, focus-managed, scrollable dialog in the existing Organizer Shadow DOM with **Welcome to SwiftClick Organizer!**, a concise explanation and links for **Read the User Guide** (`https://organizer.swiftclicktools.com/`), **Getting Started** (guide `#start`), and optional **Support SwiftClick** (`https://ko-fi.com/teddshapiro`). External navigation is explicitly user-initiated and opens a new tab.
+- **Continue to Organizer** without the checkbox, Escape, or clicking the backdrop closes this instance without saving an opt-out. With **Don't show this again** checked, Continue atomically persists `welcomeOnOpen:false` through the existing organizer settings writer. If storage fails, it displays an error and does not claim the opt-out succeeded.
+- Modal focus moves to Continue and cycles over available links/checkbox/buttons; Escape closes this dialog before falling through to Settings or closing Organizer. Closing Organizer also cleans it up. The dialog is generated using `createElement` / `textContent`, never `innerHTML` or another Trusted Types HTML sink.
+- Documentation is a separate Cloudflare Worker and remains a **preview of alpha.40** pending final acceptance. The guide's URL is fixed and known; do not claim public userscript installation has been enabled.
+
+### Firefox acceptance checklist
+1. Upgrade from alpha.40 and verify that previous profiles, links, categories, Quick Links, Tools preferences, prompt templates, and any reminder sensitivity setting are retained.
+2. Open Settings: **Startup & Welcome** comes first and is collapsed, **Conversation Overrun Warning** remains second and collapsed. Expand each independently. Both new checkboxes should be On by default; changing either should save across reloads.
+3. Leave welcome On, close Organizer normally, reopen with launcher: welcome should reappear. Follow each guide link and verify explicit new-tab behavior. Test Continue without opt-out, Escape and backdrop closure.
+4. Check **Don't show this again** then Continue; verify next opening does not show welcome and Settings displays Welcome Off. Use **? Help** and **Show welcome now** to reopen it. Re-enable in Settings, close and reopen, and verify it appears again.
+5. Turn auto-open Off, load `https://chatgpt.com/` in a new tab: Organizer should not auto-display, but launcher and Tampermonkey menu must work. Turn On and repeat in a fresh home tab to confirm expected auto-display.
+6. Confirm New Chat and AI category-suggestion new-tab URL suppression still work even with auto-open On and that the welcome does not appear when Organizer has not opened.
+7. Test Firefox keyboard focus, visible scrollbar, Escape priority, Settings UI re-render after a toggle, and data persistence after a browser restart. Run syntax and automated regression checks.
+
+No new privileges, remote telemetry, model calls, chat scraping, or external dependencies have been introduced.

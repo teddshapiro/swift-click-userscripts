@@ -23,14 +23,14 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 
 ## Experimental: SwiftClick Organizer
 
-**SwiftClick Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.40** (editable AI-suggested category review and new-chat auto-open suppression).
+**SwiftClick Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.41** (collapsed Startup & Welcome settings, optional auto-open, and welcome guide dialog).
 
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
 - [Alpha.34 development handoff (historical)](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
 - [Draft pull request #6](https://github.com/teddshapiro/swift-click-userscripts/pull/6)
 - [Cross-product design standard — Organizer, Shortcut & Collection Tools](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) (Web App Development Standards → Human-Centered Design)
 
-The owner approved alpha.38 after initial Firefox testing on November 14, 2026. Alpha.38 remains the latest explicitly approved baseline; alpha.39 received favorable hands-on testing, and alpha.40 is the current development candidate awaiting owner acceptance. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
+The owner approved alpha.40 after successful Firefox acceptance testing on November 15, 2026. Alpha.40 remains the latest approved development baseline; alpha.41 is the current development candidate awaiting owner testing. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
 
 ## Reusable design reminder
 
@@ -60,6 +60,19 @@ The AI-guided new-profile workflow introduced in alpha.39 now opens a regular Ch
 After a valid category JSON package is pasted and checked, the dialog **hides both initial copy/paste steps** and displays a focused, editable review stage. The user can **rename, reorder with up/down controls, delete, and add** suggested categories before explicitly creating the new profile. A fixed Uncategorized entry stays last. All edits remain in temporary UI state until final confirmation, with validation re-run on edits and at save; invalid duplicate, empty, reserved, unsupported or over-limit proposals cannot be saved. The user can return to the pasted JSON stage or cancel without changing existing profiles. New profiles remain empty and do not automatically become active or default.
 
 No changes to existing profile storage schema, permissions, network access, or public installation metadata. No unsafe HTML string insertion. The development branch and unmerged PR #6 remain the only deployment targets.
+
+## Alpha.41 — Startup & Welcome (not yet owner-approved)
+
+The **Organizer Settings** page now starts with a separately collapsed **Startup & Welcome** panel, followed by the existing collapsed **Conversation Overrun Warning (Beta)** panel. It offers two independently persisted, default-On settings:
+
+- **Automatically open Organizer on ChatGPT home** controls only Organizer's automatic welcome overlay on ordinary ChatGPT home-page entry. If Off, the four-square launcher and Tampermonkey menu command still open Organizer manually. The existing one-time New Chat and AI category-suggestion tab suppression markers continue to take priority.
+- **Show welcome message when Organizer opens** controls a native, focus-managed welcome dialog. The dialog appears on each Organizer opening while enabled and includes **Read the User Guide**, **Getting Started**, and optional **Support SwiftClick** links. The links open external pages only after the user clicks them. A **Don't show this again** checkbox beside **Continue to Organizer** persists the same setting as the Settings checkbox.
+
+The header **? Help** button and **Show welcome now** in the Startup panel reopen the dialog even if automatic welcome display has been disabled. Closing with Escape, backdrop, or unchecked Continue dismisses it for that opening without silently disabling future welcomes.
+
+Settings persist in the existing `settings.v1` record, with backward-compatible sanitizer defaults. Older beta reminder sensitivity selections are not reset. Both panels are initially collapsed and independent, with accessible expand/collapse states. The welcome uses explicit DOM construction, no unsafe HTML parsing, no new Tampermonkey permissions, and no data collection.
+
+The welcome links to the already deployed documentation preview at [organizer.swiftclicktools.com](https://organizer.swiftclicktools.com/). The live guide remains a draft of alpha.40 until the newer onboarding is accepted and its published text updated. No public userscript release, automatic update metadata or merge to `main` is authorized.
 
 ## Release workflow
 

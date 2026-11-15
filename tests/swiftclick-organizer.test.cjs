@@ -1697,8 +1697,139 @@ test('Reminder respects privacy: no transcript extraction, message text, network
   assert.doesNotMatch(script,/document\.querySelectorAll\('.*(?:message|conversation)/);
 });
 
+test('AI profile suggestion prompt uses available Memory but never invents history access',()=>{
+  const prompt=hooks.buildAIProfileCategoryPrompt('Research & Projects');
+  assert.ok(prompt.includes('Research & Projects'));
+  assert.ok(prompt.includes('Memory'));
+  assert.ok(prompt.includes('inaccessible information'));
+  assert.ok(prompt.includes('generic categories'));
+  assert.ok(prompt.includes('Do NOT reveal personal details'));
+  assert.ok(prompt.includes('no projects, URLs, chat links or memberships'));
+  assert.ok(prompt.includes('NEW EMPTY profile'));
+  assert.ok(prompt.includes('Uncategorized'));
+  assert.ok(prompt.includes('"schema":"swiftclick-organizer-categories"'));
+  assert.ok(prompt.includes('"version":1'));
+  assert.ok(prompt.includes('💼'));
+  assert.ok(!prompt.includes('my entire chat history has been read'));
+  assert.match(hooks.buildAIProfileCategoryPrompt('name "quoted"'),/name \\"quoted\\"/);
+});
+
+test('AI category importer accepts plain or fenced JSON and optional supported icons',()=>{
+  const data={schema:hooks.aiProfilePackageSchema,version:1,categories:[
+    {label:'Work & Projects',icon:'💼'},
+    {label:'  Creative    Work ',icon:'🎨'},
+    {label:'Research'}
+  ]};
+  const json=JSON.stringify(data);
+  const parsed=hooks.parseAIProfileCategoryPackage(json);
+  assert.equal(parsed.error,undefined);
+  assert.deepEqual(Array.from(parsed.categories,x=>x.label),[
+    'Work & Projects','Creative Work','Research'
+  ]);
+  assert.deepEqual(Array.from(parsed.categories,x=>x.icon),['💼','🎨','▦']);
+  const fence=String.fromCharCode(96).repeat(3);
+  const fenced=fence+'json\n'+JSON.stringify(data,null,2)+'\n'+fence;
+  const fencedResult=hooks.parseAIProfileCategoryPackage('Suggestions:\n'+fenced);
+  assert.deepEqual(Array.from(fencedResult.categories,x=>x.label),
+    ['Work & Projects','Creative Work','Research']);
+});
+
+test('AI importer rejects untrusted or malformed response packages without side effects',()=>{
+  const good={schema:hooks.aiProfilePackageSchema,version:1,categories:[{label:'Research',icon:'📖'}]};
+  const failures=[
+    '',
+    'Not JSON',
+    '{}',
+    JSON.stringify({...good,version:2}),
+    JSON.stringify({...good,schema:'different-schema'}),
+    JSON.stringify({...good,personal_data:{name:'Private'}}),
+    JSON.stringify({...good,categories:[]}),
+    JSON.stringify({...good,categories:Array.from({length:21},(_,i)=>({label:'Topic '+i,icon:'📖'}))}),
+    JSON.stringify({...good,categories:[{label:'Research',icon:'📖'},{label:'research',icon:'📖'}]}),
+    JSON.stringify({...good,categories:[{label:'Uncategorized',icon:'▦'}]}),
+    JSON.stringify({...good,categories:[{label:'Too long '.repeat(9),icon:'▦'}]}),
+    JSON.stringify({...good,categories:[{label:'Bad\nLabel',icon:'📖'}]}),
+    JSON.stringify({...good,categories:[{label:'Research',icon:'👽'}]}),
+    JSON.stringify({...good,categories:[{label:'Research',icon:'📖',chatUrls:[]}]}),
+    JSON.stringify({...good,categories:[{label:'Research',icon:'📖',__private:'secret'}]}),
+    'x'.repeat(16001)
+  ];
+  for(const raw of failures){
+    const parsed=hooks.parseAIProfileCategoryPackage(raw);
+    assert.equal(typeof parsed.error,'string','Expected validation failure: '+raw.slice(0,90));
+    assert.equal(parsed.categories,undefined);
+  }
+  const one=hooks.parseAIProfileCategoryPackage(JSON.stringify(good));
+  assert.equal(one.categories.length,1);
+});
+
+test('AI suggested profile starts empty with custom categories plus Uncategorized',()=>{
+  const parsed=hooks.parseAIProfileCategoryPackage(JSON.stringify({
+    schema:hooks.aiProfilePackageSchema,version:1,
+    categories:[{label:'Making things',icon:'💡'},{label:'Learning',icon:'📖'}]
+  }));
+  const snap=hooks.snapshotFromAIProfileCategories(parsed.categories,'test-123');
+  assert.deepEqual(Array.from(snap.categories,c=>c.label),
+    ['Making things','Learning','Uncategorized']);
+  assert.ok(snap.categories[0].id.startsWith('custom-ai-test-123-'));
+  assert.equal(snap.members.length,0);
+  assert.deepEqual(Object.keys(snap.assignments),[]);
+  assert.deepEqual(Object.keys(snap.categoryOrders),[]);
+  const initial=hooks.firstProfileState(hooks.starterCategoryDefinitions,
+    {'chat:existing':'work'},{work:['chat:existing']},'Original',['chat:existing']);
+  const next=hooks.newProfileState(initial,'profile-ai-test123','AI Proposal',snap);
+  const validated=hooks.sanitizeProfilesState(next);
+  assert.ok(validated);
+  assert.deepEqual(Array.from(validated.profiles[0].members),['chat:existing']);
+  assert.equal(validated.profiles[0].name,'Original');
+  assert.equal(validated.profiles[1].name,'AI Proposal');
+  assert.deepEqual(Array.from(validated.profiles[1].members),[]);
+  assert.equal(validated.defaultId,initial.defaultId);
+  assert.equal(validated.activeId,initial.activeId);
+  assert.equal(hooks.snapshotFromAIProfileCategories(parsed.categories,'bad@'),null);
+});
+
+test('AI profile UI is opt-in: third choice, manual copy, paste, preview and save only on confirmation',()=>{
+  assert.match(script,/\['ai','Ask ChatGPT to suggest categories based on my usage'\]/);
+  assert.match(script,/if\(mode\.value==='ai'\)\{/);
+  assert.match(script,/openAIProfileImportDialog\(name,add\)/);
+  assert.match(script,/function openAIProfileImportDialog\(name,trigger\)/);
+  assert.match(script,/function closeAIProfileImportDialog\(restoreFocus=true\)/);
+  assert.match(script,/dialog\.setAttribute\('aria-modal','true'\)/);
+  assert.match(script,/Copy category suggestion prompt/);
+  assert.match(script,/Open ChatGPT in a new tab/);
+  assert.match(script,/openChat\.target='_blank'/);
+  assert.match(script,/openChat\.rel='noopener noreferrer'/);
+  assert.match(script,/copyPromptToClipboard\(prompt,copyHelper\)/);
+  assert.match(script,/Paste ChatGPT category JSON package/);
+  assert.match(script,/parseAIProfileCategoryPackage\(pasted\.value\)/);
+  assert.match(script,/previewList\.replaceChildren\(\)/);
+  assert.match(script,/Create profile with these categories/);
+  assert.match(script,/create\.disabled=true/);
+  assert.match(script,/create\.disabled=false/);
+  assert.match(script,/const next=snapshot && newProfileState\(profilesState,id,name,snapshot\)/);
+  assert.match(script,/if\(!next \|\| !persistProfiles\(next\)\)/);
+  assert.match(script,/closeAIProfileImportDialog\(false\)/);
+  assert.match(script,/closeAIProfileImportDialog\(\)/);
+  assert.match(script,/if\(aiProfileImportDialog\) \{/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+  assert.doesNotMatch(script,/(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);
+});
+
+test('AI importer is not a cross-chat scraper or hidden memory API',()=>{
+  const importer=script.slice(script.indexOf('  function openAIProfileImportDialog(name,trigger)'),
+    script.indexOf('  function makeProfilesManager()'));
+  assert.match(importer,/textarea/);
+  assert.match(importer,/No profile is created until you review and confirm/);
+  assert.match(importer,/Return to this tab when ChatGPT responds/);
+  assert.match(importer,/only what you deliberately paste/);
+  assert.doesNotMatch(importer,/GM_getValue|GM_xmlhttpRequest|fetch\s*\(/);
+  assert.doesNotMatch(importer,/document\.querySelector\([^)]*message/);
+  assert.doesNotMatch(importer,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.38/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.39/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

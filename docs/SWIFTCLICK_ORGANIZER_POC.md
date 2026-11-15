@@ -1,12 +1,12 @@
 # SwiftClick Organizer — Technical Proof of Concept
 
-> **Current alpha.38 development candidate (alpha.36 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.39 development candidate (alpha.38 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.38)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.39)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -921,3 +921,40 @@ These guidelines generalize the lessons but do not impose Organizer's precise im
 6. Run syntax/automated tests; scan for unsafe HTML injection, new privileges/network access and unintended `main` release.
 
 This release does **not** add a payment processor, monetization restrictions or public-release metadata. The support URL is a user-supplied known address; no new network calls occur unless the user explicitly follows the external link.
+
+## Alpha.39 — ChatGPT-guided category suggestions for a new profile (2026-11-15)
+
+**Status:** New development candidate. The user approved alpha.38 as the most recent Firefox testing baseline; no `main` merge or public release. Continue using draft PR #6.
+
+### User flow
+1. Open **ChatGPT Categories → Manage Profiles & Categories → Manage profiles**. Enter a profile name (max 60 characters).
+2. In the existing profile starting-configuration picker choose the new third option, **Ask ChatGPT to suggest categories based on my usage**, and click **Create profile**. No profile is saved yet.
+3. A modal asks the user to **Copy category suggestion prompt**. It deliberately does **not** display an intimidating prompt as a block of raw instructions. The user opens **a new regular ChatGPT conversation in a separate browser tab**, with **Memory enabled/available** as desired, and pastes/sends the prompt manually. The prompt makes clear that Memory does not provide a full inventory of prior chats and asks ChatGPT to use only actually available context; generic categories are allowed if unavailable.
+4. The user copies ChatGPT's category JSON code block or entire containing answer, returns to the **original** Organizer tab, and pastes it into the modal. **Validate & preview categories** parses the package and shows exactly which category names/icons will be created, including an automatically appended Uncategorized category.
+5. **Create profile with these categories** requires a successful validation plus deliberate final click; the resulting profile contains no shortcuts or assignments and does not automatically activate or become the default. User can add projects/chats afterwards. **Cancel** and **Escape** abandon the draft without writing a profile.
+
+### Package contract and safety
+- JSON root is exactly `{"schema":"swiftclick-organizer-categories","version":1,"categories":[...]}`. Items are `{"label":"...","icon":"..."}`; icon may be omitted for fallback `▦`.
+- At least one and at most **20** suggested categories (the prompt requests approximately 5–10). Each label is unique ignoring case, nonempty and at most 50 characters, and cannot be Uncategorized. The importer appends the canonical Uncategorized entry itself. Icons must be from Organizer's built-in, static icon library. The maximum pasted text is 16,000 characters.
+- The importer accepts a raw JSON object or exactly one Markdown JSON code fence, rejecting invalid syntax, wrong versions, duplicate/reserved labels, unsupported icons, unexpected keys (including chat URLs and personal-data fields), overlarge inputs, and too many categories.
+- Imported labels are displayed using `textContent` / `createElement` and are never evaluated, interpreted as HTML, or used as arbitrary IDs. Category IDs are freshly minted safe `custom-ai-...` identifiers; category-only snapshot has empty `members`, `assignments`, and `categoryOrders`. Existing V2 profiles are left unchanged and saved with the normal validated/rollback-protected `persistProfiles` method.
+- No ChatGPT content is scraped, exported, inferred programmatically, or sent to any third-party endpoint. The userscript makes no network request and adds no permissions. The only model interaction is the user copying a prepared prompt into ChatGPT and intentionally pasting the returned category package back.
+- Privacy: The prompt requests broad categories and expressly excludes people's names, addresses, medical facts, secrets, account numbers, and other sensitive specifics. Users review the output before confirming; they can manually edit categories using existing Organizer management after creation.
+
+### Reliability / UX expectations
+- The profile form keeps the typed name and selected mode when the modal is cancelled; settings and existing categories stay intact. Saving succeeds only after the explicit confirmation and valid V2 serialization.
+- When starting a regular ChatGPT tab for the prompt, Organizer may auto-open its launcher on home; close the launcher if necessary before submitting the prompt in ChatGPT. Do **not** reuse the original import tab for the ChatGPT conversation, as the pending modal is tab-local.
+- A clear validation error is shown on invalid packages, without creating a profile. Changing pasted text invalidates the prior preview and disables final creation until revalidated.
+- The popup has a dedicated scrollable, high-contrast surface and accessible dialog attributes, explicitly trapped keyboard focus, and a Cancel option.
+- Existing duplicate-current-profile and generic-starter modes remain fully supported.
+
+### Acceptance checklist
+1. Create a normal duplicate and starter profile as regression checks; verify membership behavior unchanged.
+2. Begin an AI-suggested profile; confirm no profile is created at the first click, and Cancel/Escape do not mutate storage.
+3. Copy the prompt and paste it in a **new regular chat** with Memory personalization available. Review the response. Return to the original tab and paste the fenced JSON into the importer.
+4. Validate the categories, review the icons and labels, confirm Uncategorized is added, then create the new profile; confirm its saved-links count is zero and existing profiles retain their memberships.
+5. Test incorrect JSON, duplicate labels, invalid icons and packages with extra fields; verify there are helpful errors and no created profiles. Verify changes to pasted text require revalidation.
+6. Test Firefox popup scrollbars, focus, multiple tabs, and cancellation/retry. Verify the script runs on strict Trusted Types pages without using `innerHTML`.
+7. Run regression tests and confirm unchanged script grants, no automatic ChatGPT submission, no network calls and no merge to `main`.
+
+**Reference:** [OpenAI's current Memory help](https://help.openai.com/en/articles/8590148-memory-in-chatgpt) explains that Memory can bring relevant context into new chats but does not retain or expose every detail from every conversation. This release deliberately describes suggestions as memory-informed, not account-wide chat-history analysis.

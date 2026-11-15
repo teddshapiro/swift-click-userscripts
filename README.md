@@ -23,14 +23,14 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 
 ## Experimental: SwiftClick Organizer
 
-**SwiftClick Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.38** (collapsible Settings, Conversation Overrun Warning Beta, visible scrollbars and optional Ko-fi support).
+**SwiftClick Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.39** (opt-in Memory-aware ChatGPT category suggestions for new profiles).
 
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
 - [Alpha.34 development handoff (historical)](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
 - [Draft pull request #6](https://github.com/teddshapiro/swift-click-userscripts/pull/6)
 - [Cross-product design standard — Organizer, Shortcut & Collection Tools](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) (Web App Development Standards → Human-Centered Design)
 
-The sole current tester reported favorable initial Firefox testing of alpha.34 on November 14, 2026. Alpha.36 is the latest owner-approved Firefox baseline; alpha.38 is the current development candidate (building on the unapproved alpha.37 candidate) and still needs owner testing. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
+The owner approved alpha.38 after initial Firefox testing on November 14, 2026. Alpha.38 remains the latest accepted baseline; alpha.39 is a new development candidate awaiting owner acceptance. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
 
 ## Reusable design reminder
 
@@ -46,6 +46,12 @@ A gear button in the Organizer header opens a dedicated Settings screen with a c
 - The Organizer content area uses a reserved, high-contrast, styled vertical scrollbar in supported browsers (Firefox and Chromium rules), with scroll position preserved when changing reminder sensitivity.
 - A quiet **☕ Support SwiftClick** button appears in each Organizer footer. The first click opens a dismissible, keyboard-accessible support pop-up; **Visit Ko-fi** links in a new tab to `https://ko-fi.com/teddshapiro` only when selected. Every feature remains free; no requests, payments, trackers, or network calls are added to the userscript.
 - No public `@contributionURL` metadata or release channel is enabled yet. All changes stay in the existing feature branch and draft PR #6.
+
+## Alpha.39 ChatGPT category suggestions for new profiles
+
+In **Manage Profiles & Categories → Manage profiles → Create profile**, the starting-configuration dropdown now includes **Ask ChatGPT to suggest categories based on my usage**. The flow is entirely opt-in and clipboard-mediated: name a profile, choose the AI suggestion option, click Create profile, copy the prepared prompt, run it in a **separate new ChatGPT chat with Memory available**, and paste the JSON category package back into the Organizer popup. ChatGPT may use relevant personalized context but does not provide a complete audit of chat history; when unavailable, the prompt asks for generic suggestions instead.
+
+The importer requires an exact versioned JSON schema with 1–20 unique category labels and supported icons, previews the result, and creates a new **empty** profile only after explicit confirmation. `Uncategorized` is added automatically. There is no scraping, background model call, history/memory extraction, imported project links, or automated prompt submission; neither existing profiles nor stored shortcuts are changed by the suggestion workflow. The prompt discourages sensitive personal details and asks for broad functional categories. The importer rejects unsupported fields and never uses unsafe HTML string injection. Existing two profile-creation modes are unchanged.
 
 ## Release workflow
 

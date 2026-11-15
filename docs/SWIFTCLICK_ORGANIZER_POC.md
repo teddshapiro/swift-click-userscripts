@@ -1,12 +1,12 @@
 # SwiftClick Organizer — Technical Proof of Concept
 
-> **Current alpha.37 development candidate (alpha.36 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.38 development candidate (alpha.36 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.37)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.38)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -891,3 +891,33 @@ These guidelines generalize the lessons but do not impose Organizer's precise im
 6. Confirm all existing Organizer tabs, profile deletion, Quick Save, and prompt flow still function; check syntax, no unsafe HTML sinks, no new network usage, and automated regression suite.
 
 **Sources:** [OpenAI ChatGPT Free Tier FAQ](https://help.openai.com/en/articles/9275245-chatgpt-free-tier-faq) (no fixed message count) and [OpenAI Terms of Use](https://openai.com/policies/terms-of-use/) (avoid automatic/programmatic extraction). This feature deliberately avoids content extraction.
+
+## Alpha.38 — Collapsible Settings, overrun warning terminology, visible scrolling, Ko-fi support (2026-11-14)
+
+**Status:** Development branch only; alpha.36 remains the latest owner-approved baseline. Alpha.37 was an intermediate development candidate. Draft PR #6 stays unmerged and `main` is unchanged.
+
+### Settings information architecture
+- **Organizer Settings** remains the top-level heading. Its features are now presented as independently expandable rows, starting with **Conversation Overrun Warning (Beta)**. On opening Settings normally the feature is **collapsed**, showing only name, short explanation, current Off/Low/Medium/High choice and `▸ Configure` control.
+- Activating Configure expands the same feature to reveal all four sensitivity choices, beta disclaimer, **Prepare a handoff** editor, Copy handoff request and Preview overrun warning. `▾ Close settings` collapses it again.
+- The expand/collapse control has `aria-expanded` and `aria-controls`; its content has a stable, hidden/unhidden target element. Focus returns to the toggle on expansion/collapse. This prepares the Settings screen to host additional independent feature settings later.
+- **Prepare handoff** from an actual reminder automatically opens Settings with the correct feature already expanded and the editable request focused. A normal Settings entry does not auto-expand, even if the feature is enabled.
+- The stored `continuityLevel` schema and internal function names are intentionally unchanged for upgrade compatibility; the public-facing feature is consistently named **Conversation Overrun Warning**. This remains an activity-based beta, **not** a context-limit detector. Other alpha.37 privacy and limitation rules remain.
+
+### Scrollbar accessibility and long settings pages
+- The shared `.main` content region now explicitly reserves a vertical scrollbar and stable gutter with a high-contrast thumb and track (Firefox's `scrollbar-color` plus Chromium-style `::-webkit-scrollbar` rules). This applies across Organizer, not only to Settings.
+- Switching reminder sensitivity rerenders the panel without discarding the previous scroll offset, and restores focus to the selected radio control. On some operating systems users can override the visibility of native overlay scrollbars at the OS/browser level; the app styles supported surfaces and keeps the content scrollable.
+
+### Non-intrusive support
+- Every primary and management footer now includes a `☕ Support SwiftClick` button. The first click opens an in-app support dialog describing voluntary Ko-fi contributions. It can be dismissed by Not now, Escape, or clicking the backdrop.
+- Only a separate, explicit `Visit Ko-fi` hyperlink opens `https://ko-fi.com/teddshapiro` in a new tab (`target="_blank"`, `rel="noopener noreferrer"`). The app does not automatically navigate, ask repeatedly, track clicks remotely, charge users or gate features.
+- The support dialog uses explicit DOM creation in the Organizer's Shadow DOM, manages keyboard focus, and contains no `innerHTML`/Trusted Types risks. No new Tampermonkey grants or network requests.
+
+### Regression and Firefox acceptance
+1. Upgrade from alpha.37 or alpha.36 and verify existing profiles, categories, saved chats, Quick Links headings, Tools preferences and prompt templates survive unchanged.
+2. On opening Settings, verify only the collapsed feature row is shown. Expand Configure, change Off/Low/Medium/High and collapse again. Reopen Settings to confirm the feature starts collapsed and the saved choice is retained.
+3. In a named chat use Preview overrun warning. Select Prepare handoff and verify Settings opens **expanded**, with the handoff editor focused. Copy and verify no automatic submission. Remind later and Dismiss remain intact.
+4. When the expanded Settings content exceeds the visible panel, verify a **clearly visible** vertical scrollbar, mouse drag, wheel and keyboard scrolling, including after changing the radio setting. Check Firefox and any additional supported browser.
+5. From Settings and each other tab/management footer, open **Support SwiftClick**; verify the informational pop-up, Escape/Not now/backdrop closure, keyboard focus and deliberate external Ko-fi destination in a separate tab.
+6. Run syntax/automated tests; scan for unsafe HTML injection, new privileges/network access and unintended `main` release.
+
+This release does **not** add a payment processor, monetization restrictions or public-release metadata. The support URL is a user-supplied known address; no new network calls occur unless the user explicitly follows the external link.

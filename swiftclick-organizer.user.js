@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.37
+// @version      0.1.0-alpha.38
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -973,6 +973,7 @@
   const seen = new Map(); // Session-only inventory: no cross-account stored chat titles/links.
   let activeTab = 'categories';
   let settingsOpen = false;
+  let settingsFeatureExpanded = false;
   let settingsError = '';
   let continuityPreview = false;
   let continuityLastSendAt = 0;
@@ -1085,6 +1086,8 @@
   }
   function applyOrganizerSettings(raw) {
     const next=sanitizeOrganizerSettings(raw);
+    const priorMain=panel.querySelector('.main');
+    const previousScroll=priorMain?priorMain.scrollTop:0;
     try{GM_setValue(ORGANIZER_SETTINGS_KEY,next);}
     catch(error){console.warn('[SwiftClick Organizer] Settings save failed:',error);
       settingsError='Could not save settings. Previous choice retained.';render();return false;}
@@ -1094,7 +1097,12 @@
       continuityPreview=false;
     }
     organizerSettings=next;settingsError='';
-    render();refreshContinuityReminder();
+    render();
+    const nextMain=panel.querySelector('.main');
+    if(nextMain)nextMain.scrollTop=previousScroll;
+    const selected=panel.querySelector('input[name="'+APP_ID+'-overrun-level"][value="'+next.continuityLevel+'"]');
+    if(selected)selected.focus({preventScroll:true});
+    refreshContinuityReminder();
     return true;
   }
   function snoozeContinuity(id) {
@@ -1541,6 +1549,14 @@
     '.settings-panel h2{margin:0;font-size:21px;}',
     '.settings-panel h3{margin:0;font-size:16px;}',
     '.settings-section{display:grid;gap:12px;background:#1b2b3f;border:1px solid #415872;padding:18px;border-radius:12px;}',
+    '.settings-summary{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}',
+    '.settings-summary-info{display:grid;gap:5px;min-width:190px;flex:1;}',
+    '.settings-summary-heading{display:flex;align-items:center;flex-wrap:wrap;gap:9px;}',
+    '.settings-summary-description{margin:0;color:#bacde3;font-size:12px;line-height:1.45;}',
+    '.settings-expand{white-space:nowrap;min-width:115px;}',
+    '.settings-feature-details{display:grid;gap:16px;padding-top:16px;border-top:1px solid #445b74;}',
+    '.settings-feature-details[hidden]{display:none!important;}',
+    '.settings-feature-handoff{display:grid;gap:11px;padding-top:15px;border-top:1px solid #445b74;}',
     '.settings-beta{border:1px solid #617a93;border-radius:12px;padding:2px 8px;color:#c6def3;font-size:11px;font-weight:700;}',
     '.settings-choice-list{display:grid;gap:8px;border:0;margin:0;padding:0;min-width:0;}',
     '.settings-choice-list legend{font-size:12px;font-weight:700;color:#d1e5fc;padding-bottom:9px;}',
@@ -1553,10 +1569,25 @@
     '.settings-actions{display:flex;gap:9px;flex-wrap:wrap;}',
     '.settings-feedback{font-size:12px;color:#b6ddff;min-height:14px;}',
     '.settings-warning{font-size:12px;color:#f9d6a1;line-height:1.5;}',
+    '.support-footer-action{background:transparent;border:1px solid #526981;border-radius:8px;color:#d6e8f9;font-size:12px;padding:7px 10px;cursor:pointer;white-space:nowrap;}',
+    '.support-footer-action:hover,.support-footer-action:focus-visible{background:#294760;border-color:#96c9ee;color:#fff;}',
+    '.support-backdrop{position:fixed;inset:0;z-index:2147483620;display:flex;align-items:center;justify-content:center;padding:18px;background:#030914db;}',
+    '.support-dialog{background:#192b40;color:#ecf5ff;border:1px solid #82add1;box-shadow:0 18px 70px #000a;border-radius:15px;width:min(420px,100%);padding:22px;display:grid;gap:14px;font:14px/1.5 system-ui;}',
+    '.support-dialog h2{font-size:20px;margin:0;}',
+    '.support-dialog p{color:#c0d5e9;margin:0;}',
+    '.support-dialog-actions{display:flex;flex-wrap:wrap;gap:9px;align-items:center;}',
+    '.support-link{background:#285276;border:1px solid #83b6e1;color:#fff;border-radius:8px;text-decoration:none;font:600 13px system-ui;padding:10px 14px;}',
+    '.support-link:hover,.support-link:focus-visible{background:#396d97;text-decoration:underline;}',
+    '.support-close{justify-self:start;}',
     '@media(max-width:520px){.head{padding:12px}.head-actions{gap:5px}.settings-section{padding:12px}}',
     '.brand{font-size:17px;font-weight:750;letter-spacing:-.3px;}',
     '.muted{color:#a7b7cc;font-size:12px;}',
-    '.main{padding:20px;flex:1;overflow:auto;}',
+    '.main{padding:20px;flex:1;min-height:0;overflow-x:hidden;overflow-y:scroll;scrollbar-gutter:stable;scrollbar-width:auto;scrollbar-color:#b3d9fa #22364c;}',
+    '.main::-webkit-scrollbar{width:15px;height:15px;}',
+    '.main::-webkit-scrollbar-track{background:#22364c;border-left:1px solid #506d8a;}',
+    '.main::-webkit-scrollbar-thumb{background:#9ac7ec;border:3px solid #22364c;border-radius:10px;min-height:32px;}',
+    '.main::-webkit-scrollbar-thumb:hover{background:#d2e9ff;}',
+    '.main::-webkit-scrollbar-corner{background:#22364c;}',
     '.topline{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;}',
     'input.search{width:100%;padding:12px 14px;border-radius:10px;background:#202e40;color:#fff;border:1px solid #536478;font:inherit;font-size:14px;}',
     'input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid #72b6ff;outline-offset:2px;}',
@@ -1913,7 +1944,7 @@
     const notice=el('section','notice');
     notice.setAttribute('role','status');
     notice.appendChild(el('h3','',
-      continuityPreview?'Conversation Continuity — Preview (Beta)':'Conversation Continuity reminder (Beta)'));
+      continuityPreview?'Conversation Overrun Warning — Preview (Beta)':'Conversation Overrun Warning (Beta)'));
     notice.appendChild(el('p','',continuityPreview
       ? 'This is how an optional reminder looks. No messages were examined.'
       : 'You have made '+record.sends+' observed send attempts in this tab. This is NOT a measure of remaining ChatGPT context. Consider a handoff if the work is important.'));
@@ -1922,6 +1953,7 @@
       snoozeContinuity(id);
       if(!open)show(false);
       settingsOpen=true;
+      settingsFeatureExpanded=true;
       render();
       const text=panel.querySelector('textarea.settings-handoff');
       if(text)text.focus();
@@ -4223,70 +4255,160 @@
     return wrapper;
   }
 
+  // The settings hub is deliberately an accordion of independent features.
+  // Keep the first feature collapsed on ordinary entry and group its handoff
+  // workflow with its warning controls rather than creating a separate card.
+  // Optional support is a user-initiated pop-up, never an interruption.
+  // No off-site navigation happens until Visit Ko-fi is clicked.
+  const SWIFTCLICK_SUPPORT_URL='https://ko-fi.com/teddshapiro';
+  let supportBackdrop=null;
+  let supportReturnFocus=null;
+  function closeSupportPopup() {
+    if(!supportBackdrop)return;
+    supportBackdrop.remove();
+    supportBackdrop=null;
+    const previous=supportReturnFocus;
+    supportReturnFocus=null;
+    if(previous && previous.isConnected)previous.focus();
+  }
+  function openSupportPopup(trigger) {
+    if(supportBackdrop)return;
+    supportReturnFocus=trigger||null;
+    const backdropNode=el('div','support-backdrop');
+    backdropNode.addEventListener('click',event=>{
+      if(event.target===backdropNode)closeSupportPopup();
+    });
+    const dialog=el('section','support-dialog');
+    dialog.setAttribute('role','dialog');
+    dialog.setAttribute('aria-modal','true');
+    dialog.setAttribute('aria-label','Support SwiftClick');
+    dialog.appendChild(el('h2','','☕ Support SwiftClick'));
+    dialog.appendChild(el('p','',
+      'SwiftClick Organizer is free to use. If it makes your day a little easier, you can optionally buy me a coffee on Ko-fi. There is no obligation, and no feature is locked behind a donation.'));
+    const actions=el('div','support-dialog-actions');
+    const visit=el('a','support-link','Visit Ko-fi');
+    visit.href=SWIFTCLICK_SUPPORT_URL;
+    visit.target='_blank';
+    visit.rel='noopener noreferrer';
+    visit.addEventListener('click',()=>closeSupportPopup());
+    const cancel=button('Not now','action support-close',closeSupportPopup);
+    actions.appendChild(visit);
+    actions.appendChild(cancel);
+    dialog.appendChild(actions);
+    dialog.addEventListener('keydown',event=>{
+      if(event.key!=='Tab')return;
+      const active=dialog.getRootNode().activeElement;
+      if(event.shiftKey && active===visit){
+        event.preventDefault();cancel.focus();
+      }else if(!event.shiftKey && active===cancel){
+        event.preventDefault();visit.focus();
+      }
+    });
+    backdropNode.appendChild(dialog);
+    overlayRoot.appendChild(backdropNode);
+    supportBackdrop=backdropNode;
+    cancel.focus();
+  }
+  function appendOrganizerFooter(footer) {
+    const support=button('☕ Support SwiftClick','support-footer-action',()=>openSupportPopup(support));
+    support.setAttribute('aria-haspopup','dialog');
+    support.setAttribute('title','Optional support on Ko-fi');
+    footer.appendChild(support);
+    panel.appendChild(footer);
+  }
+
   function makeSettingsPanel() {
     const root=el('div','settings-panel');
     root.appendChild(el('h2','','Organizer Settings'));
     root.appendChild(el('p','hint',
       'Settings are local to this browser and do not change your ChatGPT account.'));
-    const section=el('section','settings-section');
-    const title=el('div','settings-actions');
-    title.appendChild(el('h3','','Conversation Continuity'));
-    title.appendChild(el('span','settings-beta','BETA'));
-    section.appendChild(title);
-    section.appendChild(el('p','hint',
-      'Optional reminders to consider creating a handoff before a long project chat becomes difficult to continue. This is an activity reminder, NOT a context-limit meter.'));
-    const choices=el('fieldset','settings-choice-list');
-    choices.appendChild(el('legend','','Reminder sensitivity'));
-    for(const [level,label,description] of [
-      ['off','Off (default)','No automatic monitoring or reminders.'],
-      ['low','Low','First reminder after 45 observed sends; every 30 more after postponing.'],
-      ['medium','Medium','First reminder after 25 observed sends; every 20 more after postponing.'],
-      ['high','High','First reminder after 12 observed sends; every 15 more after postponing.']
-    ]){
-      const choice=el('label','settings-choice');
-      const radio=el('input');radio.type='radio';radio.name=APP_ID+'-continuity-level';
-      radio.value=level;radio.checked=organizerSettings.continuityLevel===level;
-      radio.addEventListener('change',()=>{
-        if(radio.checked)applyOrganizerSettings({version:1,continuityLevel:level});
-      });
-      choice.appendChild(radio);
-      const descriptionBox=el('span','settings-choice-label');
-      descriptionBox.appendChild(el('strong','',label));
-      descriptionBox.appendChild(el('span','hint',description));
-      choice.appendChild(descriptionBox);choices.appendChild(choice);
-    }
-    section.appendChild(choices);
-    section.appendChild(el('p','settings-warning',
-      'Beta limitation: SwiftClick counts only user send attempts it sees in this tab while enabled. It does not read messages, count tokens, inspect model responses, or know how much context ChatGPT has left. Earlier turns and sends in other tabs are not included. Reminders may come too early, too late, or not at all.'));
-    if(settingsError)section.appendChild(el('p','error',settingsError));
-    root.appendChild(section);
 
-    const handoff=el('section','settings-section');
-    handoff.appendChild(el('h3','','Prepare a handoff (available even when reminders are Off)'));
-    handoff.appendChild(el('p','hint',
-      'Copy the request below, paste it into your CURRENT conversation, then send it yourself. Review ChatGPT’s reply and copy the resulting handoff into a new chat. This never automatically submits or extracts a response.'));
-    const area=el('textarea','settings-handoff');
-    area.setAttribute('aria-label','Editable handoff request');
-    area.value=CONTINUITY_HANDOFF_REQUEST;
-    handoff.appendChild(area);
-    const notice=el('p','settings-feedback');
-    notice.setAttribute('role','status');
-    const actions=el('div','settings-actions');
-    actions.appendChild(button('Copy handoff request','action',async()=>{
-      const copied=await copyPromptToClipboard(area.value,area);
-      notice.textContent=copied?'Request copied. Paste it into the current chat and send manually.':
-        'Clipboard unavailable. Select the request text above and copy it manually.';
-    }));
-    const id=continuityConversationKey(location.pathname,location.search);
-    if(id){
-      actions.appendChild(button('Preview reminder in this chat','action',()=>{
-        continuityPreview=true;
-        hide();
-        refreshContinuityReminder();
+    const section=el('section','settings-section');
+    const summary=el('div','settings-summary');
+    const info=el('div','settings-summary-info');
+    const title=el('div','settings-summary-heading');
+    title.appendChild(el('h3','','Conversation Overrun Warning'));
+    title.appendChild(el('span','settings-beta','BETA'));
+    info.appendChild(title);
+    info.appendChild(el('p','settings-summary-description',
+      'Optional long-chat reminders and a tool to prepare a handoff for a new conversation.'));
+    info.appendChild(el('span','hint','Current setting: '+
+      organizerSettings.continuityLevel.charAt(0).toUpperCase()+
+      organizerSettings.continuityLevel.slice(1)));
+    summary.appendChild(info);
+    const expand=button(settingsFeatureExpanded?'▾ Close settings':'▸ Configure',
+      'action settings-expand',()=>{
+        settingsFeatureExpanded=!settingsFeatureExpanded;
+        render();
+        const toggle=panel.querySelector('.settings-expand');
+        if(toggle)toggle.focus();
+      });
+    expand.setAttribute('aria-expanded',String(settingsFeatureExpanded));
+    expand.setAttribute('aria-controls','swiftclick-overrun-warning-settings');
+    summary.appendChild(expand);
+    section.appendChild(summary);
+
+    const details=el('div','settings-feature-details');
+    details.id='swiftclick-overrun-warning-settings';
+    details.hidden=!settingsFeatureExpanded;
+    if(settingsFeatureExpanded){
+      const choices=el('fieldset','settings-choice-list');
+      choices.appendChild(el('legend','','Reminder sensitivity'));
+      for(const [level,label,description] of [
+        ['off','Off (default)','No automatic monitoring or reminders.'],
+        ['low','Low','First reminder after 45 observed sends; every 30 more after postponing.'],
+        ['medium','Medium','First reminder after 25 observed sends; every 20 more after postponing.'],
+        ['high','High','First reminder after 12 observed sends; every 15 more after postponing.']
+      ]){
+        const choice=el('label','settings-choice');
+        const radio=el('input');radio.type='radio';
+        radio.name=APP_ID+'-overrun-level';
+        radio.value=level;radio.checked=organizerSettings.continuityLevel===level;
+        radio.addEventListener('change',()=>{
+          if(radio.checked)applyOrganizerSettings({version:1,continuityLevel:level});
+        });
+        choice.appendChild(radio);
+        const descriptionBox=el('span','settings-choice-label');
+        descriptionBox.appendChild(el('strong','',label));
+        descriptionBox.appendChild(el('span','hint',description));
+        choice.appendChild(descriptionBox);
+        choices.appendChild(choice);
+      }
+      details.appendChild(choices);
+      details.appendChild(el('p','settings-warning',
+        'Beta limitation: This is an activity reminder, not a context-limit meter. It counts only user send attempts observed in this tab while enabled. It does not read messages, count tokens, or know how much context ChatGPT has left. Earlier turns and sends in other tabs are not included; reminders may be early, late, or absent.'));
+      if(settingsError)details.appendChild(el('p','error',settingsError));
+
+      const handoff=el('div','settings-feature-handoff');
+      handoff.appendChild(el('h3','','Prepare a handoff'));
+      handoff.appendChild(el('p','hint',
+        'Available even when reminders are Off. Copy this request and send it yourself in the CURRENT conversation. Review ChatGPT’s reply, then start a new chat with its handoff. Nothing is submitted or extracted automatically.'));
+      const area=el('textarea','settings-handoff');
+      area.setAttribute('aria-label','Editable handoff request');
+      area.value=CONTINUITY_HANDOFF_REQUEST;
+      handoff.appendChild(area);
+      const notice=el('p','settings-feedback');
+      notice.setAttribute('role','status');
+      const actions=el('div','settings-actions');
+      actions.appendChild(button('Copy handoff request','action',async()=>{
+        const copied=await copyPromptToClipboard(area.value,area);
+        notice.textContent=copied?'Request copied. Paste it into the current chat and send manually.':
+          'Clipboard unavailable. Select the request text above and copy it manually.';
       }));
+      const id=continuityConversationKey(location.pathname,location.search);
+      if(id){
+        actions.appendChild(button('Preview overrun warning in this chat','action',()=>{
+          continuityPreview=true;
+          hide();
+          refreshContinuityReminder();
+        }));
+      }
+      handoff.appendChild(actions);
+      handoff.appendChild(notice);
+      details.appendChild(handoff);
     }
-    handoff.appendChild(actions);handoff.appendChild(notice);
-    root.appendChild(handoff);
+    section.appendChild(details);
+    root.appendChild(section);
     return root;
   }
 
@@ -4302,6 +4424,7 @@
     const headActions=el('div','head-actions');
     const settingsButton=button(settingsOpen?'← Back':'⚙ Settings','action settings-trigger',()=>{
       settingsOpen=!settingsOpen;
+      settingsFeatureExpanded=false;
       render();
     });
     settingsButton.setAttribute('aria-label',settingsOpen?'Back to Organizer':'Open Organizer Settings');
@@ -4316,7 +4439,7 @@
       panel.appendChild(main);
       const foot=el('div','foot');
       foot.appendChild(el('span','hint','Local preferences · No conversation text is stored.'));
-      panel.appendChild(foot);
+      appendOrganizerFooter(foot);
       return;
     }
 
@@ -4362,7 +4485,7 @@
       panel.appendChild(content);
       const foot=el('div','foot');
       foot.appendChild(el('span','hint','25 templates · Local only · Nothing is sent automatically.'));
-      panel.appendChild(foot);
+      appendOrganizerFooter(foot);
       return;
     }
 
@@ -4375,7 +4498,7 @@
         foot.appendChild(button('← Back to ChatGPT Tools','action',()=>{
           managingTools=false;editingToolId=null;render();
         }));
-        panel.appendChild(foot);
+        appendOrganizerFooter(foot);
       } else {
         content.appendChild(makeToolsFront());
         panel.appendChild(content);
@@ -4384,7 +4507,7 @@
         foot.appendChild(button('⚙ Manage ChatGPT Tools','action',()=>{
           managingTools=true;newChatOptionsOpen=false;render();
         }));
-        panel.appendChild(foot);
+        appendOrganizerFooter(foot);
       }
       return;
     }
@@ -4401,7 +4524,7 @@
           quickHeadingAdding = false;
           render();
         }));
-        panel.appendChild(footer);
+        appendOrganizerFooter(footer);
       } else {
         const title = el('div', 'quick-header');
         title.appendChild(el('h2', '', 'Quick Links'));
@@ -4427,7 +4550,7 @@
         });
         manageLinks.disabled=quickLinksLocked;
         footer.appendChild(manageLinks);
-        panel.appendChild(footer);
+        appendOrganizerFooter(footer);
       }
       return;
     }
@@ -4445,7 +4568,7 @@
         query = '';
         render();
       }));
-      panel.appendChild(footer);
+      appendOrganizerFooter(footer);
       return;
     }
     if (currentCategory !== null) {
@@ -4569,13 +4692,14 @@
       render();
     }));
     footer.appendChild(footerActions);
-    panel.appendChild(footer);
+    appendOrganizerFooter(footer);
     positionOpenEditor();
   }
 
   function show(automatic = false) {
     clearPromptDraft();
     settingsOpen=false;
+    settingsFeatureExpanded=false;
     activeTab = 'categories';
     managingTools = false;
     editingToolId = null;
@@ -4616,7 +4740,9 @@
   }
 
   function hide() {
+    closeSupportPopup();
     settingsOpen=false;
+    settingsFeatureExpanded=false;
     clearPromptDraft();
     managingTools = false;
     editingToolId = null;
@@ -4643,8 +4769,10 @@
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && open) {
       event.preventDefault();
-      if (settingsOpen) {
-        settingsOpen=false;render();
+      if(supportBackdrop) {
+        closeSupportPopup();
+      } else if (settingsOpen) {
+        settingsOpen=false;settingsFeatureExpanded=false;render();
       } else if (activeTab === 'tools' && managingTools && editingToolId !== null) {
         editingToolId = null;render();
       } else if (activeTab === 'tools' && managingTools) {

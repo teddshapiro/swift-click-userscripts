@@ -1540,7 +1540,7 @@ test('profile deletion warns before last-reference shortcut cleanup',()=>{
   assert.match(script,/Saved in SwiftClick but not included in this profile/);
 });
 
-test('Conversation Continuity settings default to Off and reject unknown choices',()=>{
+test('Conversation Overrun Warning settings default to Off and reject unknown choices',()=>{
   assert.deepEqual(JSON.parse(JSON.stringify(hooks.sanitizeOrganizerSettings(null))),
     {version:1,continuityLevel:'off'});
   assert.equal(hooks.sanitizeOrganizerSettings({version:1,continuityLevel:'medium'}).continuityLevel,'medium');
@@ -1551,7 +1551,7 @@ test('Conversation Continuity settings default to Off and reject unknown choices
   assert.equal(hooks.sanitizeOrganizerSettings({version:1}).continuityLevel,'off');
 });
 
-test('Conversation Continuity applies only to named non-temporary conversation routes',()=>{
+test('Conversation Overrun Warning applies only to named non-temporary conversation routes',()=>{
   assert.equal(hooks.continuityConversationKey('/c/abc-123'),'chat:abc-123');
   assert.equal(hooks.continuityConversationKey('/g/g-p-project123/c/CHAT-123/'),'chat:chat-123');
   assert.equal(hooks.continuityConversationKey('/c/ABC','?x=1&temporary-chat=true'),null);
@@ -1562,7 +1562,7 @@ test('Conversation Continuity applies only to named non-temporary conversation r
   assert.equal(hooks.continuityConversationKey('https://example.com/c/test'),null);
 });
 
-test('Conversation Continuity ledger is bounded, validated, and content-free',()=>{
+test('Conversation Overrun Warning ledger is bounded, validated, and content-free',()=>{
   const bad=[
     {id:'chat:abc',sends:30,nextAt:47,dismissed:true},
     {id:'chat:abc',sends:19,nextAt:0,dismissed:false},
@@ -1585,7 +1585,7 @@ test('Conversation Continuity ledger is bounded, validated, and content-free',()
   assert.equal(one.entries[1].dismissed,false);
 });
 
-test('Conversation Continuity thresholds are reminders, not token-limit predictions',()=>{
+test('Conversation Overrun Warning thresholds are reminders, not token-limit predictions',()=>{
   const at=n=>({sends:n,nextAt:0,dismissed:false});
   assert.equal(hooks.continuityShouldRemind('off',at(10000)),false);
   assert.equal(hooks.continuityShouldRemind('high',at(11)),false);
@@ -1606,14 +1606,68 @@ test('Settings and handoff are a separate user-controlled screen, not another ta
   assert.match(script,/settingsButton=button\(settingsOpen\?'← Back':'⚙ Settings'/);
   assert.match(script,/if\(settingsOpen\)\{/);
   assert.match(script,/main\.appendChild\(makeSettingsPanel\(\)\)/);
-  assert.match(script,/Conversation Continuity/);
+  assert.match(script,/Conversation Overrun Warning/);
+  assert.doesNotMatch(script,/'Conversation Continuity|"Conversation Continuity/);
   assert.match(script,/BETA/);
   assert.match(script,/Copy handoff request/);
   assert.match(script,/copyPromptToClipboard\(area\.value,area\)/);
-  assert.match(script,/Preview reminder in this chat/);
+  assert.match(script,/Preview overrun warning in this chat/);
   assert.match(script,/role','status'/);
-  assert.match(script,/settingsOpen=false;render\(\)/);
+  assert.match(script,/settingsOpen=false;settingsFeatureExpanded=false;render\(\)/);
   assert.equal((script.match(/\{ id: 'settings', title:/g)||[]).length,0);
+});
+
+test('Settings starts collapsed and expands the whole beta feature as one section',()=>{
+  const code=script.slice(script.indexOf('  function makeSettingsPanel() {'),
+    script.indexOf('  function render() {'));
+  assert.match(code,/el\('h2','','Organizer Settings'\)/);
+  assert.match(code,/el\('h3','','Conversation Overrun Warning'\)/);
+  assert.match(code,/settingsFeatureExpanded\?'▾ Close settings':'▸ Configure'/);
+  assert.match(code,/expand\.setAttribute\('aria-expanded',String\(settingsFeatureExpanded\)\)/);
+  assert.match(code,/expand\.setAttribute\('aria-controls','swiftclick-overrun-warning-settings'\)/);
+  assert.match(code,/details\.hidden=!settingsFeatureExpanded/);
+  assert.match(code,/if\(settingsFeatureExpanded\)\{/);
+  assert.match(code,/details\.appendChild\(handoff\)/);
+  assert.match(code,/section\.appendChild\(details\)/);
+  assert.match(script,/let settingsFeatureExpanded = false/);
+  assert.match(script,/settingsFeatureExpanded=false;/);
+  assert.match(script,/settingsFeatureExpanded=true;/);
+  assert.match(script,/settingsOpen=true;\s+settingsFeatureExpanded=true;\s+render\(\)/);
+  assert.match(script,/settingsFeatureExpanded=false;render\(\)/);
+  assert.match(script,/\.settings-feature-details\[hidden\]\{display:none!important;\}/);
+});
+
+test('Organizer scroll bar is persistent and has visible contrast on Firefox and Chromium',()=>{
+  assert.match(script,/\.main\{[^']*overflow-y:scroll;/);
+  assert.match(script,/scrollbar-gutter:stable;scrollbar-width:auto;scrollbar-color:#b3d9fa #22364c/);
+  assert.match(script,/\.main::-webkit-scrollbar\{width:15px;height:15px;\}/);
+  assert.match(script,/\.main::-webkit-scrollbar-track\{background:#22364c;/);
+  assert.match(script,/\.main::-webkit-scrollbar-thumb\{background:#9ac7ec;/);
+  assert.match(script,/\.main::-webkit-scrollbar-thumb:hover\{background:#d2e9ff;\}/);
+  assert.match(script,/const previousScroll=priorMain\?priorMain\.scrollTop:0/);
+  assert.match(script,/if\(nextMain\)nextMain\.scrollTop=previousScroll/);
+});
+
+test('Ko-fi footer support is optional, local-first, and links only on deliberate click',()=>{
+  assert.match(script,/const SWIFTCLICK_SUPPORT_URL='https:\/\/ko-fi\.com\/teddshapiro'/);
+  assert.match(script,/function appendOrganizerFooter\(footer\)/);
+  assert.match(script,/button\('☕ Support SwiftClick','support-footer-action'/);
+  assert.equal((script.match(/appendOrganizerFooter\((?:foot|footer)\);/g)||[]).length,8);
+  assert.match(script,/function openSupportPopup\(trigger\)/);
+  assert.match(script,/function closeSupportPopup\(\)/);
+  assert.match(script,/dialog\.setAttribute\('role','dialog'\)/);
+  assert.match(script,/dialog\.setAttribute\('aria-modal','true'\)/);
+  assert.match(script,/dialog\.setAttribute\('aria-label','Support SwiftClick'\)/);
+  assert.match(script,/visit\.href=SWIFTCLICK_SUPPORT_URL/);
+  assert.match(script,/visit\.target='_blank'/);
+  assert.match(script,/visit\.rel='noopener noreferrer'/);
+  assert.match(script,/visit\.addEventListener\('click',\(\)=>closeSupportPopup\(\)\)/);
+  assert.match(script,/button\('Not now','action support-close',closeSupportPopup\)/);
+  assert.match(script,/if\(supportBackdrop\) \{\s+closeSupportPopup\(\)/);
+  assert.match(script,/if\(event\.target===backdropNode\)closeSupportPopup\(\)/);
+  assert.doesNotMatch(script,/GM_setValue\(.*(?:donation|support)/);
+  assert.doesNotMatch(script,/(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
 });
 
 test('Handoff text requests a reviewable new-chat prompt and does not claim unseen work',()=>{
@@ -1644,7 +1698,7 @@ test('Reminder respects privacy: no transcript extraction, message text, network
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.37/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.38/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

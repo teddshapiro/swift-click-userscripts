@@ -23,14 +23,14 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 
 ## Experimental: SwiftClick Organizer
 
-**SwiftClick Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.41** (collapsed Startup & Welcome settings, optional auto-open, and welcome guide dialog).
+**SwiftClick Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.42** (configurable Tools setup prompts, Personalization guidance, and safer first-run tool defaults).
 
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
 - [Alpha.34 development handoff (historical)](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
 - [Draft pull request #6](https://github.com/teddshapiro/swift-click-userscripts/pull/6)
 - [Cross-product design standard — Organizer, Shortcut & Collection Tools](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) (Web App Development Standards → Human-Centered Design)
 
-The owner approved alpha.40 after successful Firefox acceptance testing on November 15, 2026. Alpha.40 remains the latest approved development baseline; alpha.41 is the current development candidate awaiting owner testing. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
+The owner approved alpha.40 after successful Firefox acceptance testing on November 15, 2026. Alpha.40 remains the latest approved development baseline; alpha.41 and alpha.42 are development candidates awaiting owner acceptance. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
 
 ## Reusable design reminder
 
@@ -73,6 +73,19 @@ The header **? Help** button and **Show welcome now** in the Startup panel reope
 Settings persist in the existing `settings.v1` record, with backward-compatible sanitizer defaults. Older beta reminder sensitivity selections are not reset. Both panels are initially collapsed and independent, with accessible expand/collapse states. The welcome uses explicit DOM construction, no unsafe HTML parsing, no new Tampermonkey permissions, and no data collection.
 
 The welcome links to the already deployed documentation preview at [organizer.swiftclicktools.com](https://organizer.swiftclicktools.com/). The live guide remains a draft of alpha.40 until the newer onboarding is accepted and its published text updated. No public userscript release, automatic update metadata or merge to `main` is authorized.
+
+## Alpha.42 — ChatGPT Tools setup and Personalization guidance (pending owner acceptance)
+
+ChatGPT Tools now distinguishes **direct URLs**, **guided actions**, and **shortcuts requiring a user-configured URL**. Previously, a missing URL rendered as a disabled, noninteractive tile.
+
+- **Find Workspaces** stays in the 15-item Tools catalog but is **hidden by default for a new installation** because OpenAI does not provide a universal, verified Find Workspaces destination. Users can select **Manage ChatGPT Tools → Show** to reveal and configure it. **Existing stored visibility settings are honored**, including an older saved `hidden: []` preference; no saved tool collection is rewritten simply because the new default changed.
+- **Personalization** stays visible and has a useful built-in guided action without inventing a direct personalization URL. Clicking its tile displays **Settings → Personalization** instructions and an explicitly labeled **Open ChatGPT Settings** button. The button navigates to the same general URL already used by the Settings shortcut, **not** a guaranteed Personalization deep link. If the user supplies a validated custom HTTPS destination in the editor, that override takes precedence and the tile opens it directly.
+- All other Tools without a built-in URL or a valid stored override now show an accessible **Needs setup — click to configure** tile. Clicking it opens a modal explaining the missing URL and offering **Cancel** and **Configure shortcut**. Configure immediately opens **Manage ChatGPT Tools** with the *selected tool's editor already expanded, scrolled into view, and URL input focused*. No automatic URL is invented.
+- Modals support Escape and backdrop cancellation, focus return, and basic focus trapping. UI uses explicit DOM APIs, not string-based HTML injection. No external requests, new grants, data migrations, or changes to saved profiles or Quick Links.
+
+Verified navigation concepts: [OpenAI — Personalize ChatGPT](https://learn.chatgpt.com/docs/personalize) documents Settings → Personalization; [OpenAI — Enterprise workspaces](https://help.openai.com/en/articles/8265430-what-is-a-chatgpt-enterprise-workspace-how-can-i-switch-workspaces) documents profile-menu workspace switching. Both were checked November 15, 2026.
+
+This build stays on draft PR #6; `main` and public userscript installation remain unchanged.
 
 ## Release workflow
 

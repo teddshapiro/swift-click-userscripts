@@ -1,12 +1,12 @@
 # SwiftClick Organizer — Technical Proof of Concept
 
-> **Current alpha.41 development candidate (alpha.40 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.42 development candidate (alpha.40 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.41)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.42)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -1010,3 +1010,27 @@ This release does **not** add a payment processor, monetization restrictions or 
 7. Test Firefox keyboard focus, visible scrollbar, Escape priority, Settings UI re-render after a toggle, and data persistence after a browser restart. Run syntax and automated regression checks.
 
 No new privileges, remote telemetry, model calls, chat scraping, or external dependencies have been introduced.
+
+## Alpha.42 — Tools setup dialog, Personalization guidance, default-hidden Workspaces (2026-11-15)
+
+**Status:** Alpha.42 development candidate pending Firefox review; latest approved owner baseline is alpha.40. Draft PR #6 remains open/unmerged; `main` is untouched.
+
+### Intent and implementation
+- The source-maintained 15-tool catalog remains complete and in its existing group order. The new `DEFAULT_HIDDEN_CHATGPT_TOOLS` constant contains only `find-workspaces`. `sanitizeToolPrefs(null)` and preferences lacking a valid `hidden` array apply this default. Any saved V1 `hidden` array, even an empty array, is respected exactly; upgrades must not forcibly hide a previously saved visible shortcut or reset other customizations. Manage ChatGPT Tools lists hidden items and lets users Show them.
+- `toolActionKind(item,prefs)` classifies New chat's split action, direct links (including validated overrides), the default guided Personalization action, and missing destinations that require setup. Personalization is cataloged as an action with no fictitious deep link.
+- The guided Personalization notice describes **ChatGPT profile menu → Settings → Personalization**. **Open ChatGPT Settings** uses `https://chatgpt.com/settings` (the same general Settings target already in the tool catalog), but does not promise to open the Personalization pane directly. An existing or newly supplied, allowed custom URL override converts Personalization into a direct link.
+- Missing-URL tiles are now real focusable `<button>` controls, visually indicating **Needs setup — click to configure** instead of a disabled `div`. Their modal names the selected tool and offers **Configure shortcut**, which enters the existing Tools manager, expands the named item's editor, scrolls it into view, and focuses its URL field. No new URL is inferred or auto-saved. Existing override security rules (HTTPS allowlist, no credentials, query, fragment or nonstandard port) remain in force.
+- The notice dialog lives inside the existing Organizer Shadow DOM. It has accessible dialog labeling, Cancel and backdrop dismissal, Escape priority, keyboard focus trap, and focus restoration. The existing Help, welcome, support, AI category import, and Settings dialogs retain their own independent behavior.
+- No `innerHTML`/Trusted Types sinks, network requests, additional userscript grants, new storage schemas, data migrations, or changes to profile membership or Quick Links.
+- Verified against current [OpenAI Personalize ChatGPT](https://learn.chatgpt.com/docs/personalize) and [OpenAI workspace switching](https://help.openai.com/en/articles/8265430-what-is-a-chatgpt-enterprise-workspace-how-can-i-switch-workspaces) guidance on November 15, 2026. A universal Find Workspaces deep link is not confirmed.
+
+### Firefox acceptance checklist
+1. On a fresh install, open ChatGPT Tools: Find Workspaces should be absent but Personalization should be present.
+2. Select Personalization: the instructional dialog should explain the ChatGPT profile menu → Settings → Personalization and offer **Open ChatGPT Settings**. Cancel, Escape, backdrop, and keyboard focus should work. Test navigation with the visible action; note if ChatGPT no longer honors its general Settings URL.
+3. In **Manage ChatGPT Tools**, reveal Find Workspaces using **Show**, return to the Tools grid, and click its **Needs setup** tile. The dialog should name Find Workspaces. Select **Configure shortcut** and verify its exact editor opens in the manager with URL field focused.
+4. Enter a valid HTTPS ChatGPT URL and save; the configured tile should now navigate directly. Test invalid URL validation. Hide the tile and reload; verify hide and override preferences persist.
+5. Set Personalization's custom valid URL and verify its tile becomes a direct link; clear the override and verify the guided action returns.
+6. Upgrade an alpha.41 installation that already has saved tool preferences; existing explicit visibility, icon choices, URL overrides, and ordering must remain intact, including a previously visible Find Workspaces item.
+7. Regression-test Startup & Welcome, four main tabs, New chat regular/Temporary split, all other Tool links, profiles, categories, Quick Links, Continuity Warning, and Ko-fi.
+
+The published Cloudflare documentation site remains a pre-release alpha.40 guide until owner acceptance and a future documented update.

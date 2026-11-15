@@ -4290,7 +4290,10 @@
     visit.href=SWIFTCLICK_SUPPORT_URL;
     visit.target='_blank';
     visit.rel='noopener noreferrer';
-    visit.addEventListener('click',()=>closeSupportPopup());
+    // Defer closing until after the browser performs the anchor's default
+    // new-tab navigation. Removing the clicked anchor synchronously can
+    // prevent the external page from opening in some browsers.
+    visit.addEventListener('click',()=>window.setTimeout(closeSupportPopup,0));
     const cancel=button('Not now','action support-close',closeSupportPopup);
     actions.appendChild(visit);
     actions.appendChild(cancel);

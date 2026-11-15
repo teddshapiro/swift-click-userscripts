@@ -1661,7 +1661,7 @@ test('Ko-fi footer support is optional, local-first, and links only on deliberat
   assert.match(script,/visit\.href=SWIFTCLICK_SUPPORT_URL/);
   assert.match(script,/visit\.target='_blank'/);
   assert.match(script,/visit\.rel='noopener noreferrer'/);
-  assert.match(script,/visit\.addEventListener\('click',\(\)=>closeSupportPopup\(\)\)/);
+  assert.match(script,/visit\.addEventListener\('click',\(\)=>window\.setTimeout\(closeSupportPopup,0\)\)/);
   assert.match(script,/button\('Not now','action support-close',closeSupportPopup\)/);
   assert.match(script,/if\(supportBackdrop\) \{\s+closeSupportPopup\(\)/);
   assert.match(script,/if\(event\.target===backdropNode\)closeSupportPopup\(\)/);

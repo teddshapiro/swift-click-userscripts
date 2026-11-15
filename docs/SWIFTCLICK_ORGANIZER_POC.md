@@ -1,12 +1,12 @@
 # SwiftClick Organizer — Technical Proof of Concept
 
-> **Current alpha.39 development candidate (alpha.38 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.40 development candidate (alpha.38 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.39)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.40)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -958,3 +958,27 @@ This release does **not** add a payment processor, monetization restrictions or 
 7. Run regression tests and confirm unchanged script grants, no automatic ChatGPT submission, no network calls and no merge to `main`.
 
 **Reference:** [OpenAI's current Memory help](https://help.openai.com/en/articles/8590148-memory-in-chatgpt) explains that Memory can bring relevant context into new chats but does not retain or expose every detail from every conversation. This release deliberately describes suggestions as memory-informed, not account-wide chat-history analysis.
+
+## Alpha.40 — Editable AI category proposals and nonintrusive new ChatGPT tab (2026-11-15)
+
+**Status:** Development candidate awaiting owner Firefox testing; alpha.38 remains last explicitly approved, alpha.39 tested favorably. Draft PR #6 unmerged; main unchanged.
+
+### New-tab routing
+- **Open ChatGPT in a new tab** now targets `https://chatgpt.com/?swiftclick-organizer-skip-autoopen=1` with `target="_blank"` and `rel="noopener noreferrer"`. This starts a **normal**, not Temporary, ChatGPT session, so configured Memory is still eligible.
+- `shouldAutoOpenHome` explicitly excludes the skip marker from the home-page overlay auto-open behavior. A startup-local snapshot of the marker continues suppressing the delayed auto-open if ChatGPT strips the query parameter after initial page load. Ordinary home visits still auto-open as before. The launcher remains available for intentional manual opening.
+- ChatGPT owns its URL navigation and may redirect/rewrite before the userscript initializes; this is a browser acceptance test, not a guaranteed contract with ChatGPT.
+
+### Three-stage interface, with a focused final review
+1. **Copy prompt** and **Paste package** steps are identical in purpose to alpha.39. No profile is created during either stage.
+2. **Validate & preview categories** must pass strict versioned package validation, then switches the modal to **Review suggested categories**, hiding steps one and two altogether. Only the editable category list, noneditable Uncategorized entry, relevant buttons and final creation controls remain visible. An optional Back to pasted package control allows corrections.
+3. **Final review edits:** Each suggested category displays its allowed icon and an editable 50-character name field, plus **Move up**, **Move down**, and **Delete** actions. **+ Add category** appends a default, safely named new category with tile icon; duplicate default labels are automatically disambiguated. Users may edit the new name as they like. Up/down arrows have proper disabled boundary states. The explicit Uncategorized inbox is always included last and cannot be deleted.
+4. **Validation after every edit:** The existing trusted schema parser is applied to the in-memory draft, including 1–20 suggested categories, unique labels, 50-character name bounds, reserved names, and allowed icons. Invalid edits disable the final Create action and show a direct error. Final confirmation revalidates before constructing a category-only snapshot; no partially edited draft enters storage.
+5. **Final save:** `Create profile with these categories` is the only write action. It uses existing `newProfileState`, strict V2 validation and `persistProfiles` rollback semantics. The saved profile starts without assigned chats, project links or membership and does not replace the active/default profile.
+6. **Cancellation:** Cancel and Escape close the importer without creating a profile. Back to pasted package returns to copy/paste stages and clears the edited proposal, leaving previously pasted JSON available for revision. The original typed profile name and starting option remain available if cancelled.
+
+### Accessibility, safety and acceptance
+- Modal review layout is scrollable with visible contrasting scrollbar and explicit DOM construction only (`createElement`, `textContent`, `replaceChildren`), supporting restrictive Trusted Types/CSP sites. Editor row labels and action controls have accessible names. Focus moves to the review after validation and stays on the relevant row when reordering.
+- Test in Firefox: initiate AI profile, click **Open ChatGPT in a new tab**, confirm Organizer does not auto-open there, and that the new tab is a regular non-temporary conversation. Manually launching Organizer should still work.
+- Paste valid JSON; confirm steps 1 and 2 disappear, and rename, reorder, delete, add work. Ensure an empty list or duplicate/reserved/invalid name disables Create; correct it, create and confirm order, names, icons and empty memberships persist.
+- Test the Back button, Cancel/Escape, profile limit, and preserved previous profile membership. Regression-test duplicate-current-profile, generic starter, Quick Links, four Organizer tabs, overrun warning and Ko-fi.
+- No transcript scraping, automatic ChatGPT submissions, new network requests, or userscript grants. The suggestion package remains user-pasted, and the final save remains user-confirmed.

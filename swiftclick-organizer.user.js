@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.39
+// @version      0.1.0-alpha.40
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -34,6 +34,8 @@
   const ORGANIZER_SETTINGS_KEY = APP_ID + '.settings.v1';
   const CONTINUITY_TAB_KEY = APP_ID + '.continuityTab.v1';
   const SUPPRESS_NEXT_HOME_AUTOOPEN_KEY = APP_ID + '.suppressNextHomeAutoOpen.v1';
+  const AI_PROFILE_NO_AUTOOPEN_QUERY = 'swiftclick-organizer-skip-autoopen=1';
+  const AI_PROFILE_NEW_CHAT_URL = 'https://chatgpt.com/?'+AI_PROFILE_NO_AUTOOPEN_QUERY;
   // Flat virtual categories only; do not introduce nested categories in this MVP.
   // Only first-time installations receive these public, non-personal starters.
   // Changing this catalog must never rewrite a stored user's category list.
@@ -370,6 +372,9 @@
   // This does not change normal Home auto-opening for ordinary visits.
   function shouldAutoOpenHome(pathname, search = '', marker = null, now = Date.now()) {
     if (!isHomeRoute(pathname)) return false;
+    // A new tab opened by the AI profile workflow should show ChatGPT's
+    // composer, not automatically relaunch the Organizer overlay.
+    if (/(?:^\?|&)swiftclick-organizer-skip-autoopen=1(?:&|$)/.test(String(search || ''))) return false;
     // A temporary conversation must not be covered by the organizer.
     if (/(?:^\?|&)temporary-chat=true(?:&|$)/.test(String(search || ''))) return false;
     const stored = String(marker || '');
@@ -1009,6 +1014,41 @@
     }
     return {categories};
   }
+  // Draft edits stay transient until the user confirms the validated preview.
+  function validateAISuggestedDraft(categories){
+    return parseAIProfileCategoryPackage(JSON.stringify({
+      schema:AI_PROFILE_PACKAGE_SCHEMA,version:1,categories
+    }));
+  }
+  function renameAISuggestedCategory(categories,index,label){
+    if(!Array.isArray(categories)||index<0||index>=categories.length||
+       !Number.isInteger(index)||typeof label!=='string')return null;
+    return categories.map((item,i)=>i===index?{...item,label}:{...item});
+  }
+  function moveAISuggestedCategory(categories,index,delta){
+    if(!Array.isArray(categories)||!Number.isInteger(index)||
+       !Number.isInteger(delta)||Math.abs(delta)!==1||
+       index<0||index>=categories.length||index+delta<0||
+       index+delta>=categories.length)return null;
+    const next=categories.map(item=>({...item}));
+    [next[index],next[index+delta]]=[next[index+delta],next[index]];
+    return next;
+  }
+  function deleteAISuggestedCategory(categories,index){
+    if(!Array.isArray(categories)||!Number.isInteger(index)||
+       index<0||index>=categories.length)return null;
+    return categories.filter((_,i)=>i!==index).map(item=>({...item}));
+  }
+  function addAISuggestedCategory(categories){
+    if(!Array.isArray(categories)||categories.length>=AI_PROFILE_CATEGORY_LIMIT)return null;
+    const occupied=new Set(categories.map(item=>String(item.label||'').trim().toLocaleLowerCase()));
+    let label='New category',suffix=2;
+    while(occupied.has(label.toLocaleLowerCase())&&suffix<=AI_PROFILE_CATEGORY_LIMIT+2){
+      label='New category '+suffix++;
+    }
+    return [...categories.map(item=>({...item})),{label,icon:'▦'}];
+  }
+
   function snapshotFromAIProfileCategories(categories,nonce) {
     if(!Array.isArray(categories)||categories.length<1||
        categories.length>AI_PROFILE_CATEGORY_LIMIT ||
@@ -1040,6 +1080,9 @@
       newProfileState,deleteProfileState,
       aiProfilePackageSchema:AI_PROFILE_PACKAGE_SCHEMA,aiProfileCategoryLimit:AI_PROFILE_CATEGORY_LIMIT,
       buildAIProfileCategoryPrompt,parseAIProfileCategoryPackage,snapshotFromAIProfileCategories,
+      aiProfileNewChatUrl:AI_PROFILE_NEW_CHAT_URL,aiProfileNoAutoOpenQuery:AI_PROFILE_NO_AUTOOPEN_QUERY,
+      validateAISuggestedDraft,renameAISuggestedCategory,moveAISuggestedCategory,
+      deleteAISuggestedCategory,addAISuggestedCategory,
       legacyCategoryDefinitions: LEGACY_CATEGORY_DEFINITIONS_V1,
       starterCategoryDefinitions: DEFAULT_CATEGORIES,
       createCategoryModel, renameCategoryModel,
@@ -1711,6 +1754,17 @@
     '.ai-profile-dialog h2{margin:0;font-size:20px;}',
     '.ai-profile-dialog h3{margin:0;font-size:15px;}',
     '.ai-profile-step{display:grid;gap:10px;border-top:1px solid #415a72;padding-top:13px;}',
+    '.ai-profile-step[hidden]{display:none!important;}',
+    '.ai-profile-review-help{font-size:12px;color:#c7dbef;}',
+    '.ai-profile-edit-list{display:grid;gap:9px;margin:0;padding:0;list-style:none;max-height:min(45vh,360px);overflow-y:auto;scrollbar-width:auto;scrollbar-color:#b3d9fa #22364c;scrollbar-gutter:stable;}',
+    '.ai-profile-edit-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px;background:#223b53;border:1px solid #52728f;border-radius:9px;}',
+    '.ai-profile-edit-icon{font-size:21px;min-width:30px;text-align:center;}',
+    '.ai-profile-edit-row label{display:flex;flex:1 1 175px;gap:5px;flex-direction:column;font-size:11px;color:#bdcde1;}',
+    '.ai-profile-edit-row input{padding:9px;background:#0f2338;color:#fff;border:1px solid #7897b4;border-radius:7px;font:13px system-ui;min-width:110px;width:100%;}',
+    '.ai-profile-edit-actions{display:flex;gap:5px;align-items:center;flex-wrap:wrap;}',
+    '.ai-profile-edit-actions .action{min-width:34px;padding:8px;}',
+    '.ai-profile-uncategorized{padding:10px 12px;color:#c9dced;font-size:12px;border:1px dashed #59718a;border-radius:9px;}',
+    '.ai-profile-save-actions[hidden]{display:none!important;}',
     '.ai-profile-dialog p{margin:0;color:#c3d6e9;font-size:13px;line-height:1.55;}',
     '.ai-profile-dialog textarea{width:100%;min-height:145px;resize:vertical;border-radius:8px;border:1px solid #6a88a7;background:#102238;color:#fff;font:12px/1.5 ui-monospace,Consolas,monospace;padding:11px;}',
     '.ai-profile-dialog textarea:focus-visible,.ai-profile-dialog button:focus-visible,.ai-profile-dialog a:focus-visible{outline:2px solid #9bd5ff;outline-offset:2px;}',
@@ -4273,13 +4327,15 @@
     dialog.setAttribute('aria-modal','true');
     dialog.setAttribute('aria-label','Suggest profile categories with ChatGPT');
     const heading=el('h2','','Ask ChatGPT to suggest categories');
+    const intro=el('p','',
+      'New profile: '+name+'. No profile is created until you review and confirm the category list.');
     dialog.appendChild(heading);
-    dialog.appendChild(el('p','',
-      'New profile: '+name+'. No profile is created until you review and confirm a valid category package. Existing profiles and saved shortcuts are not modified.'));
+    dialog.appendChild(intro);
+
     const copyStep=el('section','ai-profile-step');
     copyStep.appendChild(el('h3','','1. Copy the instructions'));
     copyStep.appendChild(el('p','',
-      'Copy a prepared prompt. In a NEW, regular ChatGPT chat with Memory enabled under Settings → Personalization → Memory, paste and send it yourself. ChatGPT may use relevant memories, but it cannot necessarily see all your past conversations. If no personal context is available, it should suggest generic categories.'));
+      'Copy a prepared prompt. In a NEW regular ChatGPT chat with Memory enabled under Settings → Personalization → Memory, paste and send it yourself. ChatGPT may use relevant memories, but cannot necessarily see all past conversations. If no personal context is available, it should suggest generic categories.'));
     const prompt=buildAIProfileCategoryPrompt(name);
     const copyHelper=el('textarea','ai-profile-invisible-copy');
     copyHelper.value=prompt;
@@ -4298,7 +4354,7 @@
     });
     copyActions.appendChild(copy);
     const openChat=el('a','ai-profile-link','Open ChatGPT in a new tab');
-    openChat.href='https://chatgpt.com/';
+    openChat.href=AI_PROFILE_NEW_CHAT_URL;
     openChat.target='_blank';
     openChat.rel='noopener noreferrer';
     copyActions.appendChild(openChat);
@@ -4316,79 +4372,192 @@
     pasted.setAttribute('aria-label','Paste ChatGPT category JSON package');
     const feedback=el('div','ai-profile-status');
     feedback.setAttribute('role','status');
-    const preview=el('div','ai-profile-preview');
-    preview.hidden=true;
-    const previewList=el('ul','ai-profile-preview-list');
-    const previewTitle=el('h3','','Review suggested categories');
-    preview.appendChild(previewTitle);
-    preview.appendChild(previewList);
-    preview.appendChild(el('p','','Uncategorized will be added automatically. The new profile starts with no saved projects or chats.'));
     pasteStep.appendChild(pasted);
     const check=button('Validate & preview categories','action',()=>{
       const parsed=parseAIProfileCategoryPackage(pasted.value);
-      preview.hidden=true;
       state.categories=null;
-      create.disabled=true;
-      previewList.replaceChildren();
       if(parsed.error){
         feedback.dataset.error='true';
         feedback.textContent=parsed.error;
         return;
       }
-      state.categories=parsed.categories;
-      for(const item of parsed.categories)
-        previewList.appendChild(el('li','',item.icon+'  '+item.label));
-      previewList.appendChild(el('li','','▤  Uncategorized (added automatically)'));
-      previewTitle.textContent=parsed.categories.length+' suggested categories for '+name;
-      preview.hidden=false;
-      create.disabled=false;
+      state.categories=parsed.categories.map(item=>({...item}));
       feedback.dataset.error='false';
-      feedback.textContent='Package validated. Review the categories below before creating the profile.';
+      feedback.textContent='';
+      showReview();
     });
     pasted.addEventListener('input',()=>{
       state.categories=null;
-      create.disabled=true;
-      preview.hidden=true;
       feedback.textContent='';
       feedback.dataset.error='false';
     });
     pasteStep.appendChild(check);
     pasteStep.appendChild(feedback);
-    pasteStep.appendChild(preview);
     dialog.appendChild(pasteStep);
 
+    // After validation hide both onboarding steps, leaving only a focused
+    // editable list. Nothing is written to local storage until confirmation.
+    const reviewStep=el('section','ai-profile-step ai-profile-review');
+    reviewStep.hidden=true;
+    reviewStep.appendChild(el('h3','','Review and customize categories'));
+    reviewStep.appendChild(el('p','ai-profile-review-help',
+      'Rename categories, use the arrows to change their order, or add and remove categories before creating the profile. Existing profiles and saved shortcuts remain unchanged.'));
+    const reviewRows=el('ul','ai-profile-edit-list');
+    reviewRows.setAttribute('aria-label','Suggested categories to customize');
+    reviewStep.appendChild(reviewRows);
+    const uncategorized=el('div','ai-profile-uncategorized',
+      '▤  Uncategorized — always included last (not editable here)');
+    reviewStep.appendChild(uncategorized);
+    const reviewFeedback=el('div','ai-profile-status');
+    reviewFeedback.setAttribute('role','status');
+    const reviewActions=el('div','ai-profile-actions');
+    const addCategory=button('+ Add category','action',()=>{
+      const next=addAISuggestedCategory(state.categories);
+      if(!next)return;
+      state.categories=next;
+      renderReview(state.categories.length-1,'label');
+    });
+    reviewActions.appendChild(addCategory);
+    reviewActions.appendChild(button('← Back to pasted package','action',()=>{
+      reviewStep.hidden=true;
+      copyStep.hidden=false;
+      pasteStep.hidden=false;
+      heading.textContent='Ask ChatGPT to suggest categories';
+      intro.textContent='New profile: '+name+'. No profile is created until you review and confirm the category list.';
+      state.categories=null;
+      saveActions.hidden=true;
+      pasted.focus();
+    }));
+    reviewStep.appendChild(reviewActions);
+    reviewStep.appendChild(reviewFeedback);
+    dialog.appendChild(reviewStep);
+
     const finalActions=el('div','ai-profile-actions');
+    const saveActions=el('div','ai-profile-actions ai-profile-save-actions');
+    saveActions.hidden=true;
     const create=button('Create profile with these categories','action',()=>{
-      if(!state.categories)return;
+      const checked=validateAISuggestedDraft(state.categories);
+      if(checked.error){
+        reviewFeedback.dataset.error='true';
+        reviewFeedback.textContent=checked.error;
+        create.disabled=true;
+        return;
+      }
       if(profilesState.profiles.length>=PROFILE_LIMIT){
-        feedback.dataset.error='true';
-        feedback.textContent='The maximum of 12 profiles has been reached.';
+        reviewFeedback.dataset.error='true';
+        reviewFeedback.textContent='The maximum of 12 profiles has been reached.';
         return;
       }
       const nonce=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,9);
-      const snapshot=snapshotFromAIProfileCategories(state.categories,nonce);
+      const snapshot=snapshotFromAIProfileCategories(checked.categories,nonce);
       const id='profile-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
       const next=snapshot && newProfileState(profilesState,id,name,snapshot);
       if(!next || !persistProfiles(next)){
-        feedback.dataset.error='true';
-        feedback.textContent='Could not save the new profile. Existing profiles were not intentionally changed.';
+        reviewFeedback.dataset.error='true';
+        reviewFeedback.textContent='Could not save the new profile. Existing profiles were not intentionally changed.';
         return;
       }
       closeAIProfileImportDialog(false);
       profileCreateDraftName='';
       profileCreateDraftMode='duplicate';
       profilesError='';
-      profilesNotice='Created "'+name+'" with '+state.categories.length+
-        ' suggested categories and Uncategorized. Add saved shortcuts when ready.';
+      profilesNotice='Created "'+name+'" with '+checked.categories.length+
+        ' customized categories and Uncategorized. Add saved shortcuts when ready.';
       render();
     });
     create.disabled=true;
-    finalActions.appendChild(create);
+    saveActions.appendChild(create);
+    finalActions.appendChild(saveActions);
     finalActions.appendChild(button('Cancel','action',()=>closeAIProfileImportDialog()));
     dialog.appendChild(finalActions);
+
+    function validateReview() {
+      const checked=validateAISuggestedDraft(state.categories);
+      const valid=!checked.error;
+      create.disabled=!valid || profilesState.profiles.length>=PROFILE_LIMIT;
+      addCategory.disabled=state.categories.length>=AI_PROFILE_CATEGORY_LIMIT;
+      reviewFeedback.dataset.error=String(!valid);
+      reviewFeedback.textContent=valid
+        ? checked.categories.length+' categories ready. Review your changes, then create the profile.'
+        : checked.error;
+      return checked;
+    }
+    function renderReview(focusIndex=-1,focusType='label') {
+      const oldScroll=reviewRows.scrollTop;
+      reviewRows.replaceChildren();
+      for(const [index,item] of state.categories.entries()){
+        const row=el('li','ai-profile-edit-row');
+        row.appendChild(el('span','ai-profile-edit-icon',item.icon));
+        const label=el('label');
+        label.appendChild(el('span','','Category '+(index+1)));
+        const field=el('input','ai-profile-edit-label');
+        field.type='text';
+        field.maxLength=50;
+        field.value=item.label;
+        field.setAttribute('aria-label','Category '+(index+1)+' name');
+        field.addEventListener('input',()=>{
+          state.categories=renameAISuggestedCategory(state.categories,index,field.value);
+          validateReview();
+        });
+        label.appendChild(field);
+        row.appendChild(label);
+        const controls=el('div','ai-profile-edit-actions');
+        const up=button('↑','action ai-profile-move-up',()=>{
+          const next=moveAISuggestedCategory(state.categories,index,-1);
+          if(!next)return;
+          state.categories=next;
+          renderReview(index-1,'up');
+        });
+        up.setAttribute('aria-label','Move '+item.label+' up');
+        up.disabled=index===0;
+        const down=button('↓','action ai-profile-move-down',()=>{
+          const next=moveAISuggestedCategory(state.categories,index,1);
+          if(!next)return;
+          state.categories=next;
+          renderReview(index+1,'down');
+        });
+        down.setAttribute('aria-label','Move '+item.label+' down');
+        down.disabled=index===state.categories.length-1;
+        const remove=button('Delete','action remove-action ai-profile-delete',()=>{
+          const next=deleteAISuggestedCategory(state.categories,index);
+          if(!next)return;
+          state.categories=next;
+          renderReview(Math.min(index,next.length-1),'label');
+          if(!next.length)addCategory.focus();
+        });
+        remove.setAttribute('aria-label','Delete '+item.label);
+        controls.appendChild(up);
+        controls.appendChild(down);
+        controls.appendChild(remove);
+        row.appendChild(controls);
+        reviewRows.appendChild(row);
+      }
+      reviewRows.scrollTop=oldScroll;
+      validateReview();
+      if(focusIndex>=0){
+        const rows=reviewRows.querySelectorAll('.ai-profile-edit-row');
+        const row=rows[focusIndex];
+        const focus=row && row.querySelector(focusType==='up'?'.ai-profile-move-up':
+          focusType==='down'?'.ai-profile-move-down':'.ai-profile-edit-label');
+        if(focus && !focus.disabled)focus.focus({preventScroll:true});
+        else if(row)row.querySelector('.ai-profile-edit-label')?.focus({preventScroll:true});
+      }
+    }
+    function showReview() {
+      copyStep.hidden=true;
+      pasteStep.hidden=true;
+      reviewStep.hidden=false;
+      saveActions.hidden=false;
+      heading.textContent='Review suggested categories';
+      intro.textContent='New profile: '+name+'. Make any final adjustments before creating it.';
+      renderReview();
+      const first=reviewRows.querySelector('.ai-profile-edit-label');
+      if(first)first.focus({preventScroll:true});
+    }
     dialog.addEventListener('keydown',event=>{
       if(event.key!=='Tab')return;
-      const focusable=[...dialog.querySelectorAll('button:not(:disabled),a[href],textarea:not([aria-hidden="true"])')];
+      const focusable=[...dialog.querySelectorAll('button:not(:disabled),a[href],textarea:not([aria-hidden="true"]),input:not(:disabled)')]
+        .filter(node=>!node.closest('[hidden]'));
       if(!focusable.length)return;
       const first=focusable[0],last=focusable[focusable.length-1];
       const active=dialog.getRootNode().activeElement;
@@ -5172,9 +5341,13 @@
     autoOpenMarker = window.sessionStorage.getItem(SUPPRESS_NEXT_HOME_AUTOOPEN_KEY);
     window.sessionStorage.removeItem(SUPPRESS_NEXT_HOME_AUTOOPEN_KEY);
   } catch (_) { /* Session storage is optional. */ }
-  if (shouldAutoOpenHome(location.pathname, location.search, autoOpenMarker)) {
+  // Capture the suppression flag at startup in case ChatGPT's router cleans
+  // up the query string during the 750 ms auto-open delay.
+  const aiProfileNewChatStart=location.search.includes(AI_PROFILE_NO_AUTOOPEN_QUERY);
+  if (!aiProfileNewChatStart && shouldAutoOpenHome(location.pathname, location.search, autoOpenMarker)) {
     window.setTimeout(() => {
-      if (shouldAutoOpenHome(location.pathname, location.search, autoOpenMarker) && !open) show(true);
+      if (!aiProfileNewChatStart &&
+          shouldAutoOpenHome(location.pathname, location.search, autoOpenMarker) && !open) show(true);
     }, 750);
   }
 })();

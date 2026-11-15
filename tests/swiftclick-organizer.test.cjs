@@ -1803,10 +1803,10 @@ test('AI profile UI is opt-in: third choice, manual copy, paste, preview and sav
   assert.match(script,/copyPromptToClipboard\(prompt,copyHelper\)/);
   assert.match(script,/Paste ChatGPT category JSON package/);
   assert.match(script,/parseAIProfileCategoryPackage\(pasted\.value\)/);
-  assert.match(script,/previewList\.replaceChildren\(\)/);
+  assert.match(script,/reviewRows\.replaceChildren\(\)/);
   assert.match(script,/Create profile with these categories/);
   assert.match(script,/create\.disabled=true/);
-  assert.match(script,/create\.disabled=false/);
+  assert.match(script,/create\.disabled=!valid \|\| profilesState\.profiles\.length>=PROFILE_LIMIT/);
   assert.match(script,/const next=snapshot && newProfileState\(profilesState,id,name,snapshot\)/);
   assert.match(script,/if\(!next \|\| !persistProfiles\(next\)\)/);
   assert.match(script,/closeAIProfileImportDialog\(false\)/);
@@ -1828,8 +1828,118 @@ test('AI importer is not a cross-chat scraper or hidden memory API',()=>{
   assert.doesNotMatch(importer,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML/);
 });
 
+test('AI profile new-chat link suppresses automatic Organizer opening without disabling manual launch',()=>{
+  const value=hooks.aiProfileNewChatUrl;
+  assert.equal(value,'https://chatgpt.com/?swiftclick-organizer-skip-autoopen=1');
+  const u=new URL(value);
+  assert.equal(u.origin,'https://chatgpt.com');
+  assert.equal(u.pathname,'/');
+  assert.equal(u.searchParams.get('temporary-chat'),null);
+  assert.equal(u.searchParams.get('swiftclick-organizer-skip-autoopen'),'1');
+  assert.equal(hooks.shouldAutoOpenHome('/',u.search),false);
+  assert.equal(hooks.shouldAutoOpenHome('/','?x=y&swiftclick-organizer-skip-autoopen=1'),false);
+  assert.equal(hooks.shouldAutoOpenHome('/','?swiftclick-organizer-skip-autoopen=0'),true);
+  assert.equal(hooks.shouldAutoOpenHome('/','?other=swiftclick-organizer-skip-autoopen=1'),true);
+  assert.equal(hooks.shouldAutoOpenHome('/',''),true);
+  assert.match(script,/openChat\.href=AI_PROFILE_NEW_CHAT_URL/);
+  assert.match(script,/openChat\.target='_blank'/);
+  assert.match(script,/openChat\.rel='noopener noreferrer'/);
+  assert.match(script,/const aiProfileNewChatStart=location\.search\.includes\(AI_PROFILE_NO_AUTOOPEN_QUERY\)/);
+  assert.match(script,/if \(!aiProfileNewChatStart && shouldAutoOpenHome/);
+  assert.match(script,/if \(!aiProfileNewChatStart &&\s+shouldAutoOpenHome/);
+});
+
+test('AI draft category tools support rename, reorder, add, delete without mutating input',()=>{
+  const initial=[
+    {label:'Work',icon:'💼'},
+    {label:'Learning',icon:'📖'},
+    {label:'Film',icon:'🎬'}
+  ];
+  const renamed=hooks.renameAISuggestedCategory(initial,1,'Reading');
+  assert.deepEqual(Array.from(renamed,c=>c.label),['Work','Reading','Film']);
+  assert.equal(initial[1].label,'Learning');
+  assert.equal(hooks.renameAISuggestedCategory(initial,5,'Invalid'),null);
+  const moved=hooks.moveAISuggestedCategory(renamed,2,-1);
+  assert.deepEqual(Array.from(moved,c=>c.label),['Work','Film','Reading']);
+  assert.deepEqual(Array.from(renamed,c=>c.label),['Work','Reading','Film']);
+  assert.equal(hooks.moveAISuggestedCategory(renamed,0,-1),null);
+  assert.equal(hooks.moveAISuggestedCategory(renamed,2,1),null);
+  assert.equal(hooks.moveAISuggestedCategory(renamed,1,2),null);
+  const removed=hooks.deleteAISuggestedCategory(moved,0);
+  assert.deepEqual(Array.from(removed,c=>c.label),['Film','Reading']);
+  const added=hooks.addAISuggestedCategory(removed);
+  assert.equal(added[2].label,'New category');
+  assert.equal(added[2].icon,'▦');
+  const addedAgain=hooks.addAISuggestedCategory(added);
+  assert.equal(addedAgain[3].label,'New category 2');
+  assert.equal(hooks.deleteAISuggestedCategory(addedAgain,999),null);
+  assert.deepEqual(Array.from(initial,c=>c.label),['Work','Learning','Film']);
+});
+
+test('AI draft edits must validate after rename/reorder/delete/add before saving',()=>{
+  const initial=[{label:'Work',icon:'💼'},{label:'Film',icon:'🎬'}];
+  assert.ok(hooks.validateAISuggestedDraft(initial).categories);
+  assert.equal(hooks.validateAISuggestedDraft([]).categories,undefined);
+  const duplicate=hooks.renameAISuggestedCategory(initial,1,'work');
+  assert.match(hooks.validateAISuggestedDraft(duplicate).error,/unique/);
+  const blank=hooks.renameAISuggestedCategory(initial,0,' ');
+  assert.match(hooks.validateAISuggestedDraft(blank).error,/1–50/);
+  const reserved=hooks.renameAISuggestedCategory(initial,0,'Uncategorized');
+  assert.match(hooks.validateAISuggestedDraft(reserved).error,/Uncategorized/);
+  const tooLong=hooks.renameAISuggestedCategory(initial,0,'x'.repeat(51));
+  assert.match(hooks.validateAISuggestedDraft(tooLong).error,/1–50/);
+  assert.equal(hooks.addAISuggestedCategory(
+    Array.from({length:hooks.aiProfileCategoryLimit},(_,i)=>({label:'Item '+i,icon:'▦'}))),null);
+  const revised=hooks.addAISuggestedCategory(
+    hooks.renameAISuggestedCategory(initial,0,'Creative work'));
+  const checked=hooks.validateAISuggestedDraft(revised);
+  assert.ok(checked.categories);
+  const snap=hooks.snapshotFromAIProfileCategories(checked.categories,'review-test');
+  const first=hooks.firstProfileState(hooks.starterCategoryDefinitions,
+    {'chat:existing':'work'},{work:['chat:existing']},'Existing',['chat:existing']);
+  const saved=hooks.newProfileState(first,'profile-review-check','Reviewed',snap);
+  assert.ok(hooks.sanitizeProfilesState(saved));
+  assert.deepEqual(Array.from(saved.profiles[1].categories,c=>c.label),
+    ['Creative work','Film','New category','Uncategorized']);
+  assert.deepEqual(Array.from(saved.profiles[1].members),[]);
+  assert.deepEqual(Array.from(saved.profiles[0].members),['chat:existing']);
+});
+
+test('AI import focuses exclusively on editable review after successful validation',()=>{
+  const importer=script.slice(script.indexOf('  function openAIProfileImportDialog(name,trigger)'),
+    script.indexOf('  function makeProfilesManager()'));
+  assert.match(importer,/const reviewStep=el\('section','ai-profile-step ai-profile-review'\)/);
+  assert.match(importer,/reviewStep\.hidden=true/);
+  assert.match(importer,/function showReview\(\)/);
+  assert.match(importer,/copyStep\.hidden=true/);
+  assert.match(importer,/pasteStep\.hidden=true/);
+  assert.match(importer,/reviewStep\.hidden=false/);
+  assert.match(importer,/saveActions\.hidden=false/);
+  assert.match(importer,/heading\.textContent='Review suggested categories'/);
+  assert.match(importer,/state\.categories=parsed\.categories\.map/);
+  assert.match(importer,/showReview\(\)/);
+  assert.match(importer,/function renderReview\(/);
+  assert.match(importer,/ai-profile-edit-row/);
+  assert.match(importer,/field\.addEventListener\('input'/);
+  assert.match(importer,/renameAISuggestedCategory\(state\.categories,index,field\.value\)/);
+  assert.match(importer,/moveAISuggestedCategory\(state\.categories,index,-1\)/);
+  assert.match(importer,/moveAISuggestedCategory\(state\.categories,index,1\)/);
+  assert.match(importer,/deleteAISuggestedCategory\(state\.categories,index\)/);
+  assert.match(importer,/addAISuggestedCategory\(state\.categories\)/);
+  assert.match(importer,/validateAISuggestedDraft\(state\.categories\)/);
+  assert.match(importer,/snapshotFromAIProfileCategories\(checked\.categories,nonce\)/);
+  assert.match(importer,/if\(!next \|\| !persistProfiles\(next\)\)/);
+  assert.match(importer,/closeAIProfileImportDialog\(false\)/);
+  assert.match(importer,/saveActions\.hidden=true/);
+  assert.match(importer,/copyStep\.hidden=false/);
+  assert.match(importer,/pasteStep\.hidden=false/);
+  assert.match(script,/\.ai-profile-step\[hidden\]\{display:none!important;\}/);
+  assert.match(script,/\.ai-profile-save-actions\[hidden\]\{display:none!important;\}/);
+  assert.doesNotMatch(importer,/previewList\.appendChild/);
+});
+
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.39/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.40/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

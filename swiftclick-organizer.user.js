@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SwiftClick Organizer (Technical PoC)
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.41
+// @version      0.1.0-alpha.42
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -590,11 +590,16 @@
     {"id":"health","title":"Health","group":"specialized","icon":"🩺","href":"https://chatgpt.com/health","status":"verified"},
     {"id":"finances","title":"Finances","group":"specialized","icon":"💵","href":"https://chatgpt.com/finances","status":"verified"},
     {"id":"find-workspaces","title":"Find Workspaces","group":"account","icon":"👥","href":null,"status":"setup"},
-    {"id":"personalization","title":"Personalization","group":"account","icon":"✧","href":null,"status":"setup"},
+    {"id":"personalization","title":"Personalization","group":"account","icon":"✧","href":null,"status":"action"},
     {"id":"profile","title":"Profile","group":"account","icon":"👤","href":"https://chatgpt.com/profile","status":"check"},
     {"id":"settings","title":"Settings","group":"account","icon":"⚙️","href":"https://chatgpt.com/settings","status":"check"},
     {"id":"help-center","title":"Help Center","group":"account","icon":"🔖","href":"https://help.openai.com/en/","status":"verified"}
   ];
+  // Setup-only tools are hidden on first install, not deleted from the catalog.
+  // Existing saved visibility preferences are intentionally preserved.
+  const DEFAULT_HIDDEN_CHATGPT_TOOLS = Object.freeze(['find-workspaces']);
+  // A settings fallback, not a verified deep link to the Personalization pane.
+  const PERSONALIZATION_SETTINGS_URL = 'https://chatgpt.com/settings';
   // This direct link is publicly observed, not an officially guaranteed deep link.
   const TEMPORARY_CHAT_URL = 'https://chatgpt.com/?temporary-chat=true';
 
@@ -617,7 +622,8 @@
       if (ids.includes(id) && !seen.has(id)) {order.push(id);seen.add(id);}
     }
     const hidden = Array.isArray(source.hidden)
-      ? [...new Set(source.hidden.filter((id)=>ids.includes(id)))]:[];
+      ? [...new Set(source.hidden.filter((id)=>ids.includes(id)))]
+      : [...DEFAULT_HIDDEN_CHATGPT_TOOLS];
     const icons={},urlOverrides={};
     for (const item of CHATGPT_TOOL_CATALOG) {
       const glyph=source.icons && source.icons[item.id];
@@ -633,6 +639,14 @@
   function toolHref(item,prefs) {
     return item.id==='new-chat' ? item.href :
       (prefs.urlOverrides[item.id] || item.href || null);
+  }
+  // Three behaviors: direct URL, guided action, or missing-URL setup.
+  // "new-chat" remains the dedicated split action handled by toolTile().
+  function toolActionKind(item,prefs) {
+    if(!item)return 'setup';
+    if(item.id==='new-chat')return 'new-chat';
+    if(toolHref(item,prefs))return 'link';
+    return item.id==='personalization'?'guided':'setup';
   }
   function listTools(prefs,group=null,includeHidden=false) {
     const catalog = new Map(CHATGPT_TOOL_CATALOG.map((t)=>[t.id,t]));
@@ -1097,7 +1111,7 @@
       serializeQuickLinksV2,
       toolCatalog: CHATGPT_TOOL_CATALOG, toolGroups: CHATGPT_TOOL_GROUPS,
       temporaryChatUrl: TEMPORARY_CHAT_URL, validateToolOverride, sanitizeToolPrefs,
-      toolHref, listTools, editToolPrefs, moveToolPrefs,
+      toolHref, toolActionKind, listTools, editToolPrefs, moveToolPrefs,
       saveQuickLinkModel, editQuickLinkModel, deleteQuickLinkModel, reorderQuickLinksModel,
       deleteCategoryModel, moveCategoryModel, deleteCategoryAssignments, dropAfterGridTarget, reorderKeys, mergeVisibleOrder, orderItems,
       categories: CATEGORIES.map((c) => c.id)
@@ -1125,6 +1139,8 @@
   let promptCopyNotice='';
   let managingTools = false;
   let editingToolId = null;
+  let toolNoticeBackdrop = null;
+  let toolNoticeReturnFocus = null;
   let newChatOptionsOpen = false;
   let toolError = '';
   let toolDragged = null;
@@ -1904,6 +1920,16 @@
     '.tool-name{font-size:14px;font-weight:700;}',
     '.tool-status{font-size:11px;color:#afc3d9;}',
     '.tool-pending{opacity:.65;}',
+    '.tool-tile.tool-needs-setup{border-style:dashed;border-color:#7192b3;}',
+    '.tool-tile.tool-guided{border-color:#678cb0;}',
+    '.tool-tile:focus-visible{outline:2px solid #b4dcff;outline-offset:2px;}',
+    '.tool-notice-backdrop{position:fixed;inset:0;z-index:2147483624;display:flex;justify-content:center;align-items:center;padding:16px;background:#050d1bdc;}',
+    '.tool-notice-dialog{width:min(470px,100%);max-height:calc(100vh - 32px);overflow-y:auto;display:grid;gap:14px;padding:23px;border:1px solid #84afd3;border-radius:15px;background:#1a2f47;box-shadow:0 18px 70px #000a;color:#eaf4ff;font:14px/1.55 system-ui;}',
+    '.tool-notice-dialog h2{font-size:21px;margin:0;line-height:1.3;}',
+    '.tool-notice-dialog p{margin:0;color:#cbdded;}',
+    '.tool-notice-actions{display:flex;justify-content:flex-end;flex-wrap:wrap;gap:9px;}',
+    '.tool-notice-actions button{font-weight:700;padding:10px 14px;}',
+    '.tool-notice-dialog :is(button,a):focus-visible{outline:2px solid #b5e0ff;outline-offset:2px;}',
     '.tool-split{display:flex;min-width:0;}',
     '.tool-split .tool-tile{min-width:0;flex:1;border-radius:12px 0 0 12px;cursor:pointer;}',
     '.tool-split .tool-more{border:1px solid #3d5067;border-left:0;border-radius:0 12px 12px 0;background:#26384d;color:#fff;cursor:pointer;padding:0 12px;font:inherit;}',
@@ -3091,6 +3117,81 @@
 
 
 
+  function closeToolNotice(restoreFocus=true) {
+    if(!toolNoticeBackdrop)return;
+    toolNoticeBackdrop.remove();
+    toolNoticeBackdrop=null;
+    const trigger=toolNoticeReturnFocus;
+    toolNoticeReturnFocus=null;
+    if(restoreFocus&&trigger&&trigger.isConnected)trigger.focus({preventScroll:true});
+  }
+  function openToolNotice(item,trigger) {
+    if(!open||toolNoticeBackdrop||!item)return;
+    const kind=toolActionKind(item,toolPrefs);
+    if(kind==='link'||kind==='new-chat')return;
+    toolNoticeReturnFocus=trigger||null;
+    const layer=el('div','tool-notice-backdrop');
+    layer.addEventListener('click',event=>{
+      if(event.target===layer)closeToolNotice();
+    });
+    const dialog=el('section','tool-notice-dialog');
+    dialog.setAttribute('role','dialog');
+    dialog.setAttribute('aria-modal','true');
+    const title=el('h2','',kind==='guided'?'Open ChatGPT Personalization':
+      'Set up '+item.title);
+    title.id='swiftclick-tool-notice-title';
+    dialog.setAttribute('aria-labelledby',title.id);
+    dialog.appendChild(title);
+    if(kind==='guided'){
+      dialog.appendChild(el('p','',
+        'In ChatGPT, open your profile menu, choose Settings, then Personalization. '+
+        'This is where you can manage preferences such as Memory, custom instructions, and response style.'));
+      dialog.appendChild(el('p','',
+        'The button below opens the general Settings destination, not a guaranteed deep link to the Personalization pane.'));
+    }else{
+      dialog.appendChild(el('p','',
+        'The '+item.title+' shortcut does not have a destination URL configured yet. '+
+        'Choose Configure shortcut to add an HTTPS ChatGPT link, or hide it in Manage ChatGPT Tools if you do not need it.'));
+    }
+    const actions=el('div','tool-notice-actions');
+    const cancel=button('Cancel','action',()=>closeToolNotice());
+    actions.appendChild(cancel);
+    const primary=kind==='guided'
+      ? button('Open ChatGPT Settings','action',()=>{
+          closeToolNotice(false);
+          navigateTool(PERSONALIZATION_SETTINGS_URL);
+        })
+      : button('Configure shortcut','action',()=>{
+          closeToolNotice(false);
+          activeTab='tools';
+          managingTools=true;
+          editingToolId=item.id;
+          newChatOptionsOpen=false;
+          render();
+          // The editor is already expanded; users need not find the row.
+          const input=panel.querySelector('.tool-edit[data-tool-id="'+item.id+'"] input[type="url"]');
+          if(input){
+            input.scrollIntoView({block:'nearest'});
+            input.focus({preventScroll:true});
+          }
+        });
+    actions.appendChild(primary);
+    dialog.appendChild(actions);
+    dialog.addEventListener('keydown',event=>{
+      if(event.key!=='Tab')return;
+      const active=dialog.getRootNode().activeElement;
+      if(event.shiftKey&&active===cancel){
+        event.preventDefault();primary.focus();
+      }else if(!event.shiftKey&&active===primary){
+        event.preventDefault();cancel.focus();
+      }
+    });
+    layer.appendChild(dialog);
+    overlayRoot.appendChild(layer);
+    toolNoticeBackdrop=layer;
+    primary.focus();
+  }
+
   function toolTile(item) {
     const href=toolHref(item,toolPrefs);
     const icon=toolPrefs.icons[item.id]||item.icon;
@@ -3125,8 +3226,11 @@
       }
       return cell;
     }
-    const node=href?el('a','tool-tile'):el('div','tool-tile tool-pending');
-    if (href) {
+    const kind=toolActionKind(item,toolPrefs);
+    const node=kind==='link' ? el('a','tool-tile') :
+      button('','tool-tile actionable '+(kind==='guided'?'tool-guided':'tool-needs-setup'),
+        ()=>openToolNotice(item,node));
+    if (kind==='link') {
       node.href=href;
       if (new URL(href).hostname==='help.openai.com') {
         node.target='_blank';
@@ -3136,12 +3240,16 @@
       }
       node.setAttribute('aria-label','Open '+item.title);
     } else {
-      node.setAttribute('aria-disabled','true');
-      node.title='No verified destination yet; use Manage ChatGPT Tools';
+      node.setAttribute('aria-haspopup','dialog');
+      node.setAttribute('aria-label',kind==='guided'?'Open '+item.title+' guidance':
+        'Set up '+item.title+' shortcut');
+      node.title=kind==='guided'?'Open guidance for ChatGPT Personalization':
+        'Choose a destination in Manage ChatGPT Tools';
     }
     node.appendChild(el('span','tool-icon',icon));
     node.appendChild(el('span','tool-name',item.title));
-    node.appendChild(el('span','tool-status',!href?'Needs a verified URL':
+    node.appendChild(el('span','tool-status',kind==='guided'?'Open Settings → Personalization':
+      kind==='setup'?'Needs setup — click to configure':
       item.status==='check'&&!toolPrefs.urlOverrides[item.id]?'Check in your browser':'Open tool'));
     return node;
   }
@@ -3164,6 +3272,7 @@
 
   function toolEditor(item) {
     const form=el('form','tool-edit');
+    form.dataset.toolId=item.id;
     form.appendChild(el('div','brand','Edit '+item.title));
     const iconLabel=el('label','','Icon');
     const iconSelect=el('select');
@@ -5367,6 +5476,7 @@
 
   function hide() {
     closeAIProfileImportDialog(false);
+    closeToolNotice(false);
     closeWelcomePopup(false);
     closeSupportPopup();
     settingsOpen=false;
@@ -5402,6 +5512,8 @@
         closeAIProfileImportDialog();
       } else if(welcomeBackdrop) {
         closeWelcomePopup();
+      } else if(toolNoticeBackdrop) {
+        closeToolNotice();
       } else if(supportBackdrop) {
         closeSupportPopup();
       } else if (settingsOpen) {

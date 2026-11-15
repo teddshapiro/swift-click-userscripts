@@ -140,7 +140,7 @@ test('ChatGPT Tools catalog, three tabs, and regular/temporary New Chat split ac
 test('ChatGPT Tools preferences persist only user overrides and do not alter shortcut storage', () => {
   const p=hooks.sanitizeToolPrefs(null);
   assert.equal(p.order.length,15);
-  assert.equal(p.hidden.length,0);
+  assert.deepEqual(Array.from(p.hidden),['find-workspaces']);
   assert.deepEqual(Object.keys(p.icons),[]);
   const changed=hooks.editToolPrefs(p,'images',{visible:false,icon:'📚'});
   assert.ok(changed.hidden.includes('images'));
@@ -156,6 +156,106 @@ test('ChatGPT Tools preferences persist only user overrides and do not alter sho
   assert.equal(loaded.urlOverrides.gpts,undefined);
   assert.match(script,/GM_setValue\(CHATGPT_TOOLS_KEY,next\)/);
 });
+
+test('alpha.42 hides Find Workspaces by default but never overwrites saved visibility choices',()=>{
+  const fresh=hooks.sanitizeToolPrefs(null);
+  assert.deepEqual(Array.from(fresh.hidden),['find-workspaces']);
+  assert.ok(hooks.toolCatalog.some(x=>x.id==='find-workspaces'));
+  assert.equal(hooks.listTools(fresh,'account').some(x=>x.id==='find-workspaces'),false);
+  assert.equal(hooks.listTools(fresh,'account',true).some(x=>x.id==='find-workspaces'),true);
+  // Existing V1 preferences with a saved empty hidden array remain visible.
+  const old=hooks.sanitizeToolPrefs({
+    version:1,order:['settings','find-workspaces'],hidden:[],icons:{},
+    urlOverrides:{}
+  });
+  assert.deepEqual(Array.from(old.hidden),[]);
+  const reenabled=hooks.editToolPrefs(fresh,'find-workspaces',{visible:true});
+  assert.ok(reenabled);
+  assert.equal(reenabled.hidden.includes('find-workspaces'),false);
+  assert.equal(hooks.listTools(reenabled,'account').some(x=>x.id==='find-workspaces'),true);
+  const hiddenAgain=hooks.editToolPrefs(reenabled,'find-workspaces',{visible:false});
+  assert.ok(hiddenAgain.hidden.includes('find-workspaces'));
+  const stored=hooks.sanitizeToolPrefs(hiddenAgain);
+  assert.deepEqual(Array.from(stored.hidden),['find-workspaces']);
+  assert.equal(hooks.sanitizeToolPrefs(null).hidden.includes('find-workspaces'),true);
+});
+
+test('alpha.42 classifies direct URLs, guided Personalization and setup-only tools',()=>{
+  const fresh=hooks.sanitizeToolPrefs(null);
+  const byId=id=>hooks.toolCatalog.find(x=>x.id===id);
+  assert.equal(byId('personalization').status,'action');
+  assert.equal(hooks.toolHref(byId('personalization'),fresh),null);
+  assert.equal(hooks.toolActionKind(byId('personalization'),fresh),'guided');
+  assert.equal(hooks.toolActionKind(byId('find-workspaces'),fresh),'setup');
+  assert.equal(hooks.toolActionKind(byId('help-center'),fresh),'link');
+  assert.equal(hooks.toolActionKind(byId('new-chat'),fresh),'new-chat');
+  assert.equal(hooks.toolActionKind(null,fresh),'setup');
+  const configured=hooks.editToolPrefs(fresh,'find-workspaces',
+    {urlOverride:'https://chatgpt.com/organization'});
+  assert.ok(configured);
+  assert.equal(hooks.toolActionKind(byId('find-workspaces'),configured),'link');
+  assert.equal(hooks.toolHref(byId('find-workspaces'),configured),
+    'https://chatgpt.com/organization');
+  const customized=hooks.editToolPrefs(fresh,'personalization',
+    {urlOverride:'https://chatgpt.com/settings'});
+  assert.equal(hooks.toolActionKind(byId('personalization'),customized),'link');
+  assert.equal(hooks.toolActionKind(byId('personalization'),fresh),'guided');
+});
+
+test('alpha.42 missing-URL tiles are real buttons that open contextual configuration',()=>{
+  const begin=script.indexOf('  function toolTile(item) {');
+  const end=script.indexOf('  function makeToolsFront()',begin);
+  const ui=script.slice(begin,end);
+  assert.ok(begin>0&&end>begin);
+  assert.match(ui,/const kind=toolActionKind\(item,toolPrefs\)/);
+  assert.match(ui,/button\('','tool-tile actionable '/);
+  assert.match(ui,/openToolNotice\(item,node\)/);
+  assert.match(ui,/node\.setAttribute\('aria-haspopup','dialog'\)/);
+  assert.match(ui,/kind==='guided'\?'Open Settings → Personalization'/);
+  assert.match(ui,/kind==='setup'\?'Needs setup — click to configure'/);
+  assert.doesNotMatch(ui,/node\.setAttribute\('aria-disabled','true'\)/);
+  assert.doesNotMatch(ui,/el\('div','tool-tile tool-pending'\)/);
+  assert.match(script,/\.tool-tile\.tool-needs-setup\{border-style:dashed/);
+});
+
+test('alpha.42 setup notice navigates directly to its editor and remains accessible',()=>{
+  const begin=script.indexOf('  function openToolNotice(item,trigger) {');
+  const end=script.indexOf('  function toolTile(item) {',begin);
+  const code=script.slice(begin,end);
+  assert.ok(begin>0&&end>begin);
+  assert.match(code,/dialog\.setAttribute\('role','dialog'\)/);
+  assert.match(code,/dialog\.setAttribute\('aria-modal','true'\)/);
+  assert.match(code,/dialog\.setAttribute\('aria-labelledby',title\.id\)/);
+  assert.match(code,/button\('Configure shortcut','action'/);
+  assert.match(code,/closeToolNotice\(false\);\s+activeTab='tools';\s+managingTools=true;\s+editingToolId=item\.id;\s+newChatOptionsOpen=false;\s+render\(\)/);
+  assert.match(code,/\.tool-edit\[data-tool-id="/);
+  assert.match(code,/input\.scrollIntoView\(\{block:'nearest'\}\)/);
+  assert.match(code,/input\.focus\(\{preventScroll:true\}\)/);
+  assert.match(code,/button\('Cancel','action',\(\)=>closeToolNotice\(\)\)/);
+  assert.match(code,/if\(event\.target===layer\)closeToolNotice\(\)/);
+  assert.match(code,/dialog\.getRootNode\(\)\.activeElement/);
+  assert.match(code,/event\.key!=='Tab'/);
+  assert.match(script,/form\.dataset\.toolId=item\.id/);
+  assert.match(script,/else if\(toolNoticeBackdrop\) \{\s+closeToolNotice\(\)/);
+  assert.match(script,/closeToolNotice\(false\)/);
+  assert.doesNotMatch(code,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML/);
+});
+
+test('alpha.42 Personalization offers supported settings route without inventing a deep link',()=>{
+  const begin=script.indexOf('  function openToolNotice(item,trigger) {');
+  const end=script.indexOf('  function toolTile(item) {',begin);
+  const code=script.slice(begin,end);
+  assert.match(script,/const PERSONALIZATION_SETTINGS_URL = 'https:\/\/chatgpt\.com\/settings'/);
+  assert.match(code,/Open ChatGPT Personalization/);
+  assert.match(code,/open your profile menu, choose Settings, then Personalization/);
+  assert.match(code,/not a guaranteed deep link to the Personalization pane/);
+  assert.match(code,/button\('Open ChatGPT Settings','action'/);
+  assert.match(code,/navigateTool\(PERSONALIZATION_SETTINGS_URL\)/);
+  // User-provided HTTPS URL overrides work as direct links rather than forcing the guide.
+  assert.match(script,/if\(toolHref\(item,prefs\)\)return 'link'/);
+  assert.match(code,/if\(kind==='link'\|\|kind==='new-chat'\)return/);
+});
+
 test('ChatGPT Tools URL overrides are safe and New Chat cannot be overridden', () => {
   const p=hooks.sanitizeToolPrefs(null);
   assert.equal(hooks.validateToolOverride('https://chatgpt.com/area','personalization'),
@@ -2045,7 +2145,7 @@ test('Welcome can be manually reopened even with automatic popup Off, and modal 
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.41/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.42/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

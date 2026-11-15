@@ -1,12 +1,12 @@
-# SwiftClick Organizer — Technical Proof of Concept
+# AI Workspace Organizer — Technical Proof of Concept
 
-> **Current alpha.42 development candidate (alpha.40 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.43 development candidate (alpha.40 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.42)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.43)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -43,17 +43,17 @@ This is *not* yet an account-wide conversation database or final visual design.
 ## Manual Firefox + Tampermonkey test procedure
 
 1. Visit [the branch's raw script](https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/feat/swiftclick-organizer-poc-20261111/swiftclick-organizer.user.js). Install it in Tampermonkey, or create a new userscript and paste the full source. **Do not replace an existing production userscript.**
-2. Confirm Tampermonkey displays **SwiftClick Organizer (Technical PoC)** version `0.1.0-alpha.10`. The development script deliberately has **no** production `@updateURL` or `@downloadURL`; reinstall from this branch for new PoC revisions.
+2. Confirm Tampermonkey displays **AI Workspace Organizer (Technical PoC)** version `0.1.0-alpha.10`. The development script deliberately has **no** production `@updateURL` or `@downloadURL`; reinstall from this branch for new PoC revisions.
 3. Open `https://chatgpt.com/` in a **fresh tab**. Verify the front door appears automatically, is styled, and shows the expected category cards.
 4. Click Family. It should show projects/chats directly and a **← Categories** button; there should be no Henry/Bradley folder tiles. Return to Categories; enter Hobbies & Interests. **Cinema Decoder** should appear as a project row—not as a subcategory card.
 5. Expand/collapse native ChatGPT sidebar sections and reopen SwiftClick. **Nothing new should appear** unless you explicitly saved it; only previously saved shortcuts are listed.
-6. Add an existing project through the native three-dot menu's **Add to SwiftClick Organizer** companion control. Verify the selected project's **name and URL** are prefilled, then choose Family and Save. Reopen and refresh to confirm persistence.
+6. Add an existing project through the native three-dot menu's **Add to AI Workspace Organizer** companion control. Verify the selected project's **name and URL** are prefilled, then choose Family and Save. Reopen and refresh to confirm persistence.
 7. Use **+ Add project** to paste a project URL manually as a fallback. Use **+ Add chat** while viewing a chat to prefill its current URL and title when available; alternatively paste a chat URL and name manually. Confirm saving and persistence in a selected category.
 8. With Organizer dismissed, hover over multiple native ChatGPT project rows and confirm the three-dot action menu and New Chat icon appear and are clickable. Verify their behavior with the userscript enabled. The launcher must remain outside the sidebar (right edge of viewport).
 9. Click a saved chat/project. Verify ordinary ChatGPT navigation occurs and the organizer disappears. Refresh a deep chat URL: it must **not** auto-open. Click the launcher to open manually.
 10. Test Ctrl-click/middle-click a destination, Escape, outside-click, narrow windows, and both light/dark ChatGPT settings. Verify the original ChatGPT UI stays functional.
 11. Confirm the browser's Network panel shows **no SwiftClick or third-party HTTP requests** made by this script; verify the PoC does not access conversation message bodies.
-12. Check the browser console for `[SwiftClick Organizer]` warnings. Report a screenshot of a missing launcher, unstyled overlay, or missing visible link along with the route and browser version.
+12. Check the browser console for `[AI Workspace Organizer]` warnings. Report a screenshot of a missing launcher, unstyled overlay, or missing visible link along with the route and browser version.
 
 ### Return evidence before release
 
@@ -100,7 +100,7 @@ A user observed that the native sidebar project hover actions (three-dot menu an
 **Behavior:**
 
 1. In ChatGPT's sidebar, open the three-dot menu for an existing project.
-2. When that native menu contains an explicit **Project home** command, a separate small **＋ Add to SwiftClick Organizer** companion action appears near the menu.
+2. When that native menu contains an explicit **Project home** command, a separate small **＋ Add to AI Workspace Organizer** companion action appears near the menu.
 3. Clicking that companion action either reads a validated project URL already on the native Project home link or invokes the native Project home command and waits for a newly observed project route.
 4. SwiftClick opens its intake screen showing the detected project URL, a name field, and a category picker. Confirm/save to store a local shortcut. The project itself is untouched.
 
@@ -111,7 +111,7 @@ A user observed that the native sidebar project hover actions (three-dot menu an
 **Historical Firefox/Tampermonkey manual acceptance checklist for alpha.4:**
 
 - [ ] Hover a project row and open its three-dot menu. Its native controls and options still work.
-- [ ] Companion **＋ Add to SwiftClick Organizer** appears beside the native menu (the native menu items remain unchanged).
+- [ ] Companion **＋ Add to AI Workspace Organizer** appears beside the native menu (the native menu items remain unchanged).
 - [ ] Click the companion from a project **different from the currently open project**. The resulting intake must show the *selected* project, never the project already on-screen.
 - [ ] Name and URL are correct (or a name field is left editable when the menu's link lacks title metadata).
 - [ ] Choose Family → Henry or Hobbies & Interests → Cinema Decoder, then save. Verify saved shortcut under that category after refresh.
@@ -138,8 +138,8 @@ A user observed that the native sidebar project hover actions (three-dot menu an
 - Dropdowns show full category paths, and discovered document-style titles such as `ChatGPT - Cinema Decoder - Project` are displayed as `Cinema Decoder`.
 
 ### Acceptance tests for alpha.5 (Firefox/Tampermonkey)
-1. Update the single existing SwiftClick Organizer script to **0.1.0-alpha.5** and reload ChatGPT. Existing assignments and saved shortcuts must remain.
-2. While viewing project A, open project B's three-dot menu and select **Add to SwiftClick Organizer**. ChatGPT should navigate to B and show the intake form for B. **The intake should remain open** until Cancel, Escape, or Save.
+1. Update the single existing AI Workspace Organizer script to **0.1.0-alpha.5** and reload ChatGPT. Existing assignments and saved shortcuts must remain.
+2. While viewing project A, open project B's three-dot menu and select **Add to AI Workspace Organizer**. ChatGPT should navigate to B and show the intake form for B. **The intake should remain open** until Cancel, Escape, or Save.
 3. Choose **Hobbies & Interests › Cinema Decoder** and Save. Confirm the project appears inside Cinema Decoder, including after a hard refresh with its native sidebar entry collapsed.
 4. Open **Hobbies & Interests** and inspect rows. Both preexisting manually added projects and discovered projects should read **Project**, not **Saved project**. The subcategory count includes projects assigned to the subcategory, not projects assigned only to the parent.
 5. Find a project with the regular ChatGPT sidebar that was *not* saved through intake. Change its category from Uncategorized to My Health or another category; refresh and collapse its ChatGPT sidebar entry. SwiftClick should still show it, with only one copy per project ID.
@@ -198,7 +198,7 @@ User requested direct reordering of projects/chats inside a flat category (for e
 - Moving an item into a different SwiftClick category or removing a shortcut clears its old position; the item enters its new category at the end until reordered.
 - A **Reset order** control is available within categories that have a custom order. It returns that category to the original default ordering without affecting any other category.
 - Drag handles do not appear on the category-first home screen or in global search results; reordering is disabled in search to avoid ambiguous cross-category changes, and in categories with more than 250 displayed items for this PoC.
-- Browser native drag data contains only the harmless text `SwiftClick Organizer`, not a URL, project title, or message data. Drag logic lives entirely in the organizer's Shadow DOM, without altering ChatGPT-native sidebar or menus.
+- Browser native drag data contains only the harmless text `AI Workspace Organizer`, not a URL, project title, or message data. Drag logic lives entirely in the organizer's Shadow DOM, without altering ChatGPT-native sidebar or menus.
 
 ### Manual Firefox/Tampermonkey acceptance
 
@@ -238,7 +238,7 @@ The user prefers **manual curation** over passive automatic discovery. Browsing 
 
 1. Upgrade the existing installation to **0.1.0-alpha.8** without clearing Tampermonkey data; ensure exactly one copy of the script is enabled.
 2. Verify **Hobbies & Interests** still contains existing saved projects such as AI Video, Cinema Decoder, and Image Production in the custom drag order.
-3. While viewing project A, open project B's native three-dot menu. Select **＋ Add to SwiftClick Organizer**. Confirm the intake name is **B's name**, not "Unnamed project" or A's name; the URL must point to B.
+3. While viewing project A, open project B's native three-dot menu. Select **＋ Add to AI Workspace Organizer**. Confirm the intake name is **B's name**, not "Unnamed project" or A's name; the URL must point to B.
 4. Save to a category and refresh. Confirm one shortcut for B, without duplicates or lost prior assignments. Repeat with a project that has not been saved previously.
 5. If the name cannot be captured, it must remain editable and the project URL must still be prefilled. Record the screenshot and the exact visible project row label so its DOM structure can be debugged.
 6. Open a chat, click **+ Add chat**, confirm title and URL prefill, assign to a category and Save. Reopen on a different chat; the saved one must remain. Try a manually pasted chat URL from a project where no chat is currently open.
@@ -295,7 +295,7 @@ The previous category list showed one full-width row per project/chat, with the 
 ## Alpha.10 — compact header icon launcher, visually before Search (2026-11-12)
 
 ### User request
-Place a small SwiftClick Organizer toggle icon immediately to the left of ChatGPT's Search and Sidebar Toggle icons in the upper-left page header, instead of the conspicuous vertical floating text launcher.
+Place a small AI Workspace Organizer toggle icon immediately to the left of ChatGPT's Search and Sidebar Toggle icons in the upper-left page header, instead of the conspicuous vertical floating text launcher.
 
 ### Design & implementation
 - The old large side-floating launcher has been replaced with a **32×32 icon button** displaying a 2×2 tile/grid SVG, created with `document.createElementNS`.
@@ -312,7 +312,7 @@ Place a small SwiftClick Organizer toggle icon immediately to the left of ChatGP
 3. Click the new SwiftClick icon to open the category-first organizer. Close the dialog and reopen using the same icon; verify tooltip/focus behavior and no duplicate icons.
 4. Collapse and expand ChatGPT's native sidebar; the icon should adapt to the available header space, or show as a small right-edge fallback if no safe header slot exists. It must not overlap the ChatGPT title, Search, or sidebar toggle.
 5. Test a narrow window and ChatGPT light and dark themes; verify legibility and no covered native controls.
-6. Open native project menus, use Add to SwiftClick Organizer intake, navigate saved projects/chats and drag items in category cards; no regressions.
+6. Open native project menus, use Add to AI Workspace Organizer intake, navigate saved projects/chats and drag items in category cards; no regressions.
 7. If the icon remains at the right edge rather than relocating to the header, capture the upper-left header screenshot and, if possible, the Search button's `aria-label`, `title` or `data-testid` from Firefox Inspector. The selector may need adaptation to the current ChatGPT interface.
 
 ### Validation status
@@ -350,7 +350,7 @@ The new cards appear after My Health and before SwiftClick Business. Both are or
 
 After a user opens a project's three-dot menu in ChatGPT, the SwiftClick companion action should know whether that exact project has **already been explicitly saved** in SwiftClick. The action now has two modes:
 
-- **Unsaved**: `＋ Add to SwiftClick Organizer` — previous category intake workflow, including selected-project name/URL.
+- **Unsaved**: `＋ Add to AI Workspace Organizer` — previous category intake workflow, including selected-project name/URL.
 - **Saved**: `✓ Already in Organizer` — visually confirms membership and, when clicked, opens the **saved project's assigned category** inside SwiftClick rather than opening Add intake or creating another shortcut. This remains useful as a navigation action rather than a disabled dead end.
 
 ### Identification and safety
@@ -367,7 +367,7 @@ After a user opens a project's three-dot menu in ChatGPT, the SwiftClick compani
 1. Update to **0.1.0-alpha.12**, retaining the same Tampermonkey installation and existing local data.
 2. Open the three-dot menu for a **project already saved** in SwiftClick (e.g., Home Structural Maintenance if you've saved it). The adjacent action should read **✓ Already in Organizer**, not Add.
 3. Click the status action. SwiftClick should open directly to that project's saved category (e.g., Home), without presenting an intake form or duplicating the project.
-4. Open the three-dot menu of an **unsaved** project. It should say **＋ Add to SwiftClick Organizer**, lead to the usual name/URL/category intake, then save.
+4. Open the three-dot menu of an **unsaved** project. It should say **＋ Add to AI Workspace Organizer**, lead to the usual name/URL/category intake, then save.
 5. Reopen that newly saved project's menu. It should now say **✓ Already in Organizer**.
 6. Test when project A is open in the main area but project B's three-dot menu is selected: status must reflect **B**, never A.
 7. Test saved projects with similar names. The membership check should rely on the ID, not title.
@@ -392,19 +392,19 @@ On alpha.12, projects that were **definitely already saved** still showed Add in
 - **No navigation on companion click**: the action executes only on the completed click, and its identity snapshot is held through pointerup while the native menu can dismiss. The script NEVER invokes `home.click()`, never programmatically changes the ChatGPT route, and deletes the old pending-native-navigation workflow. A leftover tab-only navigation intent from alpha.12 is discarded.
 - **ID confirmed**: `✓ Already in Organizer`, clicking opens the saved project's SwiftClick category. This is the authoritative match.
 - **No ID, unique saved name match**: `? Possible match — Review`, clicking opens the candidate's category for user review. This is deliberately **not** asserted as an ID-confirmed match, because different projects can share a name.
-- **Verified ID, unsaved**: `＋ Add to SwiftClick Organizer`, clicking opens intake directly with the verified project URL and captured name—without navigating to Project Home.
-- **Unverifiable project ID**: `＋ Add to SwiftClick Organizer` opens the editable manual Add form with any captured name but no guessed URL. The user may open ChatGPT's native Project Home themselves, and use the normal `+ Add project` control there to have the current project's URL and title prefilled, or paste the project URL into the form.
+- **Verified ID, unsaved**: `＋ Add to AI Workspace Organizer`, clicking opens intake directly with the verified project URL and captured name—without navigating to Project Home.
+- **Unverifiable project ID**: `＋ Add to AI Workspace Organizer` opens the editable manual Add form with any captured name but no guessed URL. The user may open ChatGPT's native Project Home themselves, and use the normal `+ Add project` control there to have the current project's URL and title prefilled, or paste the project URL into the form.
 - Capture remains **user-triggered**: on a sidebar button interaction, inspect only the clicked row's local markup, with an explicit height boundary to avoid taking a neighboring project's ID. Never index projects/chats in the background. Stale row context is cleared on a new click.
 - No changes to persistent project/chat records, categories, drag order, or header launcher; no data reset needed.
 - Still mounts the menu-adjacent SwiftClick action only in its own Shadow DOM, without modifying ChatGPT's native menu or sidebar markup.
 
 ### Manual Firefox/Tampermonkey acceptance
 
-1. Update the existing SwiftClick Organizer script to **0.1.0-alpha.13** (exactly one copy enabled), then refresh ChatGPT. Do not clear local categories or shortcuts.
+1. Update the existing AI Workspace Organizer script to **0.1.0-alpha.13** (exactly one copy enabled), then refresh ChatGPT. Do not clear local categories or shortcuts.
 2. While viewing project A, open the three-dot menu for saved project B. Check for `✓ Already in Organizer`; click it. The organizer should open at B's saved category without navigating ChatGPT to B's Project Home, creating another shortcut, or flickering.
 3. If the native project row lacks an ID, a **unique-name** candidate may instead say `? Possible match — Review`. This is a verification prompt, not a duplicate. Clicking it should open the matched category without altering the saved project.
 4. Try a **different unsaved project**. If its native ID is discoverable, intake should open with its name and URL; otherwise it should open a manual form with a blank URL and no automatic ChatGPT navigation.
-5. For the latter fallback, close the intake, open that project's native **Project home** yourself, then use SwiftClick Organizer's **+ Add project** button. Its name and current URL should prefill. Save to a category and verify the project appears once.
+5. For the latter fallback, close the intake, open that project's native **Project home** yourself, then use AI Workspace Organizer's **+ Add project** button. Its name and current URL should prefill. Save to a category and verify the project appears once.
 6. Repeat rapidly on two different project menus while a different project is open. Never accept the currently open project's ID as evidence for the clicked project.
 7. Confirm native three-dot menu, Project Home, New Chat, other sidebar actions and the SwiftClick header icon remain clickable. No unintended navigation, click-through, or repeated intake loop.
 8. Verify existing category assignments and drag order persist after refresh, and background indexing remains disabled.
@@ -429,7 +429,7 @@ User noticed that some project intake forms now prefill the name but not the pro
 ### Firefox/Tampermonkey acceptance
 
 1. Upgrade the existing script to **0.1.0-alpha.14**, keeping previous saved items intact, then reload ChatGPT.
-2. Open a project's native three-dot menu and click `＋ Add to SwiftClick Organizer`. For a row with an anchor or recognized explicit project ID, verify both **name and correct URL** are prefilled, without navigating away from the current ChatGPT page.
+2. Open a project's native three-dot menu and click `＋ Add to AI Workspace Organizer`. For a row with an anchor or recognized explicit project ID, verify both **name and correct URL** are prefilled, without navigating away from the current ChatGPT page.
 3. For a saved project, confirm the `Already in Organizer` or cautious `Possible match — Review` status still works without duplicate intake.
 4. For a menu where the URL remains empty, do **not** assume the script is broken: that row may not expose a usable link/ID. Manually open Project Home, then use `+ Add project` inside the Organizer to prefill the displayed project's URL.
 5. Verify the selected project B's URL never incorrectly resolves to currently displayed project A.
@@ -529,7 +529,7 @@ Keep draft PR #6 unmerged pending browser acceptance.
 
 ### Product intent
 
-The existing SwiftClick Organizer front door becomes **two top-level tabs**: **ChatGPT Categories** (the original first/default tab, unchanged) and **Quick Links** (a user-managed launcher for unrelated websites). Quick Links are not ChatGPT projects or chats and do not participate in category assignments or category ordering.
+The existing AI Workspace Organizer front door becomes **two top-level tabs**: **ChatGPT Categories** (the original first/default tab, unchanged) and **Quick Links** (a user-managed launcher for unrelated websites). Quick Links are not ChatGPT projects or chats and do not participate in category assignments or category ordering.
 
 ### Defaults, behavior and storage
 
@@ -690,7 +690,7 @@ Two UI-only refinements requested after successful browser review of alpha.21:
 
 ## Alpha.27 — Public starter categories, existing-user preservation (2026-11-13)
 
-**Goal:** A new SwiftClick Organizer installation must never inherit the developer's personal category set; an existing user's customized categories, projects, chats, ordering and Quick Links must survive all script updates.
+**Goal:** A new AI Workspace Organizer installation must never inherit the developer's personal category set; an existing user's customized categories, projects, chats, ordering and Quick Links must survive all script updates.
 
 - **New first-install starters:** Work & Projects, Personal, Learning & Research, Ideas & Interests, Uncategorized. No projects or chat links are seeded. All user-facing categories remain editable.
 - **Saved category definitions are authoritative:** `categoryDefinitions.v1` is read first; if it exists, it is not replaced or supplemented with a newer default set. Deleted starter categories remain deleted.
@@ -995,7 +995,7 @@ This release does **not** add a payment processor, monetization restrictions or 
 - **Welcome Off** suppresses the automatic welcome only; the user may reopen it from **? Help** in the Organizer header or **Show welcome now** in the Startup section. Turning the option On takes effect on subsequent Organizer openings, not the currently open screen.
 
 ### Welcome UI
-- The welcome is a modal, focus-managed, scrollable dialog in the existing Organizer Shadow DOM with **Welcome to SwiftClick Organizer!**, a concise explanation and links for **Read the User Guide** (`https://organizer.swiftclicktools.com/`), **Getting Started** (guide `#start`), and optional **Support SwiftClick** (`https://ko-fi.com/teddshapiro`). External navigation is explicitly user-initiated and opens a new tab.
+- The welcome is a modal, focus-managed, scrollable dialog in the existing Organizer Shadow DOM with **Welcome to AI Workspace Organizer!**, a concise explanation and links for **Read the User Guide** (`https://organizer.swiftclicktools.com/`), **Getting Started** (guide `#start`), and optional **Support SwiftClick** (`https://ko-fi.com/teddshapiro`). External navigation is explicitly user-initiated and opens a new tab.
 - **Continue to Organizer** without the checkbox, Escape, or clicking the backdrop closes this instance without saving an opt-out. With **Don't show this again** checked, Continue atomically persists `welcomeOnOpen:false` through the existing organizer settings writer. If storage fails, it displays an error and does not claim the opt-out succeeded.
 - Modal focus moves to Continue and cycles over available links/checkbox/buttons; Escape closes this dialog before falling through to Settings or closing Organizer. Closing Organizer also cleans it up. The dialog is generated using `createElement` / `textContent`, never `innerHTML` or another Trusted Types HTML sink.
 - Documentation is a separate Cloudflare Worker and remains a **preview of alpha.40** pending final acceptance. The guide's URL is fixed and known; do not claim public userscript installation has been enabled.
@@ -1034,3 +1034,27 @@ No new privileges, remote telemetry, model calls, chat scraping, or external dep
 7. Regression-test Startup & Welcome, four main tabs, New chat regular/Temporary split, all other Tool links, profiles, categories, Quick Links, Continuity Warning, and Ko-fi.
 
 The published Cloudflare documentation site remains a pre-release alpha.40 guide until owner acceptance and a future documented update.
+
+## Alpha.43 — Product identity, Personalization starter link, and right-edge bookmark (2026-11-15)
+
+**Status:** Candidate for owner acceptance. Alpha.40 is the most recently explicitly accepted prior baseline. Draft PR #6 remains unmerged; `main` and the public userscript distribution remain unchanged.
+
+### Product naming
+The branded product title is **AI Workspace Organizer by SwiftClick**; end-user interface references use **AI Workspace Organizer** (or concise **Organizer**) while **SwiftClick** names only the publisher/brand and Ko-fi support. The `@name`, overlay header, launcher title and accessible labels, welcome, category-suggestion prompt, quick-save editor, project-menu companion, Tampermonkey menu command, and user-facing statuses are harmonized. The subtitle notes **by SwiftClick · A personal front door to ChatGPT**, avoiding an unsupported multi-AI claim.
+
+**Important identity protection:** Internal storage namespace `swiftclick-organizer-poc`, all `GM` keys, the schema string `swiftclick-organizer-categories`, one-time `swiftclick-organizer-skip-autoopen=1` query marker, and the source file path remain unchanged. This preserves stored profiles/Quick Links preferences and existing JSON import compatibility. Tampermonkey `@name` changes; when moving from alpha.42 to this build, replace code in the existing Tampermonkey script editor and save it rather than blindly installing a second userscript, then ensure only one instance is enabled.
+
+### ChatGPT Tools
+- The catalog's Personalization URL is now `https://chatgpt.com/settings/personalization` (confirmed in Firefox by the owner). Status is `verified` and `toolActionKind` resolves to `link` for this normal starter configuration. User-provided safe URL overrides take precedence; clearing restores the built-in Personalization address.
+- The earlier guidance text remains available as a fallback concept if the site changes the route: ChatGPT profile menu → Settings → Personalization, with general Settings URL `https://chatgpt.com/settings`. Do not claim the route is officially guaranteed for every account.
+- Missing URLs (e.g. Find Workspaces when enabled) still use the contextual dialog and direct-to-editor flow introduced in alpha.42; new-install visibility remains hidden unless a saved preference overrides it.
+
+### Bookmark placement
+- The independent Quick Save **bookmark**, previously `right:12px;top:82px`, moves to `right:12px;top:80%;transform:translateY(-50%)`. For narrow screens, `right:8px;top:80%`.
+- Its popup is anchored **above** the bookmark (`bottom:44px` rather than `top:44px`) and uses `max-height:min(62dvh,calc(100dvh - 120px))` with vertical scrolling. This avoids overlap with ChatGPT's upper-right side-panel close action while keeping the editor on-screen. The separate four-square launcher fallback remains at vertical center.
+- Verify visual placement on regular conversations, within a project, with a side panel open, in reduced viewport heights, and mobile/narrow layouts.
+
+### Tests and public documentation
+- Automated regression coverage was extended for product name/metadata, stable keys, direct and override Personalization destinations, and bookmark/launcher's independent positioning.
+- Both the public static user guide and the current draft Google Doc should use the same product name and explain the new behavior. Public guide is still unindexed until a separate public release.
+- No new permissions, remote requests, token parsing, or ChatGPT content scraping. Existing local profiles and Quick Links are not migrated or reset.

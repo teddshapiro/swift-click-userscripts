@@ -21,16 +21,16 @@ Canonical distribution repository for Swift Click Tampermonkey userscripts.
 
 Each canonical file keeps a stable filename. Tampermonkey update metadata points to the raw `main` branch version of the same file. Future releases increment `@version`; the filename and update URLs stay unchanged.
 
-## Experimental: SwiftClick Organizer
+## Experimental: AI Workspace Organizer
 
-**SwiftClick Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.42** (configurable Tools setup prompts, Personalization guidance, and safer first-run tool defaults).
+**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.43** (product naming, Personalization one-click starter, and bottom-right bookmark relocation).
 
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
 - [Alpha.34 development handoff (historical)](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
 - [Draft pull request #6](https://github.com/teddshapiro/swift-click-userscripts/pull/6)
 - [Cross-product design standard — Organizer, Shortcut & Collection Tools](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) (Web App Development Standards → Human-Centered Design)
 
-The owner approved alpha.40 after successful Firefox acceptance testing on November 15, 2026. Alpha.40 remains the latest approved development baseline; alpha.41 and alpha.42 are development candidates awaiting owner acceptance. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
+The owner approved alpha.40 after successful Firefox acceptance testing on November 15, 2026. Alpha.40 remains the latest approved development baseline; alpha.41–alpha.43 are development candidates pending final Firefox acceptance. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
 
 ## Reusable design reminder
 
@@ -86,6 +86,21 @@ ChatGPT Tools now distinguishes **direct URLs**, **guided actions**, and **short
 Verified navigation concepts: [OpenAI — Personalize ChatGPT](https://learn.chatgpt.com/docs/personalize) documents Settings → Personalization; [OpenAI — Enterprise workspaces](https://help.openai.com/en/articles/8265430-what-is-a-chatgpt-enterprise-workspace-how-can-i-switch-workspaces) documents profile-menu workspace switching. Both were checked November 15, 2026.
 
 This build stays on draft PR #6; `main` and public userscript installation remain unchanged.
+
+
+## Alpha.43 — AI Workspace Organizer by SwiftClick
+
+**Public product identity:** **AI Workspace Organizer**. **SwiftClick** is the publisher/brand, reflected as **AI Workspace Organizer by SwiftClick** in the Tampermonkey script metadata and as **AI Workspace Organizer** in the UI. Text no longer calls the product simply `SwiftClick`. The support link **Support SwiftClick** and historical user category `SwiftClick Business` retain the company name intentionally. Explain the current scope as **for ChatGPT** rather than implying other AI products already work.
+
+**Data and installation compatibility:** This is a text-only rename of UI labels, prompts, tooltips, launcher and bookmark accessibility labels, menu actions, welcome/support copy, and current documentation; it does not rename `APP_ID='swiftclick-organizer-poc'`, storage keys, the `swiftclick-organizer-categories` structured import schema, the existing URL suppression query marker, the existing development-branch userscript filename, or the docs hostname. **Tampermonkey's displayed @name changes**, so existing alpha testers should replace the code **inside their already-installed script entry** and save, rather than installing a second script by URL. Confirm only one active Organizer installation before testing, and back up Tampermonkey storage first. The new official installation/update identity will need its own release review; do not claim a seamless name-based automatic update.
+
+**Tools:** Personalization now has the built-in `https://chatgpt.com/settings/personalization` URL, confirmed by the owner in Firefox on November 15, 2026. User-defined approved URL overrides still take precedence. If a future site change breaks that path, the supported manual route is ChatGPT profile menu → Settings → Personalization; the general Settings URL is a fallback. Alpha.42's missing-URL setup dialog and new-installation default-hidden Find Workspaces continue to work.
+
+**Bookmark:** The distinct Quick Save bookmark widget—not the four-square launcher—is now fixed to the right edge at **80% viewport height**, with `translateY(-50%)`. Its editor opens **upward** using `bottom:44px`, with a viewport-relative max height and scrolling. The small-screen right offset remains 8px, with the same vertical location. Re-test for collisions with native ChatGPT side-panel controls, composer, and narrow mobile windows. Launcher placement is unchanged.
+
+**Documentation:** Both the draft Google Doc and the static guide on `https://organizer.swiftclicktools.com/` reflect the new name and current user instructions. The public guide remains an unindexed development preview; no public userscript release is authorized. Existing raw-file and documentation URLs remain valid.
+
+**Firefox acceptance:** Check the script name and UI labels, test existing stored categories/links/Tools settings, verify only one userscript is active, navigate Personalization directly, and open/close the Quick Save bookmark and upward popover near the lower right with and without ChatGPT's side panel. Test short viewports and reloads. No new grants, remote calls, or data migration.
 
 ## Release workflow
 

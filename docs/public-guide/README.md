@@ -1,10 +1,10 @@
-# SwiftClick Organizer — public user guide
+# AI Workspace Organizer — public user guide
 
 Public URL: **https://organizer.swiftclicktools.com/**
 
 ## Purpose and status
 
-This is a static, reader-facing guide based on the verified Google Doc **SwiftClick Organizer — User Guide (Draft v0.5, alpha.40 candidate)** (ID `1yWMDsQXSx5csmjEqMgKTX0xTZTYCO76LUOIB-AlsdDI`) and the Organizer development-branch source. It consolidates the main user instructions and alpha.38–alpha.40 changes. Historical addenda, internal tester checklists and development-only installation URLs are intentionally not published.
+This is a static, reader-facing guide based on the verified Google Doc **AI Workspace Organizer — User Guide (Draft v0.8, alpha.43 candidate)** (ID `1yWMDsQXSx5csmjEqMgKTX0xTZTYCO76LUOIB-AlsdDI`) and the Organizer development-branch source. It consolidates the main user instructions and approved/current features through alpha.43. Historical addenda, internal tester checklists and development-only installation URLs are intentionally not published.
 
 **Organizer itself is not publicly released.** The guide is an accessible documentation preview. The site emits `noindex,nofollow` and disallows search crawling until the public userscript release is approved. The site has no analytics, JS tracking, external images, or form submissions.
 
@@ -32,3 +32,7 @@ This is a static, reader-facing guide based on the verified Google Doc **SwiftCl
 The Google Doc is the **editorial working draft**. This committed Worker module is the **published static snapshot**. Updating the Google Doc alone does not redeploy Cloudflare. Updating the userscript alone does not update the guide. Keep the page aligned with each approved public feature version.
 
 Do not merge draft PR #6, change `main`, or publish the userscript merely because this guide is online.
+
+## Alpha.43 branding and version
+
+The product is **AI Workspace Organizer by SwiftClick**, with **SwiftClick** retained as publisher/support brand. The current guide includes first-run startup controls, the direct ChatGPT Personalization URL, hidden-by-default Find Workspaces, actionable missing-link setup, and the lower-right bookmark/upward editor. Public docs continue to use `organizer.swiftclicktools.com` intentionally for link stability. The guide is not a public userscript release; it stays noindex and omits unapproved installation links.

@@ -1613,7 +1613,7 @@ test('Settings and handoff are a separate user-controlled screen, not another ta
   assert.match(script,/copyPromptToClipboard\(area\.value,area\)/);
   assert.match(script,/Preview overrun warning in this chat/);
   assert.match(script,/role','status'/);
-  assert.match(script,/settingsOpen=false;settingsFeatureExpanded=false;render\(\)/);
+  assert.match(script,/settingsOpen=false;startupSettingsExpanded=false;settingsFeatureExpanded=false;render\(\)/);
   assert.equal((script.match(/\{ id: 'settings', title:/g)||[]).length,0);
 });
 
@@ -1845,8 +1845,8 @@ test('AI profile new-chat link suppresses automatic Organizer opening without di
   assert.match(script,/openChat\.target='_blank'/);
   assert.match(script,/openChat\.rel='noopener noreferrer'/);
   assert.match(script,/const aiProfileNewChatStart=location\.search\.includes\(AI_PROFILE_NO_AUTOOPEN_QUERY\)/);
-  assert.match(script,/if \(!aiProfileNewChatStart && shouldAutoOpenHome/);
-  assert.match(script,/if \(!aiProfileNewChatStart &&\s+shouldAutoOpenHome/);
+  assert.match(script,/if \(organizerSettings\.autoOpenOnHome && !aiProfileNewChatStart &&/);
+  assert.match(script,/if \(organizerSettings\.autoOpenOnHome && !aiProfileNewChatStart &&\s+shouldAutoOpenHome/);
 });
 
 test('AI draft category tools support rename, reorder, add, delete without mutating input',()=>{

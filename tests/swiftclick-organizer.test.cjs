@@ -476,14 +476,14 @@ test('footer intake preserves project/chat autofill, cancellation and form focus
   assert.match(render,/if \(main\) main\.scrollTop = 0/);
   assert.match(render,/const firstField = panel\.querySelector\('\.add-form input'\)/);
   assert.match(render,/if \(firstField\) firstField\.focus\(\)/);
-  assert.match(render,/button\('⚙ Manage Quick Links', 'action'/);
+  assert.match(render,/manageLinks=button\('⚙ Manage Quick Links','action'/);
   assert.match(render,/activeTab === 'quicklinks'/);
 });
 
 test('Quick Links opens real new-tab anchors and is isolated from ChatGPT inventory', () => {
   assert.match(script,/const QUICK_LINKS_KEY = APP_ID \+ '\.quickLinks\.v1'/);
-  assert.match(script,/GM_getValue\(QUICK_LINKS_V2_KEY, null\)/);
-  assert.match(script,/GM_getValue\(QUICK_LINKS_KEY, null\)/);
+  assert.match(script,/GM_getValue\(QUICK_LINKS_V2_KEY,null\)/);
+  assert.match(script,/GM_getValue\(QUICK_LINKS_KEY,null\)/);
   assert.match(script,/GM_setValue\(QUICK_LINKS_V2_KEY, serializeQuickLinksV2\(next\)\)/);
   assert.match(script,/const DEFAULT_QUICK_LINKS = \[/);
   assert.match(script,/card\.target = '_blank'/);
@@ -494,7 +494,7 @@ test('Quick Links opens real new-tab anchors and is isolated from ChatGPT invent
   assert.match(script,/activeTab = 'categories'/);
   assert.match(script,/activeTab === 'quicklinks'/);
   assert.match(script,/quickLinkEditingId = null/);
-  assert.match(script,/button\('⚙ Manage Quick Links', 'action'/);
+  assert.match(script,/manageLinks=button\('⚙ Manage Quick Links','action'/);
   assert.match(script,/reorderQuickLinksModel\(quickLinks, source, link\.id, after\)/);
   assert.match(script,/button\('Delete', 'action remove-action'/);
   assert.match(script,/name\.maxLength = 100/);

@@ -2175,9 +2175,9 @@ test('Welcome can be manually reopened even with automatic popup Off, and modal 
 });
 
 
-test('alpha.43 uses the final product identity in visible script metadata and UI',()=>{
+test('alpha.44 retains the final product identity in visible script metadata and UI',()=>{
   assert.match(script,/\/\/ @name\s+AI Workspace Organizer by SwiftClick/);
-  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.43/);
+  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.44/);
   assert.match(script,/brand\.appendChild\(el\('div', 'brand', '▦  AI Workspace Organizer'\)\)/);
   assert.match(script,/by SwiftClick · A personal front door to ChatGPT/);
   assert.match(script,/launcherButton\.title = 'AI Workspace Organizer'/);
@@ -2222,7 +2222,7 @@ test('alpha.43 repositions only the bookmark widget and opens its editor upwards
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.43/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.44/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

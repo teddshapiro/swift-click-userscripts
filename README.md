@@ -23,14 +23,18 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 
 ## Experimental: AI Workspace Organizer
 
-**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.43** (product naming, Personalization one-click starter, and bottom-right bookmark relocation).
+**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.44** (focused category-detail header, with Search/Profile only on the category front door).
 
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
 - [Alpha.34 development handoff (historical)](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
 - [Draft pull request #6](https://github.com/teddshapiro/swift-click-userscripts/pull/6)
 - [Cross-product design standard — Organizer, Shortcut & Collection Tools](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) (Web App Development Standards → Human-Centered Design)
 
-The owner approved alpha.40 after successful Firefox acceptance testing on November 15, 2026. Alpha.40 remains the latest approved development baseline; alpha.41–alpha.43 are development candidates pending final Firefox acceptance. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
+The owner approved alpha.40 after successful Firefox acceptance testing on November 15, 2026. Alpha.40 remains the latest approved development baseline; alpha.41–alpha.44 are development candidates pending final Firefox acceptance. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
+
+## Alpha.44 — focused category view
+
+The **ChatGPT Categories** front door still offers search and active-profile switching. Opening a category now shows **← All categories** and a large heading using that category's chosen icon, name, and profile-scoped project/chat counts; there is no redundant search box or profile picker inside the category. Saved links, editors, drag/keyboard ordering, Reset order, and deliberate Add project/Add chat actions remain. This is a presentation-only change with no data migration. Browser acceptance remains pending. The deployed public guide and Google Doc editorial review copy are unchanged until the owner approves documentation updates.
 
 ## Reusable design reminder
 

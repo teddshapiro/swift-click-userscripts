@@ -1,12 +1,12 @@
 # AI Workspace Organizer — Technical Proof of Concept
 
-> **Current alpha.43 development candidate (alpha.40 remains owner-approved):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.44 development candidate (alpha.40 remains the last fully documented owner-accepted baseline):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.43)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.44)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -1058,3 +1058,15 @@ The branded product title is **AI Workspace Organizer by SwiftClick**; end-user 
 - Automated regression coverage was extended for product name/metadata, stable keys, direct and override Personalization destinations, and bookmark/launcher's independent positioning.
 - Both the public static user guide and the current draft Google Doc should use the same product name and explain the new behavior. Public guide is still unindexed until a separate public release.
 - No new permissions, remote requests, token parsing, or ChatGPT content scraping. Existing local profiles and Quick Links are not migrated or reset.
+
+## Alpha.44 — Focused category detail header (2026-11-16)
+
+**Status:** Development candidate for owner Firefox review; draft PR #6 remains unmerged, `main` untouched, and the public guide has not been redeployed. This is a UI-only revision of alpha.43; no storage, permissions, profiles, saved shortcuts, or migration behavior changes.
+
+**Navigation and layout:** On the **ChatGPT Categories** front door, retain the Search saved projects and chats field beside the active profile picker. After entering a category, omit **both** controls entirely. Instead, show an **← All categories** return control, followed by a prominent category-specific header with the same user-selected icon shown on its category card (44 px desktop, 36 px narrow), a large category label, and the shared profile-scoped count formatter (e.g., `2 projects | 1 chat in this category`). The count includes zeros correctly for empty/one-type categories and reflects only items expressly included in the active profile. The previously small right-aligned category label and redundant item-count paragraph are gone.
+
+**Unchanged behavior:** The category displays only its own saved project/chat links, with the same compact two-column cards, item editor (name/category/removal), drag handle, Up/Down keyboard reordering, Reset order and existing 250-item limit. Search results on the front door remain navigable but non-reorderable. The Categories footer retains Add project, Add chat, and Manage Profiles & Categories for deliberate intake. Switching profiles remains available by returning to the category front door. No profile or shortcut is moved or deleted by navigating between views.
+
+**Testing:** Regression coverage asserts the two mutually exclusive layouts, icon/name/count rendering, the no-search category gate, preserved edit/order/footer actions, and existing storage and Trusted Types constraints. Firefox review: open categories with 0, 1, and mixed project/chat counts; verify visual hierarchy and matching icons (including custom icons), no Search/Profile within detail, Back navigation restores both controls, editors and drag/keyboard reorder still work, category switching and reload preserve all profile data, and narrow windows remain usable.
+
+**Editorial note:** The historical handoff remains historical. The published guide source and deployed site, plus the editable Google Doc review copy, were deliberately left unchanged pending the owner's ongoing editorial review. Before public release, update the approved guide to describe Search/Profile as front-door-only and the icon-led category detail screen.

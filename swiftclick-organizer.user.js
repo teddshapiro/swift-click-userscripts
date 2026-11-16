@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Workspace Organizer by SwiftClick
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.43
+// @version      0.1.0-alpha.44
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1990,6 +1990,12 @@
 
 
     '.toolbar{display:flex;align-items:center;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-bottom:16px;}',
+    '.category-back{display:flex;align-items:center;margin-bottom:12px;}',
+    '.category-detail-header{display:flex;align-items:center;gap:16px;min-width:0;padding:18px 20px;margin-bottom:18px;border:1px solid #486580;border-radius:14px;background:linear-gradient(135deg,#213b54,#192a3c);}',
+    '.category-detail-icon{display:grid;place-items:center;flex:none;width:56px;height:56px;font-size:44px;line-height:1.1;}',
+    '.category-detail-copy{min-width:0;}',
+    '.category-detail-title{margin:0;color:#f3f8ff;font-size:27px;font-weight:750;line-height:1.18;overflow-wrap:anywhere;}',
+    '.category-detail-meta{margin:7px 0 0;color:#c0d4e9;font-size:13px;line-height:1.4;}',
     '.title{font-size:20px;font-weight:750;margin:0 0 4px;}',
     '.action{background:#25384d;border:1px solid #526680;color:#eaf4ff;border-radius:8px;padding:8px 12px;cursor:pointer;font:inherit;font-size:12px;}',
     '.action:hover{background:#35516c;}',
@@ -2039,7 +2045,8 @@
     '.footer-actions .action{white-space:nowrap;}',
     '.hint{color:#b1c2d8;font-size:12px;line-height:1.55;}',
     '.empty{padding:24px 14px;border:1px dashed #526579;border-radius:12px;color:#b6c5d9;text-align:center;font-size:13px;}',
-    '@media(max-width:720px){.items{grid-template-columns:minmax(0,1fr)}.main{padding:14px}.head{padding:12px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.card{padding:12px;min-height:90px}.category-manager-row{flex-wrap:wrap}.category-manager-row input{flex-basis:60%}.category-row-actions{width:100%;justify-content:flex-end}}'
+    '@media(max-width:720px){.items{grid-template-columns:minmax(0,1fr)}.main{padding:14px}.head{padding:12px}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.card{padding:12px;min-height:90px}.category-manager-row{flex-wrap:wrap}.category-manager-row input{flex-basis:60%}.category-row-actions{width:100%;justify-content:flex-end}}',
+    '@media(max-width:720px){.category-detail-header{padding:15px;gap:12px}.category-detail-icon{width:44px;height:44px;font-size:36px}.category-detail-title{font-size:22px}}'
   ].join('\n');
 
   const launcherHost = el('div');
@@ -3716,6 +3723,20 @@
     return card;
   }
 
+  // Same icon, title, and profile-specific counts as the selected category card.
+  function makeCategoryDetailHeader(category) {
+    const header = el('header', 'category-detail-header');
+    const icon = el('span', 'category-detail-icon', category.icon);
+    icon.setAttribute('aria-hidden', 'true');
+    header.appendChild(icon);
+    const copy = el('div', 'category-detail-copy');
+    copy.appendChild(el('h2', 'category-detail-title', category.label));
+    copy.appendChild(el('p', 'category-detail-meta',
+      formatCategoryItemCounts(visibleItems(category.id)) + ' in this category'));
+    header.appendChild(copy);
+    return header;
+  }
+
   // Keep the popover within the dialog scroll area if editing a bottom card.
   function positionOpenEditor() {
     if (!editItemKey) return;
@@ -5308,45 +5329,45 @@
       return;
     }
     if (currentCategory !== null) {
-      const toolbar = el('div', 'toolbar');
-      toolbar.appendChild(button('← Categories', 'action', () => {
+      // Category detail is focused on its contents; search and profile switching
+      // are deliberately available only on the Categories front door.
+      const backRow = el('div', 'category-back');
+      backRow.appendChild(button('← All categories', 'action', () => {
         currentCategory = null;
         query = '';
         render();
       }));
-      toolbar.appendChild(el('span', 'muted', labelFor(currentCategory)));
-      content.appendChild(toolbar);
-    }
-
-    // Search remains at the top; add actions live in the persistent footer.
-    const search = el('input', 'search');
-    search.type = 'search';
-    search.placeholder = 'Search saved projects and chats...';
-    search.setAttribute('aria-label', 'Search saved projects and chats');
-    search.value = query;
-    search.addEventListener('input', () => {
-      query = search.value;
-      const cursor = search.selectionStart;
-      render();
-      const replacement = panel.querySelector('input.search');
-      if (replacement) {
-        replacement.focus();
-        try { replacement.setSelectionRange(cursor, cursor); } catch (_) { /* Search input browser support */ }
-      }
-    });
-    const searchRow=el('div','category-search-row');
-    searchRow.appendChild(search);
-    {
+      content.appendChild(backRow);
+      const category = CATEGORIES.find((candidate) => candidate.id === currentCategory);
+      if (category) content.appendChild(makeCategoryDetailHeader(category));
+    } else {
+      const search = el('input', 'search');
+      search.type = 'search';
+      search.placeholder = 'Search saved projects and chats...';
+      search.setAttribute('aria-label', 'Search saved projects and chats');
+      search.value = query;
+      search.addEventListener('input', () => {
+        query = search.value;
+        const cursor = search.selectionStart;
+        render();
+        const replacement = panel.querySelector('input.search');
+        if (replacement) {
+          replacement.focus();
+          try { replacement.setSelectionRange(cursor, cursor); } catch (_) { /* Search input browser support */ }
+        }
+      });
+      const searchRow=el('div','category-search-row');
+      searchRow.appendChild(search);
       const profileSelect=makeProfileSelector('category-profile-select','Switch active Organizer profile');
       const selectorLabel=el('label','category-profile-switch','Profile');
       selectorLabel.appendChild(profileSelect);
       searchRow.appendChild(selectorLabel);
+      content.appendChild(searchRow);
     }
-    content.appendChild(searchRow);
     if (addingProject) content.appendChild(makeAddProjectForm());
     if (addingChat) content.appendChild(makeAddChatForm());
 
-    const hasSearch = query.trim().length > 0;
+    const hasSearch = currentCategory === null && query.trim().length > 0;
     // Category cards appear ONLY on the front door, never within a category.
     if (!hasSearch && currentCategory === null) {
       const cards = el('div', 'cards');
@@ -5355,7 +5376,7 @@
     }
 
     const filtered = visibleItems(hasSearch ? null : currentCategory).filter((item) => {
-      const q = query.toLocaleLowerCase().trim();
+      const q = hasSearch ? query.toLocaleLowerCase().trim() : '';
       return !q || (item.title + ' ' + item.type + ' ' + labelFor(categoryFor(item))).toLocaleLowerCase().includes(q);
     });
     const ordered = orderItems(filtered, hasSearch ? 'uncategorized' : currentCategory, categoryOrders);
@@ -5363,9 +5384,8 @@
       // The default front door is categories, not a wall of chat links.
       content.appendChild(el('p', 'hint', 'Choose a category or search your saved items.'));
     } else {
-      content.appendChild(el('p', 'hint', hasSearch
-        ? filtered.length + ' search result' + (filtered.length === 1 ? '' : 's')
-        : filtered.length + ' project' + (filtered.length === 1 ? ' or chat' : 's or chats') + ' in ' + labelFor(currentCategory)));
+      if (hasSearch) content.appendChild(el('p', 'hint',
+        filtered.length + ' search result' + (filtered.length === 1 ? '' : 's')));
       const canReorder = !hasSearch && currentCategory !== null && ordered.length <= 250;
       if (canReorder && ordered.length > 1) {
         const instructions = el('div', 'toolbar');

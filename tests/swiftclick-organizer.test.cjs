@@ -554,7 +554,7 @@ test('ChatGPT category search precedes forms, cards and footer Add controls', ()
   const render = script.slice(script.indexOf('  function render() {'),script.indexOf('  function show('));
   const search = render.indexOf("const search = el('input', 'search')");
   const intake = render.indexOf("if (addingProject) content.appendChild(makeAddProjectForm())");
-  const items = render.indexOf("const hasSearch = query.trim().length > 0");
+  const items = render.indexOf("const hasSearch = currentCategory === null && query.trim().length > 0");
   const footer = render.lastIndexOf("const footer = el('div', 'foot')");
   const add = render.indexOf("footerActions.appendChild(button(addingProject ?",footer);
   const chat = render.indexOf("footerActions.appendChild(button(addingChat ?",footer);
@@ -567,6 +567,36 @@ test('ChatGPT category search precedes forms, cards and footer Add controls', ()
   assert.match(script,/\.footer-actions\{display:flex/);
   assert.doesNotMatch(render,/Where would you like to go\?|Only items you explicitly add are listed/);
 });
+test('category detail shows icon, title, local counts and no nested search or profile picker', () => {
+  const render = script.slice(script.indexOf('  function render() {'),script.indexOf('  function show('));
+  const detailStart = render.indexOf('if (currentCategory !== null) {');
+  const frontDoorElse = render.indexOf('} else {', detailStart);
+  const intakeStart = render.indexOf('if (addingProject) content.appendChild(makeAddProjectForm())',frontDoorElse);
+  assert.ok(detailStart >= 0 && frontDoorElse > detailStart && intakeStart > frontDoorElse);
+  const detail = render.slice(detailStart,frontDoorElse);
+  const frontDoor = render.slice(frontDoorElse,intakeStart);
+  assert.match(detail,/button\('← All categories'/);
+  assert.match(detail,/makeCategoryDetailHeader\(category\)/);
+  assert.doesNotMatch(detail,/input', 'search'|makeProfileSelector|category-search-row/);
+  assert.match(frontDoor,/const search = el\('input', 'search'\)/);
+  assert.match(frontDoor,/makeProfileSelector\('category-profile-select'/);
+  assert.match(frontDoor,/content\.appendChild\(searchRow\)/);
+  assert.match(script,/function makeCategoryDetailHeader\(category\)/);
+  assert.match(script,/'category-detail-icon', category\.icon/);
+  assert.match(script,/'category-detail-title', category\.label/);
+  assert.match(script,/formatCategoryItemCounts\(visibleItems\(category\.id\)\) \+ ' in this category'/);
+  assert.match(script,/\.category-detail-icon\{[^']*font-size:44px/);
+  assert.match(script,/\.category-detail-title\{[^']*font-size:27px/);
+  assert.match(render,/const hasSearch = currentCategory === null && query\.trim\(\)\.length > 0/);
+  assert.match(render,/const q = hasSearch \? query\.toLocaleLowerCase\(\)\.trim\(\) : ''/);
+  assert.match(render,/if \(hasSearch\) content\.appendChild\(el\('p', 'hint'/);
+  assert.match(render,/const canReorder = !hasSearch && currentCategory !== null && ordered\.length <= 250/);
+  assert.match(render,/makeItemRow\(item, canReorder\)/);
+  assert.match(render,/if \(categoryOrders\[currentCategory\]\?\.length\)/);
+  assert.match(render,/footerActions\.appendChild\(button\(addingProject \?/);
+  assert.match(render,/footerActions\.appendChild\(button\(addingChat \?/);
+});
+
 test('footer intake preserves project/chat autofill, cancellation and form focus', () => {
   const render = script.slice(script.indexOf('  function render() {'),script.indexOf('  function show('));
   assert.match(render,/intakeProject = addingProject \? currentProjectForManualIntake\(\) : null/);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Workspace Organizer by SwiftClick
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.44
+// @version      0.1.0-alpha.45
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1735,7 +1735,25 @@
     '.settings-toggle input[type=checkbox]{width:19px;height:19px;cursor:pointer;accent-color:#9cd4ff;}',
     '.welcome-help{white-space:nowrap;}',
     '.welcome-backdrop{position:fixed;inset:0;z-index:2147483622;display:flex;align-items:center;justify-content:center;padding:16px;background:#040e1bdf;}',
-    '.welcome-dialog{width:min(540px,100%);max-height:calc(100vh - 32px);overflow-y:auto;scrollbar-width:auto;scrollbar-color:#b3d9fa #22364c;background:#182d44;border:1px solid #8bb9df;color:#ebf6ff;border-radius:16px;box-shadow:0 20px 75px #000b;padding:24px;display:grid;gap:15px;font:14px/1.55 system-ui;}',
+    '.welcome-dialog{width:min(820px,100%);max-height:calc(100vh - 32px);overflow-y:auto;scrollbar-width:auto;scrollbar-color:#b3d9fa #22364c;background:#182d44;border:1px solid #8bb9df;color:#ebf6ff;border-radius:16px;box-shadow:0 20px 75px #000b;padding:24px;display:grid;gap:17px;font:14px/1.55 system-ui;}',
+    '.welcome-columns{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:25px;align-items:start;}',
+    '.welcome-intro{display:grid;gap:15px;min-width:0;align-content:start;}',
+    '.welcome-orientation{min-width:0;display:grid;align-content:start;gap:15px;padding:17px;background:#203951;border:1px solid #4e7290;border-radius:13px;}',
+    '.welcome-orientation h3{margin:0;font-size:15px;color:#eef7ff;line-height:1.35;}',
+    '.welcome-orientation-item{display:flex;align-items:center;gap:13px;min-width:0;}',
+    '.welcome-orientation-copy{min-width:0;display:grid;gap:5px;}',
+    '.welcome-orientation-copy h4{margin:0;font-size:13px;line-height:1.3;color:#f1f8ff;}',
+    '.welcome-orientation-copy p{font-size:12px;line-height:1.5;color:#c3d9eb;}',
+    '.welcome-icon-frame{width:58px;height:58px;flex:none;display:grid;place-items:center;background:#162a40;border:1px solid #496783;border-radius:13px;}',
+    '.welcome-icon-sample{display:grid;place-items:center;padding:0;border:1px solid #7992aa;background:#182b3e;color:#e3f0ff;box-shadow:0 4px 14px #0004;}',
+    '.welcome-icon-launcher{width:32px;height:32px;border-radius:9px;}',
+    '.welcome-icon-bookmark{width:36px;height:36px;border-radius:10px;}',
+    '.welcome-icon-sample svg{display:block;width:19px;height:19px;stroke:currentColor;stroke-width:2;stroke-linejoin:round;fill:none;}',
+    '.welcome-icon-bookmark svg{width:20px;height:20px;}',
+    '.welcome-controls{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-top:16px;border-top:1px solid #46637e;}',
+    '.welcome-status:empty{display:none;}',
+    '@media(max-width:690px){.welcome-dialog{padding:19px;gap:14px}.welcome-columns{grid-template-columns:minmax(0,1fr);gap:17px}.welcome-orientation{padding:15px;gap:12px}.welcome-controls{align-items:stretch}.welcome-actions{margin-left:auto;}}',
+    '@media(max-width:420px){.welcome-dialog{padding:16px}.welcome-dialog h2{font-size:21px}.welcome-controls{display:grid;justify-items:stretch}.welcome-actions{margin:0}.welcome-actions button{width:100%}}'
     '.welcome-dialog h2{font-size:23px;line-height:1.2;margin:0;}',
     '.welcome-dialog p{color:#c3d9eb;margin:0;}',
     '.welcome-kicker{font-size:11px;letter-spacing:.1em;font-weight:800;color:#a9d9ff;text-transform:uppercase;}',
@@ -4953,11 +4971,13 @@
     dialog.setAttribute('role','dialog');
     dialog.setAttribute('aria-modal','true');
     dialog.setAttribute('aria-labelledby','swiftclick-welcome-title');
-    dialog.appendChild(el('span','welcome-kicker','AI Workspace Organizer · by SwiftClick'));
+    const columns=el('div','welcome-columns');
+    const intro=el('div','welcome-intro');
+    intro.appendChild(el('span','welcome-kicker','AI Workspace Organizer · by SwiftClick'));
     const heading=el('h2','','Welcome to AI Workspace Organizer!');
     heading.id='swiftclick-welcome-title';
-    dialog.appendChild(heading);
-    dialog.appendChild(el('p','',
+    intro.appendChild(heading);
+    intro.appendChild(el('p','',
       'Your personal front door to ChatGPT. Save your favorite projects and conversations, organize them into categories and profiles, and keep useful tools close at hand.'));
     const links=el('nav','welcome-links');
     links.setAttribute('aria-label','AI Workspace Organizer help and documentation links');
@@ -4972,7 +4992,35 @@
       link.rel='noopener noreferrer';
       links.appendChild(link);
     }
-    dialog.appendChild(links);
+    intro.appendChild(links);
+    columns.appendChild(intro);
+    // Clone the actual SVG icons, not a stand-in; previews are not buttons.
+    const orientation=el('aside','welcome-orientation');
+    orientation.setAttribute('aria-label','Where to find Organizer controls');
+    orientation.appendChild(el('h3','','Find these two buttons'));
+    for(const [name,description,icon,kind] of [
+      ['Open Organizer',
+       'Look near ChatGPT’s upper-left Search controls. Click this four-square button to open Organizer; if space is tight, it moves to the right edge.',
+       iconSvg,'launcher'],
+      ['Save a chat or project',
+       'On a ChatGPT chat or project page, click this bookmark near the lower-right edge to save or organize its shortcut.',
+       mark,'bookmark']
+    ]){
+      const item=el('div','welcome-orientation-item');
+      const frame=el('div','welcome-icon-frame');
+      frame.setAttribute('aria-hidden','true');
+      const sample=el('span','welcome-icon-sample welcome-icon-'+kind);
+      sample.appendChild(icon.cloneNode(true));
+      frame.appendChild(sample);
+      item.appendChild(frame);
+      const copy=el('div','welcome-orientation-copy');
+      copy.appendChild(el('h4','',name));
+      copy.appendChild(el('p','',description));
+      item.appendChild(copy);
+      orientation.appendChild(item);
+    }
+    columns.appendChild(orientation);
+    dialog.appendChild(columns);
     const choice=el('label','welcome-choice');
     const checkbox=el('input');
     checkbox.type='checkbox';
@@ -4980,7 +5028,8 @@
     checkbox.setAttribute('aria-label',"Don't show this again");
     choice.appendChild(checkbox);
     choice.appendChild(el('span','',"Don't show this again"));
-    dialog.appendChild(choice);
+    const controls=el('div','welcome-controls');
+    controls.appendChild(choice);
     const status=el('p','welcome-status');
     status.setAttribute('role','status');
     dialog.appendChild(status);
@@ -4997,7 +5046,8 @@
       closeWelcomePopup();
     });
     actions.appendChild(continueButton);
-    dialog.appendChild(actions);
+    controls.appendChild(actions);
+    dialog.appendChild(controls);
     dialog.addEventListener('keydown',event=>{
       if(event.key!=='Tab')return;
       const focusable=[...dialog.querySelectorAll('a[href],input:not(:disabled),button:not(:disabled)')];

@@ -23,18 +23,24 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 
 ## Experimental: AI Workspace Organizer
 
-**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.44** (focused category-detail header, with Search/Profile only on the category front door).
+**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.45** (two-column welcome/help orientation with accurate launcher and bookmark previews).
 
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
 - [Alpha.34 development handoff (historical)](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
 - [Draft pull request #6](https://github.com/teddshapiro/swift-click-userscripts/pull/6)
 - [Cross-product design standard — Organizer, Shortcut & Collection Tools](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) (Web App Development Standards → Human-Centered Design)
 
-The owner approved alpha.44 after Firefox testing on November 16, 2026 and confirmed it is the only installed Organizer userscript. Alpha.40 was the previous fully accepted baseline; intervening candidates are superseded by the accepted alpha.44 build. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
+The owner approved alpha.44 after Firefox testing on November 16, 2026 and confirmed it was the only installed Organizer userscript at that time. Alpha.45 is a development candidate pending visual acceptance. Alpha.40 was the previous fully accepted baseline; intervening candidates are superseded by the accepted alpha.44 build. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
 
 ## Alpha.44 — focused category view
 
 The **ChatGPT Categories** front door still offers search and active-profile switching. Opening a category now shows **← All categories** and a large heading using that category's chosen icon, name, and profile-scoped project/chat counts; there is no redundant search box or profile picker inside the category. Saved links, editors, drag/keyboard ordering, Reset order, and deliberate Add project/Add chat actions remain. This is a presentation-only change with no data migration. The owner accepted and installed alpha.44 on November 16, 2026; no additional code-copying or storage transfer is required for that current installation. The public guide and editable Google Doc now describe the approved layout. No automatic-update mechanism for public distribution has been validated yet.
+
+## Alpha.45 — welcome/help control orientation (candidate, November 17, 2026)
+
+The existing first-use and header **? Help** popup now uses two responsive columns. The left column retains the prior introduction and its three user-initiated links verbatim. The right column explains the two live Organizer controls, showing **clones of the exact SVGs from the four-square launcher and the Quick Save bookmark**, styled like the real buttons. Samples are visual references, not clickable controls. The common footer keeps **Don't show this again** and **Continue to Organizer**, stacking and wrapping appropriately on narrow screens. Original setting semantics, focus trapping, Escape/backdrop behavior, links, and data safety are preserved. No storage migration, new grants, remote requests, or ChatGPT-native DOM changes.
+
+This is an alpha.45 development candidate awaiting owner visual approval; alpha.44 remains the last owner-approved and installed version until updated and tested. The published public guide and editable Google Doc still document alpha.44 and will be updated on approval.
 
 ## Reusable design reminder
 

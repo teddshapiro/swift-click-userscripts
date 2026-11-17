@@ -1,12 +1,12 @@
 # AI Workspace Organizer — Technical Proof of Concept
 
-> **Current alpha.44 owner-approved development baseline (accepted November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.45 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.44)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.45)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -1070,3 +1070,15 @@ The branded product title is **AI Workspace Organizer by SwiftClick**; end-user 
 **Testing:** Regression coverage asserts the two mutually exclusive layouts, icon/name/count rendering, the no-search category gate, preserved edit/order/footer actions, and existing storage and Trusted Types constraints. Firefox review: open categories with 0, 1, and mixed project/chat counts; verify visual hierarchy and matching icons (including custom icons), no Search/Profile within detail, Back navigation restores both controls, editors and drag/keyboard reorder still work, category switching and reload preserve all profile data, and narrow windows remain usable.
 
 **Editorial and distribution note:** The historical handoff remains historical. The reviewed public-guide source, deployed documentation site, and existing editable Google Doc review copy now describe alpha.44. Public installation is still withheld, and no public automatic-update URL or production merge has been approved. The owner already has a single working alpha.44 installation; do not instruct them to create a duplicate installation or repeat the prior storage transfer.
+
+## Alpha.45 — Two-column welcome/help orientation (2026-11-17)
+
+**Status:** Development candidate for owner visual acceptance. Alpha.44 remains the owner-approved and installed baseline until explicit acceptance. Draft PR #6 remains unmerged, `main` unchanged, and no public userscript release is authorized.
+
+**Design:** The shared first-use and **? Help** dialog is widened to at most 820px and split into two columns. The left column retains the exact prior product kicker, welcome heading, introduction, and links (User Guide, Getting Started, optional Ko-fi support). The new right column shows the **four-square main-interface launcher** and **Quick Save bookmark** using cloned SVG nodes from the actual UI, inside replicas of their original dark-blue buttons. They are illustrative (not interactive) and marked decorative while their role and placement are explained in accessible text: launcher near ChatGPT upper-left Search or on the right-edge fallback; bookmark at the lower-right of chat/project pages.
+
+**Footer and responsiveness:** A shared footer keeps **Don't show this again** and **Continue to Organizer**, with persisted preference handling unchanged. At 690px wide and under, the two sections stack; at 420px and under, Continue takes the available width. Short dialogs remain scrollable. Original Help/Settings reopening, keyboard trap, Escape/backdrop dismissal, links, and focus return remain in place.
+
+**Safety:** DOM constructed explicitly with `createElement` and `cloneNode(true)` for the existing SVG icons; no string-based HTML injection, extra permissions, storage changes, third-party calls, message reading or alterations to native ChatGPT controls.
+
+**Acceptance:** Test first-use display and Help reopening, visual match to real launcher and bookmark, short and narrow screens, scrolling, button/link focus and keyboard Tab cycling, optional checkbox persistence, and unchanged exit behavior. Automated tests cover structure, exact icon reuse, responsive CSS and actions. The published guide and editable Google Doc remain based on the approved alpha.44 version until this candidate is accepted.

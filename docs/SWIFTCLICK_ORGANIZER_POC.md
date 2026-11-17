@@ -1,12 +1,12 @@
 # AI Workspace Organizer — Technical Proof of Concept
 
-> **Current alpha.45 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.46 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.45)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.46)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -1082,3 +1082,13 @@ The branded product title is **AI Workspace Organizer by SwiftClick**; end-user 
 **Safety:** DOM constructed explicitly with `createElement` and `cloneNode(true)` for the existing SVG icons; no string-based HTML injection, extra permissions, storage changes, third-party calls, message reading or alterations to native ChatGPT controls.
 
 **Acceptance:** Test first-use display and Help reopening, visual match to real launcher and bookmark, short and narrow screens, scrolling, button/link focus and keyboard Tab cycling, optional checkbox persistence, and unchanged exit behavior. Automated tests cover structure, exact icon reuse, responsive CSS and actions. The published guide and editable Google Doc remain based on the approved alpha.44 version until this candidate is accepted.
+
+## Alpha.46 — Bottom-align welcome icon panel and free heading width (2026-11-17)
+
+**Status:** Owner-proposed visual refinement based on screenshot of alpha.45; not yet approved. Alpha.44 remains the last fully approved baseline; draft PR #6 stays unmerged and public installation unannounced.
+
+**Change:** In the first-use and **? Help** popup, the product kicker and **Welcome to AI Workspace Organizer!** H2 now precede the two-column grid and can wrap across the entire dialog width. The unchanged introductory paragraph and three guide/support links occupy the left column. The **Find these two buttons** card, featuring real noninteractive launcher and bookmark SVG samples, is bottom-aligned to the left-column links instead of anchored high beside the heading.
+
+**Preserved:** Responsive single-column stacking at 690px and below; common footer with **Don't show this again** and **Continue to Organizer**; behavior, copy, accessibility/keyboard interactions, startup preference persistence, no string-based HTML injection, no grants, no data migrations, no network calls. Only layout, metadata version, and regression coverage are changed.
+
+**Acceptance:** Compare desktop visual layout with owner's screenshot; check that the heading uses full width, the orientation panel's bottom edge aligns with the third left link, and narrow/short viewports remain scrollable without overlapping the shared footer. On approval, reconcile public guide and editable Google Doc with the approved onboarding flow.

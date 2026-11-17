@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Workspace Organizer by SwiftClick
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.45
+// @version      0.1.0-alpha.46
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1736,9 +1736,9 @@
     '.welcome-help{white-space:nowrap;}',
     '.welcome-backdrop{position:fixed;inset:0;z-index:2147483622;display:flex;align-items:center;justify-content:center;padding:16px;background:#040e1bdf;}',
     '.welcome-dialog{width:min(820px,100%);max-height:calc(100vh - 32px);overflow-y:auto;scrollbar-width:auto;scrollbar-color:#b3d9fa #22364c;background:#182d44;border:1px solid #8bb9df;color:#ebf6ff;border-radius:16px;box-shadow:0 20px 75px #000b;padding:24px;display:grid;gap:17px;font:14px/1.55 system-ui;}',
-    '.welcome-columns{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:25px;align-items:start;}',
+    '.welcome-columns{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:25px;align-items:end;}',
     '.welcome-intro{display:grid;gap:15px;min-width:0;align-content:start;}',
-    '.welcome-orientation{min-width:0;display:grid;align-content:start;gap:15px;padding:17px;background:#203951;border:1px solid #4e7290;border-radius:13px;}',
+    '.welcome-orientation{min-width:0;display:grid;align-self:end;align-content:start;gap:15px;padding:17px;background:#203951;border:1px solid #4e7290;border-radius:13px;}',
     '.welcome-orientation h3{margin:0;font-size:15px;color:#eef7ff;line-height:1.35;}',
     '.welcome-orientation-item{display:flex;align-items:center;gap:13px;min-width:0;}',
     '.welcome-orientation-copy{min-width:0;display:grid;gap:5px;}',
@@ -4971,12 +4971,14 @@
     dialog.setAttribute('role','dialog');
     dialog.setAttribute('aria-modal','true');
     dialog.setAttribute('aria-labelledby','swiftclick-welcome-title');
-    const columns=el('div','welcome-columns');
-    const intro=el('div','welcome-intro');
-    intro.appendChild(el('span','welcome-kicker','AI Workspace Organizer · by SwiftClick'));
+    // Full-width introduction above the columns; the right guide aligns with
+    // the bottom of the left column's links, not with the heading.
+    dialog.appendChild(el('span','welcome-kicker','AI Workspace Organizer · by SwiftClick'));
     const heading=el('h2','','Welcome to AI Workspace Organizer!');
     heading.id='swiftclick-welcome-title';
-    intro.appendChild(heading);
+    dialog.appendChild(heading);
+    const columns=el('div','welcome-columns');
+    const intro=el('div','welcome-intro');
     intro.appendChild(el('p','',
       'Your personal front door to ChatGPT. Save your favorite projects and conversations, organize them into categories and profiles, and keep useful tools close at hand.'));
     const links=el('nav','welcome-links');

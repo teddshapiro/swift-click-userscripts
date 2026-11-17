@@ -1753,7 +1753,7 @@
     '.welcome-controls{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding-top:16px;border-top:1px solid #46637e;}',
     '.welcome-status:empty{display:none;}',
     '@media(max-width:690px){.welcome-dialog{padding:19px;gap:14px}.welcome-columns{grid-template-columns:minmax(0,1fr);gap:17px}.welcome-orientation{padding:15px;gap:12px}.welcome-controls{align-items:stretch}.welcome-actions{margin-left:auto;}}',
-    '@media(max-width:420px){.welcome-dialog{padding:16px}.welcome-dialog h2{font-size:21px}.welcome-controls{display:grid;justify-items:stretch}.welcome-actions{margin:0}.welcome-actions button{width:100%}}'
+    '@media(max-width:420px){.welcome-dialog{padding:16px}.welcome-dialog h2{font-size:21px}.welcome-controls{display:grid;justify-items:stretch}.welcome-actions{margin:0}.welcome-actions button{width:100%}}',
     '.welcome-dialog h2{font-size:23px;line-height:1.2;margin:0;}',
     '.welcome-dialog p{color:#c3d9eb;margin:0;}',
     '.welcome-kicker{font-size:11px;letter-spacing:.1em;font-weight:800;color:#a9d9ff;text-transform:uppercase;}',

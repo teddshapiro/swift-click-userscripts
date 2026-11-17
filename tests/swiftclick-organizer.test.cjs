@@ -2168,6 +2168,7 @@ test('alpha.46 welcome/help positions full-width title above bottom-aligned icon
   assert.match(css,/\.welcome-orientation\{min-width:0;display:grid;align-self:end/);
   assert.match(css,/@media\(max-width:690px\)\{[^']*\.welcome-columns\{grid-template-columns:minmax\(0,1fr\)/);
   assert.match(css,/@media\(max-width:420px\)\{/);
+  assert.ok(css.indexOf('.welcome-dialog h2{font-size:23px') < css.indexOf('@media(max-width:420px)'), 'Mobile heading override must follow desktop rule');
   assert.match(css,/\.welcome-icon-launcher\{width:32px;height:32px/);
   assert.match(css,/\.welcome-icon-bookmark\{width:36px;height:36px/);
   assert.match(code,/const columns=el\('div','welcome-columns'\)/);

@@ -1,12 +1,12 @@
 # AI Workspace Organizer — Technical Proof of Concept
 
-> **Current alpha.47 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.48 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.47)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.48)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -1102,3 +1102,13 @@ The branded product title is **AI Workspace Organizer by SwiftClick**; end-user 
 **Shortcut cards:** The former small Project/Chat text-only badge is replaced by a 20px stroked **folder** glyph with PROJECT underneath, or a visually distinct **conversation-bubble** glyph with CHAT underneath. Both are constructed with `document.createElementNS`; the graphics are `aria-hidden` while the text label remains visible to assistive technology. The two-column compact item cards, native link behavior, editor and drag/keyboard reordering remain unchanged. No new asset downloads or product data changes.
 
 **Acceptance:** In Firefox, check Space tile navigation from ChatGPT Tools and Tools manager label/URL; verify custom Tool settings persist. Open a mixed project/chat category and inspect icon legibility, vertical centering, ellipsis/truncation and edit/drag affordances, including narrow windows. Regression tests cover the stable `library` key and custom overrides, Space built-in query, non-relaxed custom URL policy, icon shape separation, labels, and preserved links/edit controls. After owner approval, synchronize the guide source, public Worker, and editorial Google Doc to the accepted revision.
+
+## Alpha.48 — Rounded chat bubble refinement (2026-11-20)
+
+**Status:** Owner-requested visual revision after testing alpha.47. It remains a development candidate pending owner visual approval. Draft PR #6 is unmerged, `main` untouched, and the public guide/Google Doc remain at the last accepted documentation baseline (alpha.44).
+
+**Problem observed:** The alpha.47 screenshot showed a nearly square outlined Chat badge, not sufficiently distinct from the adjacent Project folder icon.
+
+**Change:** Retain the outlined folder and PROJECT text. Replace the rectangular Chat SVG path with a predominantly round speech bubble (SVG elliptical arc, distinct tail at bottom-left), subtly enlarged to 22px versus the folder's 20px. Preserve the CHAT label below, icon accessibility (`aria-hidden` for SVG and a text label), native link interactions, editor, and existing drag/keyboard ordering. No remote assets, permissions, data transformations or unsafe string-based HTML injection.
+
+**Validation:** Automated checks assert the rounded path, removal of the old rectangular chat glyph, relative sizing, labels, and unchanged saved-link behavior. Owner should visually check both mixed and chat-heavy categories at normal zoom and smaller viewport widths.

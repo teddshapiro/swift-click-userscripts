@@ -155,7 +155,7 @@ test('alpha.47 Space uses the existing Library tool identity and retains prefere
   assert.match(script,/item\.status==='check'&&!toolPrefs\.urlOverrides\[item\.id\]\?'Check in your browser':'Open tool'/);
 });
 
-test('alpha.47 saved project and chat links show distinct stacked SVG icons with text', () => {
+test('alpha.48 project folder and rounded chat bubble remain distinct with text labels', () => {
   const css=script.slice(script.indexOf('  const OVERLAY_CSS = ['),
     script.indexOf("  const launcherHost = el('div');"));
   const badge=script.slice(script.indexOf('  function makeItemKindBadge(type) {'),
@@ -167,12 +167,15 @@ test('alpha.47 saved project and chat links show distinct stacked SVG icons with
   assert.match(css,/\.item-kind\{display:flex;flex:none;flex-direction:column;/);
   assert.match(css,/\.item-kind svg\{display:block;width:20px;height:20px/);
   assert.match(css,/\.item-kind-label\{font-size:9px;/);
+  assert.match(css,/\.item-kind-chat svg\{width:22px;height:22px/);
   assert.match(badge,/document\.createElementNS\(svgNS,'svg'\)/);
   assert.match(badge,/document\.createElementNS\(svgNS,'path'\)/);
   assert.match(badge,/graphic\.setAttribute\('aria-hidden','true'\)/);
   assert.match(badge,/isProject\?'Project':'Chat'/);
   assert.match(badge,/isProject\s*\?\s*'M3 7/);
-  assert.match(badge,/:\s*'M5 4/);
+  assert.match(badge,/:\s*'M7\.9 20A9 9 0 1 0 4 16\.1L2 22Z'/);
+  assert.doesNotMatch(badge,/M5 4h14a2 2 0 0 1/);
+  assert.match(badge,/isProject\?'item-kind':'item-kind item-kind-chat'/);
   assert.match(row,/row\.appendChild\(makeItemKindBadge\(item\.type\)\)/);
   assert.doesNotMatch(row,/row\.appendChild\(el\('span', 'pill', item\.type/);
   assert.match(row,/row\.appendChild\(link\)/);
@@ -2268,7 +2271,7 @@ test('Welcome can be manually reopened even with automatic popup Off, and modal 
 
 test('alpha.47 retains the final product identity in visible script metadata and UI',()=>{
   assert.match(script,/\/\/ @name\s+AI Workspace Organizer by SwiftClick/);
-  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.47/);
+  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.48/);
   assert.match(script,/brand\.appendChild\(el\('div', 'brand', '▦  AI Workspace Organizer'\)\)/);
   assert.match(script,/by SwiftClick · A personal front door to ChatGPT/);
   assert.match(script,/launcherButton\.title = 'AI Workspace Organizer'/);
@@ -2313,7 +2316,7 @@ test('alpha.43 repositions only the bookmark widget and opens its editor upwards
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.47/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.48/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

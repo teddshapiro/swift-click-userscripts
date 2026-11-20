@@ -23,14 +23,14 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 
 ## Experimental: AI Workspace Organizer
 
-**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.47** (Space tool destination and distinct Project/Chat shortcut icons).
+**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.48** (rounder, more visually distinct chat speech-bubble icon).
 
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
 - [Alpha.34 development handoff (historical)](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
 - [Draft pull request #6](https://github.com/teddshapiro/swift-click-userscripts/pull/6)
 - [Cross-product design standard — Organizer, Shortcut & Collection Tools](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) (Web App Development Standards → Human-Centered Design)
 
-The owner approved alpha.44 after Firefox testing on November 16, 2026 and confirmed it was the only installed Organizer userscript at that time. Alpha.47 bundles the Space tool update and Project/Chat icon refinement on top of the alpha.46 welcome-dialog candidate; both await owner acceptance. Alpha.40 was the previous fully accepted baseline; intervening candidates are superseded by the accepted alpha.44 build. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
+The owner approved alpha.44 after Firefox testing on November 16, 2026 and confirmed it was the only installed Organizer userscript at that time. Alpha.48 refines the rounded chat icon on top of alpha.47's Space tile and Project/Chat visual distinction; the alpha.46 welcome-dialog refinements are also included. Visual acceptance remains pending. Alpha.40 was the previous fully accepted baseline; intervening candidates are superseded by the accepted alpha.44 build. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
 
 ## Alpha.44 — focused category view
 
@@ -52,6 +52,10 @@ Following owner screenshot feedback on alpha.45, the welcome kicker and **Welcom
 - Within ChatGPT Categories, each project shortcut displays a 20px **folder outline** above its PROJECT text; each chat shortcut displays a 20px **conversation bubble outline** above its CHAT text. The glyphs are distinct, noninteractive, built with `createElementNS`, and labelled in text; no remote icon libraries or HTML string injection. Link editing and reordering are unchanged.
 
 Alpha.47 remains a development candidate. Alpha.44 remains the last owner-approved baseline, while the alpha.45/46 welcome-popup changes are included for review. The deployed documentation preview and editable Google Doc remain at the approved alpha.44 wording until owner approval.
+
+## Alpha.48 — truly rounded conversation icon (candidate, November 20, 2026)
+
+The owner tested alpha.47 and reported that its Chat icon looked like a square similar to the Project folder. Alpha.48 keeps the folder outline and stacked text labels unchanged, but swaps the chat glyph's rectangular outline for a **round, balloon-like speech bubble with a visible lower-left tail**, using an SVG arc path. The chat glyph is slightly larger (22px versus 20px for the folder) for clarity at normal card size. It uses explicit DOM/SVG construction; cards, editing, drag reordering and preferences are unchanged. Regression checks assert the round SVG geometry and absence of the old boxy path. Await owner visual review before labeling approved. The public documentation and editorial Google Doc remain at approved alpha.44 pending signoff.
 
 ## Reusable design reminder
 

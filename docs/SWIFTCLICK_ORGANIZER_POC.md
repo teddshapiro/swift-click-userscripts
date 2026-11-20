@@ -1,12 +1,12 @@
 # AI Workspace Organizer — Technical Proof of Concept
 
-> **Current alpha.46 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.47 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.46)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.47)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -1092,3 +1092,13 @@ The branded product title is **AI Workspace Organizer by SwiftClick**; end-user 
 **Preserved:** Responsive single-column stacking at 690px and below; common footer with **Don't show this again** and **Continue to Organizer**; behavior, copy, accessibility/keyboard interactions, startup preference persistence, no string-based HTML injection, no grants, no data migrations, no network calls. Only layout, metadata version, and regression coverage are changed.
 
 **Acceptance:** Compare desktop visual layout with owner's screenshot; check that the heading uses full width, the orientation panel's bottom edge aligns with the third left link, and narrow/short viewports remain scrollable without overlapping the shared footer. On approval, reconcile public guide and editable Google Doc with the approved onboarding flow.
+
+## Alpha.47 — Space tile and Project/Chat outline badges (2026-11-20)
+
+**Status:** Development candidate bundling two owner-requested revisions, built on the previously unapproved alpha.46 welcome-popup refinement. Alpha.44 remains the last owner-approved baseline. No production release, branch merge, or update to the deployed static user guide or its editable Google Doc.
+
+**ChatGPT Tools:** OpenAI's [Space documentation](https://help.openai.com/en/articles/20001549-getting-started-with-space-in-chatgpt) says Space replaces Library for accounts with access; rollout is account-dependent and not necessarily complete. The owner confirmed they can open `https://chatgpt.com/space?tab=suggested`. Update the single built-in `library` catalog item to display **Space**, use that URL, and mark this user-observed destination as verified. Keep the existing `library` ID and saved `chatgptTools.v1` preferences unchanged: order, hidden state, icon and any explicit older Library URL overrides survive. No dual-mode tile or plan-detection logic is introduced, consistent with the owner's sole-user alpha scope. The fixed built-in query is permitted independently of custom URL validation, which still rejects queries, hashes, untrusted hosts and unsafe schemes. Public beta distribution must re-evaluate Space access for intended users.
+
+**Shortcut cards:** The former small Project/Chat text-only badge is replaced by a 20px stroked **folder** glyph with PROJECT underneath, or a visually distinct **conversation-bubble** glyph with CHAT underneath. Both are constructed with `document.createElementNS`; the graphics are `aria-hidden` while the text label remains visible to assistive technology. The two-column compact item cards, native link behavior, editor and drag/keyboard reordering remain unchanged. No new asset downloads or product data changes.
+
+**Acceptance:** In Firefox, check Space tile navigation from ChatGPT Tools and Tools manager label/URL; verify custom Tool settings persist. Open a mixed project/chat category and inspect icon legibility, vertical centering, ellipsis/truncation and edit/drag affordances, including narrow windows. Regression tests cover the stable `library` key and custom overrides, Space built-in query, non-relaxed custom URL policy, icon shape separation, labels, and preserved links/edit controls. After owner approval, synchronize the guide source, public Worker, and editorial Google Doc to the accepted revision.

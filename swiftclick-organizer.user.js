@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Workspace Organizer by SwiftClick
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.46
+// @version      0.1.0-alpha.47
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -581,7 +581,7 @@
   const CHATGPT_TOOL_CATALOG = [
     {"id":"new-chat","title":"New chat","group":"features","icon":"✏️","href":"https://chatgpt.com/","status":"action"},
     {"id":"scheduled","title":"Scheduled","group":"features","icon":"📅","href":"https://chatgpt.com/scheduled","status":"check"},
-    {"id":"library","title":"Library","group":"features","icon":"📚","href":"https://chatgpt.com/library","status":"check"},
+    {"id":"library","title":"Space","group":"features","icon":"📚","href":"https://chatgpt.com/space?tab=suggested","status":"verified"},
     {"id":"plugins","title":"Plugins","group":"features","icon":"🛠️","href":"https://chatgpt.com/plugins","status":"verified"},
     {"id":"maps","title":"Maps","group":"features","icon":"🧭","href":"https://chatgpt.com/maps","status":"check"},
     {"id":"images","title":"Images","group":"features","icon":"📸","href":"https://chatgpt.com/images/","status":"verified"},
@@ -2020,6 +2020,9 @@
     '.items{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start;gap:10px;margin-top:14px;}',
     '.item{display:flex;position:relative;min-width:0;align-items:center;gap:8px;min-height:62px;background:#182739;border:1px solid #364a60;border-radius:10px;padding:9px 11px;}',
     '.item .pill{flex:none;white-space:nowrap;font-size:10px;}',
+    '.item-kind{display:flex;flex:none;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:49px;color:#b9cbde;}',
+    '.item-kind svg{display:block;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}',
+    '.item-kind-label{font-size:9px;font-weight:650;line-height:1.1;letter-spacing:.35px;text-transform:uppercase;white-space:nowrap;}',
     '.edit-toggle{display:flex;flex:none;align-items:center;justify-content:center;width:34px;height:34px;padding:0;background:transparent;color:#bcd0e5;border:1px solid #526981;border-radius:8px;cursor:pointer;font:600 17px/1 system-ui;}',
     '.edit-toggle:hover,.edit-toggle[aria-expanded="true"]{background:#314862;border-color:#84acd0;color:#fff;}',
     '.edit-panel{position:absolute;top:calc(100% + 5px);right:0;z-index:25;min-width:230px;width:min(320px,100%);display:grid;gap:11px;padding:14px;background:#24364c;border:1px solid #7691b0;border-radius:11px;box-shadow:0 13px 35px #0009;}',
@@ -3795,6 +3798,25 @@
     moveCategoryItem(item.key, target.key, direction > 0);
   }
 
+  // Distinct, compact outline icons make project folders and conversations
+  // scannable while retaining text labels for clarity and accessibility.
+  function makeItemKindBadge(type) {
+    const isProject=type==='project';
+    const kind=el('span','item-kind');
+    const svgNS='http://www.w3.org/2000/svg';
+    const graphic=document.createElementNS(svgNS,'svg');
+    graphic.setAttribute('viewBox','0 0 24 24');
+    graphic.setAttribute('aria-hidden','true');
+    const outline=document.createElementNS(svgNS,'path');
+    outline.setAttribute('d',isProject
+      ? 'M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z'
+      : 'M5 4h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-5 3V6a2 2 0 0 1 2-2z');
+    graphic.appendChild(outline);
+    kind.appendChild(graphic);
+    kind.appendChild(el('span','item-kind-label',isProject?'Project':'Chat'));
+    return kind;
+  }
+
   function makeItemRow(item, canReorder = false) {
     const row = el('div', 'item');
     if (canReorder) {
@@ -3854,7 +3876,7 @@
       });
       row.appendChild(handle);
     }
-    row.appendChild(el('span', 'pill', item.type === 'project' ? 'Project' : 'Chat'));
+    row.appendChild(makeItemKindBadge(item.type));
     const link = el('a', 'item-title', item.title);
     link.href = item.href;
     link.title = item.title;

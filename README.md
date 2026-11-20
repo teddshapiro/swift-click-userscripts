@@ -23,14 +23,14 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 
 ## Experimental: AI Workspace Organizer
 
-**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.46** (full-width welcome heading and bottom-aligned control guide).
+**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.47** (Space tool destination and distinct Project/Chat shortcut icons).
 
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
 - [Alpha.34 development handoff (historical)](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
 - [Draft pull request #6](https://github.com/teddshapiro/swift-click-userscripts/pull/6)
 - [Cross-product design standard — Organizer, Shortcut & Collection Tools](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) (Web App Development Standards → Human-Centered Design)
 
-The owner approved alpha.44 after Firefox testing on November 16, 2026 and confirmed it was the only installed Organizer userscript at that time. Alpha.46 supersedes the alpha.45 welcome-dialog candidate and remains pending visual acceptance. Alpha.40 was the previous fully accepted baseline; intervening candidates are superseded by the accepted alpha.44 build. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
+The owner approved alpha.44 after Firefox testing on November 16, 2026 and confirmed it was the only installed Organizer userscript at that time. Alpha.47 bundles the Space tool update and Project/Chat icon refinement on top of the alpha.46 welcome-dialog candidate; both await owner acceptance. Alpha.40 was the previous fully accepted baseline; intervening candidates are superseded by the accepted alpha.44 build. Organizational profile storage is V2-only. Alpha.36 preserves historical category identifiers, enables deletion of any profile except the last, and writes a Quick Links V2 snapshot when only V1 or fresh defaults exist. The old V1 key is read-only and retained for recovery; alpha.37 no longer auto-imports V1 Quick Links. Installations missing V2 while containing older Quick Links data show a blocking warning rather than reset it. Legacy profile keys remain untouched as recovery records. No public release or merge is authorized.
 
 ## Alpha.44 — focused category view
 
@@ -45,6 +45,13 @@ This is an alpha.45 development candidate awaiting owner visual approval; alpha.
 ## Alpha.46 — welcome popup alignment refinement (candidate, November 17, 2026)
 
 Following owner screenshot feedback on alpha.45, the welcome kicker and **Welcome to AI Workspace Organizer!** heading now span the full popup width above the two-column content. The existing explanatory paragraph and three support links remain in the left column. The right **Find these two buttons** panel is bottom-aligned with the left column's link group rather than being pinned near the top. Both columns retain their original content and real launcher/bookmark SVG samples; the footer's checkbox and Continue button remain unchanged. The narrow-screen stacked layout and original dialog/keyboard/accessibility settings are preserved. Alpha.46 is pending owner visual acceptance; public guide and editorial Google Doc remain at approved alpha.44.
+
+## Alpha.47 — Space shortcut and project/chat visual distinction (candidate, November 20, 2026)
+
+- In **ChatGPT Tools**, the former Library tile is now named **Space** and opens the owner's observed `https://chatgpt.com/space?tab=suggested` destination. The internal `library` ID is retained, protecting user-customized tool position, visibility, icon, and approved URL overrides. No `space` ID, duplicate tile, migrations, or auto-detection is introduced. The built-in URL may carry a fixed `?tab=suggested` query; custom destination validation remains deliberately stricter and still rejects queries and external sites. Space availability is account-dependent: this alpha is optimized for the sole current user, and broader-plan coverage must be checked before public release.
+- Within ChatGPT Categories, each project shortcut displays a 20px **folder outline** above its PROJECT text; each chat shortcut displays a 20px **conversation bubble outline** above its CHAT text. The glyphs are distinct, noninteractive, built with `createElementNS`, and labelled in text; no remote icon libraries or HTML string injection. Link editing and reordering are unchanged.
+
+Alpha.47 remains a development candidate. Alpha.44 remains the last owner-approved baseline, while the alpha.45/46 welcome-popup changes are included for review. The deployed documentation preview and editable Google Doc remain at the approved alpha.44 wording until owner approval.
 
 ## Reusable design reminder
 

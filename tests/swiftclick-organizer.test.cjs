@@ -126,6 +126,60 @@ test('category cards use the ChatGPT Tools icon size and explicit project/chat c
     '4 projects | 2 chats');
 });
 
+test('alpha.47 Space uses the existing Library tool identity and retains preferences', () => {
+  const catalog=hooks.toolCatalog;
+  const space=catalog.find(item=>item.id==='library');
+  assert.ok(space);
+  assert.equal(space.title,'Space');
+  assert.equal(space.href,'https://chatgpt.com/space?tab=suggested');
+  assert.equal(space.status,'verified');
+  assert.equal(catalog.filter(item=>item.id==='library').length,1);
+  assert.equal(catalog.some(item=>item.id==='space'),false);
+  const clean=hooks.sanitizeToolPrefs(null);
+  assert.equal(hooks.toolHref(space,clean),space.href);
+  assert.equal(hooks.toolActionKind(space,clean),'link');
+  const saved=hooks.sanitizeToolPrefs({
+    version:1,order:['library','settings'],hidden:['library'],icons:{library:'🧭'},
+    urlOverrides:{library:'https://chatgpt.com/library'}
+  });
+  assert.equal(saved.order[0],'library');
+  assert.ok(saved.hidden.includes('library'));
+  assert.equal(saved.icons.library,'🧭');
+  assert.equal(hooks.toolHref(space,saved),'https://chatgpt.com/library');
+  const reset=hooks.editToolPrefs(saved,'library',{urlOverride:''});
+  assert.equal(hooks.toolHref(space,reset),'https://chatgpt.com/space?tab=suggested');
+  // The built-in URL may include this known query without weakening user URL validation.
+  assert.equal(hooks.validateToolOverride('https://chatgpt.com/space?tab=suggested','library'),null);
+  assert.equal(hooks.validateToolOverride('https://evil.example/space','library'),null);
+  assert.match(script,/node\.href=href/);
+  assert.match(script,/item\.status==='check'&&!toolPrefs\.urlOverrides\[item\.id\]\?'Check in your browser':'Open tool'/);
+});
+
+test('alpha.47 saved project and chat links show distinct stacked SVG icons with text', () => {
+  const css=script.slice(script.indexOf('  const OVERLAY_CSS = ['),
+    script.indexOf("  const launcherHost = el('div');"));
+  const badge=script.slice(script.indexOf('  function makeItemKindBadge(type) {'),
+    script.indexOf('  function makeItemRow(item, canReorder = false) {'));
+  const row=script.slice(script.indexOf('  function makeItemRow(item, canReorder = false) {'),
+    script.indexOf('  function keyboardReorder(',script.indexOf('  function makeItemRow(item, canReorder = false) {'))>0
+    ?script.indexOf('  function keyboardReorder(',script.indexOf('  function makeItemRow(item, canReorder = false) {'))
+    :script.indexOf('  function makeItemRow(item, canReorder = false) {')+6000);
+  assert.match(css,/\.item-kind\{display:flex;flex:none;flex-direction:column;/);
+  assert.match(css,/\.item-kind svg\{display:block;width:20px;height:20px/);
+  assert.match(css,/\.item-kind-label\{font-size:9px;/);
+  assert.match(badge,/document\.createElementNS\(svgNS,'svg'\)/);
+  assert.match(badge,/document\.createElementNS\(svgNS,'path'\)/);
+  assert.match(badge,/graphic\.setAttribute\('aria-hidden','true'\)/);
+  assert.match(badge,/isProject\?'Project':'Chat'/);
+  assert.match(badge,/isProject\s*\?\s*'M3 7/);
+  assert.match(badge,/:\s*'M5 4/);
+  assert.match(row,/row\.appendChild\(makeItemKindBadge\(item\.type\)\)/);
+  assert.doesNotMatch(row,/row\.appendChild\(el\('span', 'pill', item\.type/);
+  assert.match(row,/row\.appendChild\(link\)/);
+  assert.match(row,/row\.appendChild\(editButton\)/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+});
+
 test('ChatGPT Tools catalog, three tabs, and regular/temporary New Chat split action', () => {
   assert.equal(hooks.toolCatalog.length,15);
   assert.deepEqual(Array.from(hooks.toolGroups,(g)=>g.id),['features','specialized','account']);
@@ -2160,7 +2214,7 @@ test('Welcome dialog is accessible, user-dismissable, and contains only user-ini
   assert.match(script,/\.welcome-links a\{/);
 });
 
-test('alpha.46 welcome/help positions full-width title above bottom-aligned icon guide',()=>{
+test('alpha.47 retains full-width welcome title and bottom-aligned icon guide',()=>{
   const css=script.slice(script.indexOf('  const OVERLAY_CSS = ['),script.indexOf("  const launcherHost = el('div');"));
   const code=script.slice(script.indexOf('  function openWelcomePopup(trigger=null) {'),script.indexOf('  function makeSettingsPanel() {'));
   assert.match(css,/\.welcome-dialog\{width:min\(820px,100%\)/);
@@ -2212,9 +2266,9 @@ test('Welcome can be manually reopened even with automatic popup Off, and modal 
 });
 
 
-test('alpha.46 retains the final product identity in visible script metadata and UI',()=>{
+test('alpha.47 retains the final product identity in visible script metadata and UI',()=>{
   assert.match(script,/\/\/ @name\s+AI Workspace Organizer by SwiftClick/);
-  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.46/);
+  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.47/);
   assert.match(script,/brand\.appendChild\(el\('div', 'brand', '▦  AI Workspace Organizer'\)\)/);
   assert.match(script,/by SwiftClick · A personal front door to ChatGPT/);
   assert.match(script,/launcherButton\.title = 'AI Workspace Organizer'/);
@@ -2259,7 +2313,7 @@ test('alpha.43 repositions only the bookmark widget and opens its editor upwards
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.46/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.47/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

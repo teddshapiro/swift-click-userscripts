@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         Reddit Hide Promoted Posts
 // @namespace    ted-reddit-cleanup
-// @version      0.7
+// @version      0.8
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/reddit-hide-promoted-posts.user.js
 // @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/reddit-hide-promoted-posts.user.js
-// @description  Hide Reddit promoted posts, leave a small placeholder, and show a hidden count at the top
+// @description  Hide Reddit promoted posts plus in-feed Reddit app/game posts, and show a hidden count at the top
 // @match        https://www.reddit.com/*
 // @run-at       document-idle
 // @grant        none
@@ -13,16 +13,21 @@
 (function () {
   'use strict';
 
-  const APP_VERSION = '0.7';
+  const APP_VERSION = '0.8';
 
   const HIDDEN_ATTR = 'data-tm-promoted-hidden';
+  const HIDDEN_REASON_ATTR = 'data-tm-feed-hidden-reason';
   const PLACEHOLDER_ATTR = 'data-tm-promoted-placeholder';
+  const DIVIDER_HIDDEN_ATTR = 'data-tm-feed-divider-hidden';
   const BANNER_ID = 'tm-promoted-counter';
 
-  function makePlaceholder() {
+  const REASON_PROMOTED = 'promoted';
+  const REASON_APP = 'app';
+
+  function makePlaceholder(label) {
     const el = document.createElement('div');
     el.setAttribute(PLACEHOLDER_ATTR, '1');
-    el.textContent = 'Promoted post hidden';
+    el.textContent = label;
     el.style.cssText = [
       'margin: 8px 0 16px 0',
       'padding: 10px 14px',
@@ -65,11 +70,50 @@
   }
 
   function updateBanner() {
-    const count = document.querySelectorAll('[' + HIDDEN_ATTR + '="1"]').length;
+    const hidden = Array.from(
+      document.querySelectorAll('[' + HIDDEN_ATTR + '="1"]')
+    );
+
+    const promotedCount = hidden.filter(post =>
+      post.getAttribute(HIDDEN_REASON_ATTR) === REASON_PROMOTED
+    ).length;
+
+    const appCount = hidden.filter(post =>
+      post.getAttribute(HIDDEN_REASON_ATTR) === REASON_APP
+    ).length;
+
+    const total = hidden.length;
+    const parts = [];
+
+    if (promotedCount > 0) {
+      parts.push(
+        promotedCount === 1
+          ? '1 promoted post'
+          : promotedCount + ' promoted posts'
+      );
+    }
+
+    if (appCount > 0) {
+      parts.push(
+        appCount === 1
+          ? '1 Reddit app/game post'
+          : appCount + ' Reddit app/game posts'
+      );
+    }
+
     const banner = ensureBanner();
-    banner.textContent = count === 1
-      ? '1 promoted post hidden · v' + APP_VERSION
-      : count + ' promoted posts hidden · v' + APP_VERSION;
+
+    if (total === 0) {
+      banner.textContent = '0 feed items hidden · v' + APP_VERSION;
+      return;
+    }
+
+    banner.textContent =
+      parts.join(' + ') +
+      ' hidden · ' +
+      total +
+      ' total · v' +
+      APP_VERSION;
   }
 
   function isLikelyFeedPost(el) {
@@ -98,19 +142,83 @@
     return false;
   }
 
-  function hidePost(post) {
+  function looksLikeRedditAppPost(post) {
+    if (!(post instanceof HTMLElement)) return false;
+
+    if (post.hasAttribute('app-slug')) return true;
+    if (post.matches('shreddit-post[app-slug]')) return true;
+    if (post.querySelector('devvit-post')) return true;
+    if (post.querySelector('devvit-post-consume-tracker')) return true;
+
+    return false;
+  }
+
+  function isPostDetailPage() {
+    return /\/comments\//u.test(window.location.pathname);
+  }
+
+  function hideAdjacentDivider(post) {
+    const article = post.closest('article');
+    if (!article) return;
+
+    const next = article.nextElementSibling;
+    if (!(next instanceof HTMLElement)) return;
+    if (next.tagName !== 'HR') return;
+    if (next.getAttribute(DIVIDER_HIDDEN_ATTR) === '1') return;
+
+    next.style.display = 'none';
+    next.setAttribute(DIVIDER_HIDDEN_ATTR, '1');
+  }
+
+  function hidePost(post, reason) {
     if (!isLikelyFeedPost(post)) return;
     if (post.getAttribute(HIDDEN_ATTR) === '1') return;
     if (!post.parentNode) return;
 
-    const placeholder = makePlaceholder();
-    post.parentNode.insertBefore(placeholder, post);
+    if (reason === REASON_PROMOTED) {
+      const placeholder = makePlaceholder('Promoted post hidden');
+      post.parentNode.insertBefore(placeholder, post);
+    }
+
     post.style.display = 'none';
     post.setAttribute(HIDDEN_ATTR, '1');
+    post.setAttribute(HIDDEN_REASON_ATTR, reason);
+
+    if (reason === REASON_APP) {
+      const article = post.closest('article');
+      if (article && article !== post) {
+        article.style.display = 'none';
+      }
+      hideAdjacentDivider(post);
+    }
+
     updateBanner();
   }
 
-  function scan() {
+  function scanRedditAppPosts() {
+    if (isPostDetailPage()) return;
+
+    const directCandidates = document.querySelectorAll(
+      'shreddit-post[app-slug], ' +
+      'devvit-post, ' +
+      'devvit-post-consume-tracker'
+    );
+
+    for (const node of directCandidates) {
+      const post = findPostContainer(node) || (isLikelyFeedPost(node) ? node : null);
+      if (post && looksLikeRedditAppPost(post)) {
+        hidePost(post, REASON_APP);
+      }
+    }
+
+    document.querySelectorAll('shreddit-post[app-slug]').forEach(post => {
+      if (looksLikeRedditAppPost(post)) {
+        hidePost(post, REASON_APP);
+      }
+    });
+  }
+
+  function scanPromotedPosts() {
     const directCandidates = document.querySelectorAll(
       'shreddit-post[promoted], ' +
       'article[promoted], ' +
@@ -125,16 +233,20 @@
     for (const node of directCandidates) {
       const post = findPostContainer(node) || (isLikelyFeedPost(node) ? node : null);
       if (post && looksPromoted(post)) {
-        hidePost(post);
+        hidePost(post, REASON_PROMOTED);
       }
     }
 
     document.querySelectorAll('shreddit-post, article, [id^="t3_"]').forEach(post => {
       if (looksPromoted(post)) {
-        hidePost(post);
+        hidePost(post, REASON_PROMOTED);
       }
     });
+  }
 
+  function scan() {
+    scanRedditAppPosts();
+    scanPromotedPosts();
     updateBanner();
   }
 

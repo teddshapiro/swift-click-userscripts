@@ -2,8 +2,8 @@
 // @name         Reddit Hide Promoted Posts
 // @namespace    ted-reddit-cleanup
 // @version      0.8
-// @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/reddit-hide-promoted-posts.user.js
-// @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/reddit-hide-promoted-posts.user.js
+// @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/reddit-hide-devvit-app-posts/reddit-hide-promoted-posts.user.js
+// @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/reddit-hide-devvit-app-posts/reddit-hide-promoted-posts.user.js
 // @description  Hide Reddit promoted posts plus in-feed Reddit app/game posts, and show a hidden count at the top
 // @match        https://www.reddit.com/*
 // @run-at       document-idle

@@ -53,6 +53,10 @@ Following owner screenshot feedback on alpha.45, the welcome kicker and **Welcom
 
 Alpha.47 remains a development candidate. Alpha.44 remains the last owner-approved baseline, while the alpha.45/46 welcome-popup changes are included for review. The deployed documentation preview and editable Google Doc remain at the approved alpha.44 wording until owner approval.
 
+## Documentation status (November 21, 2026)
+
+The [public user-guide preview](https://organizer.swiftclicktools.com/) and its existing [editable Google Doc](https://docs.google.com/document/d/1LuYjvw5saGimSYNDz_dcnmBThdsrbqw-T3WiGVRoBEU/edit?usp=drivesdk) have been synchronized with the alpha.48 development branch, including the welcome/help popup (alpha.45/46), Space shortcut (alpha.47), and rounded PROJECT/CHAT visual distinctions (alpha.47/48). This is a **documentation preview**, not acceptance of alpha.48 or authorization to release publicly. The Worker remains `noindex,nofollow`, public installation is withheld, and draft PR #6 stays unmerged.
+
 ## Alpha.48 — truly rounded conversation icon (candidate, November 20, 2026)
 
 The owner tested alpha.47 and reported that its Chat icon looked like a square similar to the Project folder. Alpha.48 keeps the folder outline and stacked text labels unchanged, but swaps the chat glyph's rectangular outline for a **round, balloon-like speech bubble with a visible lower-left tail**, using an SVG arc path. The chat glyph is slightly larger (22px versus 20px for the folder) for clarity at normal card size. It uses explicit DOM/SVG construction; cards, editing, drag reordering and preferences are unchanged. Regression checks assert the round SVG geometry and absence of the old boxy path. Await owner visual review before labeling approved. The public documentation and editorial Google Doc remain at approved alpha.44 pending signoff.

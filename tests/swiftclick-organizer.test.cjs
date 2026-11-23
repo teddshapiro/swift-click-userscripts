@@ -17,6 +17,46 @@ vm.runInNewContext(script, {
 
 const origin = 'https://chatgpt.com';
 
+test('alpha.49 project bookmark uses ID-linked project title, never generic ChatGPT heading', () => {
+  const choose=hooks.chooseCurrentProjectIntakeName;
+  const fallback=hooks.projectNameFromBrowserTitle;
+  assert.equal(choose('Coding - TamperMonkey Scripts',
+    "What's on the agenda today?",'ChatGPT'),'Coding - TamperMonkey Scripts');
+  assert.equal(choose('Coding - TamperMonkey Scripts','Other Project',
+    'ChatGPT - Third Project - Project'),'Coding - TamperMonkey Scripts');
+  assert.equal(choose('', 'Coding - TamperMonkey Scripts','ChatGPT'),
+    'Coding - TamperMonkey Scripts');
+  assert.equal(choose('', '', "What's on the agenda today?"), '');
+  assert.equal(choose('', '', "What's on the agenda today? - ChatGPT"), '');
+  assert.equal(choose('', '', 'ChatGPT'), '');
+  assert.equal(choose('', '', 'ChatGPT - Coding - TamperMonkey Scripts - Project'),
+    'Coding - TamperMonkey Scripts');
+  assert.equal(choose('', '', 'Coding - TamperMonkey Scripts - Project - ChatGPT'),
+    'Coding - TamperMonkey Scripts');
+  assert.equal(choose('', '', 'Coding - TamperMonkey Scripts - Project'),
+    'Coding - TamperMonkey Scripts');
+  assert.equal(fallback('ChatGPT - Personalization'), '');
+  assert.equal(fallback('ChatGPT - Projects'), '');
+  assert.equal(fallback('Unnamed project - Project'), '');
+  const start=script.indexOf('  function currentProjectForManualIntake() {');
+  const end=script.indexOf('  function openProjectManualIntake(',start);
+  const code=script.slice(start,end);
+  assert.ok(start>0&&end>start);
+  assert.match(code,/projectNameForExplicitIntake\(current\.key\)/);
+  assert.match(code,/projectNameOnPage\(\)/);
+  assert.match(code,/document\.title/);
+  assert.match(code,/chooseCurrentProjectIntakeName\(/);
+  assert.match(code,/document\.querySelector\('\[data-testid="project-title"\]'\)/);
+  assert.doesNotMatch(code,/main\s*&&\s*main\.querySelector\('h1/);
+  assert.doesNotMatch(code,/return fallback\s*&&\s*fallback\.toLowerCase\(\)/);
+  assert.match(script,/if\(!item\.saved && item\.type==='project' && !name\.value\)/);
+  assert.match(script,/Project name could not be verified automatically/);
+  // Saved Organizer names stay authoritative; never rewrite them on read.
+  assert.match(script,/name\.value=item\.saved\?item\.saved\.title:''/);
+  assert.match(script,/if\(!item\.saved\)\{/);
+  assert.match(script,/currentProjectForManualIntake\(\):currentChatForManualIntake\(\)/);
+});
+
 test('home auto-open gate excludes deep links', () => {
   assert.equal(hooks.isHomeRoute('/'), true);
   assert.equal(hooks.isHomeRoute(''), true);
@@ -155,7 +195,7 @@ test('alpha.47 Space uses the existing Library tool identity and retains prefere
   assert.match(script,/item\.status==='check'&&!toolPrefs\.urlOverrides\[item\.id\]\?'Check in your browser':'Open tool'/);
 });
 
-test('alpha.48 project folder and rounded chat bubble remain distinct with text labels', () => {
+test('alpha.49 retains distinct project folder and rounded chat icon badges', () => {
   const css=script.slice(script.indexOf('  const OVERLAY_CSS = ['),
     script.indexOf("  const launcherHost = el('div');"));
   const badge=script.slice(script.indexOf('  function makeItemKindBadge(type) {'),
@@ -2269,9 +2309,9 @@ test('Welcome can be manually reopened even with automatic popup Off, and modal 
 });
 
 
-test('alpha.47 retains the final product identity in visible script metadata and UI',()=>{
+test('alpha.49 retains the final product identity in visible script metadata and UI',()=>{
   assert.match(script,/\/\/ @name\s+AI Workspace Organizer by SwiftClick/);
-  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.48/);
+  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.49/);
   assert.match(script,/brand\.appendChild\(el\('div', 'brand', '▦  AI Workspace Organizer'\)\)/);
   assert.match(script,/by SwiftClick · A personal front door to ChatGPT/);
   assert.match(script,/launcherButton\.title = 'AI Workspace Organizer'/);
@@ -2316,7 +2356,7 @@ test('alpha.43 repositions only the bookmark widget and opens its editor upwards
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.48/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.49/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

@@ -23,7 +23,7 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 
 ## Experimental: AI Workspace Organizer
 
-**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.48** (rounder, more visually distinct chat speech-bubble icon).
+**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.49** (fix project bookmark title selection and guard against ChatGPT greeting headings).
 
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
 - [Alpha.34 development handoff (historical)](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
@@ -60,6 +60,14 @@ The [public user-guide preview](https://organizer.swiftclicktools.com/) and its 
 ## Alpha.48 — truly rounded conversation icon (candidate, November 20, 2026)
 
 The owner tested alpha.47 and reported that its Chat icon looked like a square similar to the Project folder. Alpha.48 keeps the folder outline and stacked text labels unchanged, but swaps the chat glyph's rectangular outline for a **round, balloon-like speech bubble with a visible lower-left tail**, using an SVG arc path. The chat glyph is slightly larger (22px versus 20px for the folder) for clarity at normal card size. It uses explicit DOM/SVG construction; cards, editing, drag reordering and preferences are unchanged. Regression checks assert the round SVG geometry and absence of the old boxy path. Await owner visual review before labeling approved. The public documentation and editorial Google Doc remain at approved alpha.44 pending signoff.
+
+## Alpha.49 — project bookmark name reliability (candidate, November 23, 2026)
+
+The owner reported a new project shortcut appearing as **“What's on the agenda today?”** in the bookmark editor. Root cause: the alpha.48 extractor chose the first `h1` in ChatGPT's main area, which may be a generic home-style greeting, before looking for the current project's actual name. Alpha.49 resolves a project title conservatively in this order: (1) native project sidebar link **matching the exact project ID from the current URL**, (2) an explicitly marked `data-testid="project-title"` element, (3) a browser tab title with an explicit `- Project` marker. Unrelated `main h1` elements and generic `document.title` values are no longer used.
+
+If no trustworthy name is exposed, the bookmark input remains **empty** with a note requesting manual entry; Organizer never guesses from chat content. Existing saved project shortcut names are not overwritten. Users can edit a previously saved incorrect name with the existing pencil control. The manual **+ Add project** workflow shares the corrected extraction. No storage, permission, network, or native ChatGPT DOM changes; the implementation uses safe direct DOM access. Automated unit tests cover priority, generic headings, explicitly marked titles, fallback titles, and preservation of existing saved names.
+
+The GitHub documentation records this pending change, but the public website and editable Google Doc remain at the latest alpha.48 development preview until owner review.
 
 ## Reusable design reminder
 

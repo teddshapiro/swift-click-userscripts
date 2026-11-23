@@ -1,12 +1,12 @@
 # AI Workspace Organizer — Technical Proof of Concept
 
-> **Current alpha.48 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.49 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.48)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.49)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -1118,3 +1118,13 @@ The branded product title is **AI Workspace Organizer by SwiftClick**; end-user 
 Reconciled the current user-facing **documentation preview** with the alpha.48 userscript: welcome/help orientation and two-column popup (alpha.45), the full-width heading and bottom-aligned button-reference card (alpha.46), Library-to-Space tile label and `https://chatgpt.com/space?tab=suggested` built-in URL (alpha.47, with the stable internal `library` ID and preserved stored custom overrides), and the folder versus distinct rounded speech-bubble PROJECT/CHAT shortcut badges (alpha.47/48). Current user instructions on Search/Profile placement, category heading/counts, bookmark save flow, editable shortcuts, drag reordering, and startup preferences were checked against the script.
 
 The existing [editable Google Doc review copy](https://docs.google.com/document/d/1LuYjvw5saGimSYNDz_dcnmBThdsrbqw-T3WiGVRoBEU/edit?usp=drivesdk), `docs/public-guide/worker.js`, and deployed `https://organizer.swiftclicktools.com/` were updated together to **alpha.48 development preview** language. The guide does not claim owner acceptance of alpha.48; alpha.44 remains the last explicitly approved development baseline. This documentation synchronization does not publish or install the userscript, alter its storage, merge draft PR #6, or remove `noindex,nofollow`/robots exclusions. Do not add a public installation link until the release workflow is approved.
+
+## Alpha.49 — Project title detection for explicit bookmark intake (2026-11-23)
+
+**Issue:** The bookmark widget showed `What's on the agenda today?` as a project's display name. In alpha.48, `projectNameOnPage()` queried `main h1` before project-specific content. ChatGPT now sometimes presents a generic greeting in that heading, so an unrelated phrase was used as the project title. The user observed this while using the bookmark on a project home page.
+
+**Fix:** Both the Quick Save bookmark and the manual **+ Add project** prefill use `currentProjectForManualIntake()`, now using `chooseCurrentProjectIntakeName()`. Candidate order is strictly: (1) a native project link found by an **exact current project ID** in the sidebar/aside; (2) a clearly marked `[data-testid="project-title"]` element; (3) a browser title matching an explicitly project-qualified `- Project` format. The previous generic `main h1` and `document.title` fallbacks are removed. This is conservative because ChatGPT DOM structure can vary: if no project-specific title is verifiable, the field is blank and the user is invited to type the correct name instead of accepting a guess. The existing project URL and classification are unchanged.
+
+**Preserved:** A saved Organizer display name remains authoritative and will **not** be replaced by detected text; previously saved wrong names can be edited via the existing shortcut pencil. No background project indexing, chat-body access, new network calls, storage migration or new userscript grants. The title is only inspected as part of an explicit Add or bookmark interaction.
+
+**Regression:** Test cases cover exact ID-match priority, explicit-title fallback, project-marked browser title parsing, rejection of generic greetings, and preservation of saved names. Firefox acceptance: bookmark several project home pages with sidebar expanded and collapsed; verify correct names when exposed, blank+help text when unavailable, and unchanged existing stored shortcuts; also test manual Add project and a normal chat bookmark. Draft PR #6 and `main` remain unchanged in merge status. Deployed documentation preview and editable review Google Doc remain at alpha.48 pending owner acceptance.

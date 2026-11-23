@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Workspace Organizer by SwiftClick
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.48
+// @version      0.1.0-alpha.49
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1092,7 +1092,8 @@
       formatCategoryItemCounts,
       normalizeCategoryId, itemInCategory, sanitizeProfileAssignments, sanitizeSavedChat,
       renameSavedShortcutModel,
-      cleanIntakeName, chooseProjectName, headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
+      cleanIntakeName, chooseProjectName, projectNameFromBrowserTitle, chooseCurrentProjectIntakeName,
+      headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
       sanitizeCategoryDefinitions,
       quickSaveStateForRoute,
       firstProfileState,sanitizeProfilesState,profileSnapshot,profileWithSnapshot,
@@ -2420,6 +2421,10 @@
     name.placeholder=item.type==='project'?'Project name':'Chat title';
     titleLabel.appendChild(name);
     quickSavePopover.appendChild(titleLabel);
+    if(!item.saved && item.type==='project' && !name.value) {
+      quickSavePopover.appendChild(el('div','hint',
+        'Project name could not be verified automatically. Enter its name before saving.'));
+    }
     quickSavePopover.appendChild(el('div','hint','Category in this profile'));
     const choices=el('div','choices');
     choices.setAttribute('role','group');
@@ -2761,6 +2766,28 @@
     menuActionHost.hidden = false;
   }
 
+  // Only accept browser tab titles that explicitly identify a Project.
+  // ChatGPT's main heading can be an unrelated greeting, e.g. "What's on
+  // the agenda today?", and generic document titles aren't project names.
+  function projectNameFromBrowserTitle(rawTitle) {
+    const title=String(rawTitle||'').replace(/\s+/g,' ').trim();
+    const variants=[
+      /^ChatGPT\s*[-–|]\s*(.+?)\s*[-–|]\s*Project$/i,
+      /^(.+?)\s*[-–|]\s*Project\s*[-–|]\s*ChatGPT$/i,
+      /^(.+?)\s*[-–|]\s*Project$/i
+    ];
+    for(const pattern of variants) {
+      const match=title.match(pattern);
+      if(match) return cleanIntakeName(match[1]);
+    }
+    return '';
+  }
+  function chooseCurrentProjectIntakeName(sidebarTitle,explicitProjectTitle,browserTitle) {
+    return cleanIntakeName(sidebarTitle) ||
+      cleanIntakeName(explicitProjectTitle) ||
+      projectNameFromBrowserTitle(browserTitle);
+  }
+
   function projectNameForExplicitIntake(key) {
     // Targeted title lookup ONLY after the user invokes Add on a project.
     // This scans no chat content and adds nothing to Organizer inventory.
@@ -2775,21 +2802,23 @@
   }
 
   function currentProjectForManualIntake() {
-    // Explicitly requested by + Add project, not background discovery.
-    const current = parseItemLink(location.href, '', location.origin);
-    if (!current || current.type !== 'project') return null;
-    const title = cleanIntakeName(projectNameOnPage()) ||
-      projectNameForExplicitIntake(current.key);
-    return { ...current, title };
+    // Only a user-triggered project intake performs this targeted lookup.
+    // Use the matching project ID in the native sidebar before page metadata.
+    const current=parseItemLink(location.href,'',location.origin);
+    if(!current || current.type!=='project')return null;
+    const title=chooseCurrentProjectIntakeName(
+      projectNameForExplicitIntake(current.key),
+      projectNameOnPage(),
+      document.title
+    );
+    return {...current,title};
   }
 
   function projectNameOnPage() {
-    const main = document.querySelector('main');
-    const title = main && main.querySelector('h1, [data-testid="project-title"]');
-    const value = title ? String(title.textContent || '').replace(/\s+/g, ' ').trim() : '';
-    if (value && value.length < 141) return value;
-    const fallback = (document.title || '').replace(/\s*[-|]\s*ChatGPT\s*$/i, '').trim();
-    return fallback && fallback.toLowerCase() !== 'chatgpt' ? fallback.slice(0, 140) : 'Unnamed project';
+    // Deliberately NOT main.querySelector('h1'): that h1 can be a generic
+    // ChatGPT greeting, not the name of the current project.
+    const named=document.querySelector('[data-testid="project-title"]');
+    return named?cleanIntakeName(named.textContent):'';
   }
 
   function openProjectManualIntake(title) {

@@ -53,9 +53,9 @@ Following owner screenshot feedback on alpha.45, the welcome kicker and **Welcom
 
 Alpha.47 remains a development candidate. Alpha.44 remains the last owner-approved baseline, while the alpha.45/46 welcome-popup changes are included for review. The deployed documentation preview and editable Google Doc remain at the approved alpha.44 wording until owner approval.
 
-## Documentation status (November 21, 2026)
+## Documentation status (November 23, 2026)
 
-The [public user-guide preview](https://organizer.swiftclicktools.com/) and its existing [editable Google Doc](https://docs.google.com/document/d/1LuYjvw5saGimSYNDz_dcnmBThdsrbqw-T3WiGVRoBEU/edit?usp=drivesdk) have been synchronized with the alpha.48 development branch, including the welcome/help popup (alpha.45/46), Space shortcut (alpha.47), and rounded PROJECT/CHAT visual distinctions (alpha.47/48). This is a **documentation preview**, not acceptance of alpha.48 or authorization to release publicly. The Worker remains `noindex,nofollow`, public installation is withheld, and draft PR #6 stays unmerged.
+The [public user-guide preview](https://organizer.swiftclicktools.com/) and its existing [editable Google Doc](https://docs.google.com/document/d/1LuYjvw5saGimSYNDz_dcnmBThdsrbqw-T3WiGVRoBEU/edit?usp=drivesdk) have been synchronized with the alpha.50 development branch, including the improved project-title recognition from current native ChatGPT sidebar rows, the welcome/help popup (alpha.45/46), Space shortcut (alpha.47), and rounded PROJECT/CHAT visual distinctions (alpha.47/48). This is a **documentation preview**, with the alpha.50 title fix provisionally accepted for guide updates following positive owner testing; it is not authorization to release publicly. The Worker remains `noindex,nofollow`, public installation is withheld, and draft PR #6 stays unmerged.
 
 ## Alpha.48 — truly rounded conversation icon (candidate, November 20, 2026)
 

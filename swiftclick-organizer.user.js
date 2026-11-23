@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Workspace Organizer by SwiftClick
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.49
+// @version      0.1.0-alpha.50
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1093,6 +1093,7 @@
       normalizeCategoryId, itemInCategory, sanitizeProfileAssignments, sanitizeSavedChat,
       renameSavedShortcutModel,
       cleanIntakeName, chooseProjectName, projectNameFromBrowserTitle, chooseCurrentProjectIntakeName,
+      projectNameFromSidebarMarker,
       headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
       sanitizeCategoryDefinitions,
       quickSaveStateForRoute,
@@ -2788,15 +2789,42 @@
       projectNameFromBrowserTitle(browserTitle);
   }
 
+  // Project rows in newer ChatGPT sidebars are button controls, not anchors.
+  // Read only a row identified by the exact current project key.
+  function projectNameFromSidebarMarker(marker, targetKey) {
+    if(!marker || !/^project:g-p-[a-zA-Z0-9-]+$/.test(String(targetKey||'')) ||
+        marker.getAttribute('data-sidebar-project-container-id')!==targetKey)return '';
+    const row=marker.closest('[role="button"][aria-expanded]');
+    if(!row || !row.contains(marker))return '';
+    for(const nameNode of row.querySelectorAll(
+      '[data-marquee-content="true"], [data-marquee-text="true"]'
+    )){
+      const name=cleanIntakeName(nameNode.textContent);
+      if(name)return name;
+    }
+    return '';
+  }
+
   function projectNameForExplicitIntake(key) {
-    // Targeted title lookup ONLY after the user invokes Add on a project.
-    // This scans no chat content and adds nothing to Organizer inventory.
-    for (const anchor of document.querySelectorAll('nav a[href], aside a[href], [data-testid*="sidebar"] a[href]')) {
-      const linked = parseItemLink(anchor.getAttribute('href'), '', location.origin);
-      if (!linked || linked.type !== 'project' || linked.key !== key) continue;
-      const name = cleanIntakeName(anchor.textContent ||
+    // Run ONLY when user deliberately opens Add on the current project.
+    // Match the native sidebar's project-ID marker before link fallbacks.
+    const sidebar=document.getElementById('app-shell-sidebar') ||
+      document.querySelector('aside.app-shell-left-panel');
+    if(sidebar) {
+      for(const marker of sidebar.querySelectorAll('[data-sidebar-project-container-id]')){
+        const title=projectNameFromSidebarMarker(marker,key);
+        if(title)return title;
+      }
+    }
+    // Older or custom sidebar layouts still expose true project anchors.
+    for(const anchor of document.querySelectorAll(
+      'nav a[href], aside a[href], [data-testid*="sidebar"] a[href]'
+    )){
+      const linked=parseItemLink(anchor.getAttribute('href'),'',location.origin);
+      if(!linked || linked.type!=='project' || linked.key!==key)continue;
+      const name=cleanIntakeName(anchor.textContent ||
         anchor.getAttribute('title') || anchor.getAttribute('aria-label'));
-      if (name) return name;
+      if(name)return name;
     }
     return '';
   }

@@ -1,12 +1,12 @@
 # AI Workspace Organizer — Technical Proof of Concept
 
-> **Current alpha.49 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.50 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.49)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.50)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -1128,3 +1128,13 @@ The existing [editable Google Doc review copy](https://docs.google.com/document/
 **Preserved:** A saved Organizer display name remains authoritative and will **not** be replaced by detected text; previously saved wrong names can be edited via the existing shortcut pencil. No background project indexing, chat-body access, new network calls, storage migration or new userscript grants. The title is only inspected as part of an explicit Add or bookmark interaction.
 
 **Regression:** Test cases cover exact ID-match priority, explicit-title fallback, project-marked browser title parsing, rejection of generic greetings, and preservation of saved names. Firefox acceptance: bookmark several project home pages with sidebar expanded and collapsed; verify correct names when exposed, blank+help text when unavailable, and unchanged existing stored shortcuts; also test manual Add project and a normal chat bookmark. Draft PR #6 and `main` remain unchanged in merge status. Deployed documentation preview and editable review Google Doc remain at alpha.48 pending owner acceptance.
+
+## Alpha.50 — Project name lookup from current ChatGPT sidebar (2026-11-23)
+
+**Owner finding:** Alpha.49 returned a blank Project name in the bookmark editor. It correctly avoided greeting text but still could not find the actual title, because the script's older lookup expects project hyperlinks.
+
+**External DOM evidence:** The recently updated [ChatGPT Project Home Links userscript source](https://greasyfork.org/en/scripts/598888-chatgpt-project-home-links/code) confirms sidebar project rows using `data-sidebar-project-container-id="project:g-p-..."`, `[role="button"][aria-expanded]`, and `[data-marquee-content="true"]` title nodes. This suggests the correct DOM branch but does not guarantee stability across every rollout.
+
+**Change:** During user-triggered project bookmark or **+ Add project**, extract the current project ID from the URL, locate `#app-shell-sidebar` / `aside.app-shell-left-panel`, match exactly `data-sidebar-project-container-id`, then read only the matched button row's marquee label. No unrelated project labels, chat bodies or page greetings are used. Preserve older exact-URL project anchors and explicit-title / project-qualified document title fallbacks. No storage, grants, network, URL handling or saved-name changes.
+
+**Verification:** New unit tests cover exact-key row matches, wrong IDs, absent expandable row, empty title and integration ordering. Owner still needs to try a project with sidebar expanded in Firefox; if the current project row is unmounted, manual naming remains available. PR #6 remains draft and `main` unchanged. Public guide and editable Google Doc remain at alpha.48.

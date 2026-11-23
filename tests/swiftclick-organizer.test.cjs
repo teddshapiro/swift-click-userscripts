@@ -17,7 +17,7 @@ vm.runInNewContext(script, {
 
 const origin = 'https://chatgpt.com';
 
-test('alpha.49 project bookmark uses ID-linked project title, never generic ChatGPT heading', () => {
+test('alpha.50 project bookmark uses ID-linked project title, never generic ChatGPT heading', () => {
   const choose=hooks.chooseCurrentProjectIntakeName;
   const fallback=hooks.projectNameFromBrowserTitle;
   assert.equal(choose('Coding - TamperMonkey Scripts',
@@ -55,6 +55,50 @@ test('alpha.49 project bookmark uses ID-linked project title, never generic Chat
   assert.match(script,/name\.value=item\.saved\?item\.saved\.title:''/);
   assert.match(script,/if\(!item\.saved\)\{/);
   assert.match(script,/currentProjectForManualIntake\(\):currentChatForManualIntake\(\)/);
+});
+
+test('alpha.50 recognizes ID-marked ChatGPT sidebar button project names',()=>{
+  function marker(id,text,hasRow=true){
+    const nameNode={textContent:text};
+    let item;
+    const row={
+      contains(node){return node===item;},
+      querySelectorAll(selector){
+        assert.match(selector,/data-marquee-content/);
+        assert.match(selector,/data-marquee-text/);
+        return [nameNode];
+      }
+    };
+    item={
+      getAttribute(field){return field==='data-sidebar-project-container-id'?id:null;},
+      closest(selector){
+        assert.equal(selector,'[role="button"][aria-expanded]');
+        return hasRow?row:null;
+      }
+    };
+    return item;
+  }
+  const key='project:g-p-test123';
+  assert.equal(hooks.projectNameFromSidebarMarker(
+    marker(key,'Coding - TamperMonkey Scripts'),key),'Coding - TamperMonkey Scripts');
+  assert.equal(hooks.projectNameFromSidebarMarker(
+    marker('project:g-p-other','Different project'),key),'');
+  assert.equal(hooks.projectNameFromSidebarMarker(
+    marker(key,'Coding - TamperMonkey Scripts',false),key),'');
+  assert.equal(hooks.projectNameFromSidebarMarker(marker(key,''),key),'');
+  assert.equal(hooks.projectNameFromSidebarMarker(
+    marker(key,'Coding - TamperMonkey Scripts'),'chat:g-p-test123'),'');
+  const start=script.indexOf('  function projectNameForExplicitIntake(key) {');
+  const end=script.indexOf('  function currentProjectForManualIntake()',start);
+  const code=script.slice(start,end);
+  assert.match(code,/document\.getElementById\('app-shell-sidebar'\)/);
+  assert.match(code,/aside\.app-shell-left-panel/);
+  assert.match(code,/sidebar\.querySelectorAll\('\[data-sidebar-project-container-id\]'\)/);
+  assert.match(code,/projectNameFromSidebarMarker\(marker,key\)/);
+  assert.match(code,/linked\.key!==key/);
+  assert.ok(code.indexOf('projectNameFromSidebarMarker(marker,key)')<
+    code.indexOf('for(const anchor of document.querySelectorAll'));
+  assert.match(script,/chooseCurrentProjectIntakeName\(\s*projectNameForExplicitIntake\(current\.key\)/);
 });
 
 test('home auto-open gate excludes deep links', () => {
@@ -195,7 +239,7 @@ test('alpha.47 Space uses the existing Library tool identity and retains prefere
   assert.match(script,/item\.status==='check'&&!toolPrefs\.urlOverrides\[item\.id\]\?'Check in your browser':'Open tool'/);
 });
 
-test('alpha.49 retains distinct project folder and rounded chat icon badges', () => {
+test('alpha.50 retains distinct project folder and rounded chat icon badges', () => {
   const css=script.slice(script.indexOf('  const OVERLAY_CSS = ['),
     script.indexOf("  const launcherHost = el('div');"));
   const badge=script.slice(script.indexOf('  function makeItemKindBadge(type) {'),
@@ -2309,9 +2353,9 @@ test('Welcome can be manually reopened even with automatic popup Off, and modal 
 });
 
 
-test('alpha.49 retains the final product identity in visible script metadata and UI',()=>{
+test('alpha.50 retains the final product identity in visible script metadata and UI',()=>{
   assert.match(script,/\/\/ @name\s+AI Workspace Organizer by SwiftClick/);
-  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.49/);
+  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.50/);
   assert.match(script,/brand\.appendChild\(el\('div', 'brand', '▦  AI Workspace Organizer'\)\)/);
   assert.match(script,/by SwiftClick · A personal front door to ChatGPT/);
   assert.match(script,/launcherButton\.title = 'AI Workspace Organizer'/);
@@ -2356,7 +2400,7 @@ test('alpha.43 repositions only the bookmark widget and opens its editor upwards
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.49/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.50/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);

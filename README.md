@@ -23,7 +23,7 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 
 ## Experimental: AI Workspace Organizer
 
-**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.49** (fix project bookmark title selection and guard against ChatGPT greeting headings).
+**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.50** (read project names from exact-ID sidebar button rows).
 
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
 - [Alpha.34 development handoff (historical)](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
@@ -68,6 +68,14 @@ The owner reported a new project shortcut appearing as **“What's on the agenda
 If no trustworthy name is exposed, the bookmark input remains **empty** with a note requesting manual entry; Organizer never guesses from chat content. Existing saved project shortcut names are not overwritten. Users can edit a previously saved incorrect name with the existing pencil control. The manual **+ Add project** workflow shares the corrected extraction. No storage, permission, network, or native ChatGPT DOM changes; the implementation uses safe direct DOM access. Automated unit tests cover priority, generic headings, explicitly marked titles, fallback titles, and preservation of existing saved names.
 
 The GitHub documentation records this pending change, but the public website and editable Google Doc remain at the latest alpha.48 development preview until owner review.
+
+## Alpha.50 — project name from current ID-marked sidebar (candidate, November 23, 2026)
+
+After alpha.49 prevented an incorrect generic `h1` greeting, the owner reported that project title remained blank. A recently updated [ChatGPT Project Home Links userscript](https://greasyfork.org/en/scripts/598888-chatgpt-project-home-links/code) identifies modern native project rows by `data-sidebar-project-container-id="project:g-p-..."`, and the title in that row by `data-marquee-content="true"` / `data-marquee-text="true"`. The existing script only searched anchors; some newer sidebar project controls are buttons without project URLs.
+
+Alpha.50 checks the native `#app-shell-sidebar` (or `aside.app-shell-left-panel`) for an **exact project ID match** and reads only that button row's title. Older project-anchor, explicit project-title and qualified tab-title fallbacks remain. If the current project's row is unmounted or inaccessible, the name stays empty for manual entry instead of guessing from another project or ChatGPT greeting. Saved names remain unchanged; no changes to grants, data storage, requests or background indexing. Regression tests verify exact matching and rejection of wrong IDs. This externally observed DOM structure still requires the owner's Firefox test.
+
+The public guide/Google Doc remain on the last reviewed alpha.48 preview pending owner acceptance.
 
 ## Reusable design reminder
 

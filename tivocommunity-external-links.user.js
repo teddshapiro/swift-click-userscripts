@@ -1,15 +1,18 @@
 // ==UserScript==
 // @name         TiVoCommunity: Force external links to new tab + fix right-click
 // @namespace    tedd.local
-// @version      5.2
+// @version      5.3
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/tivocommunity-external-links.user.js
 // @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/tivocommunity-external-links.user.js
-// @description  Left-click opens external links in a new tab (bypassing skim hijack). Right-click menu works and "Open in new tab" uses the clean URL. Hover over thread titles to open them in a new tab.
+// @description  Left-click opens external links in a new tab (bypassing skim hijack). Right-click menu works and "Open in new tab" uses the clean URL. Hover over thread titles to open temporary reading tabs with Close & Return.
 // @match        https://www.tivocommunity.com/*
 // @match        https://tivocommunity.com/*
 // @match        https://cnn.com/*
 // @run-at       document-start
 // @grant        GM_openInTab
+// @grant        GM_getTab
+// @grant        GM_saveTab
+// @grant        window.close
 // ==/UserScript==
 
 (function () {
@@ -200,9 +203,9 @@
         ev.stopImmediatePropagation();
         if (!isThreadTitle(a)) return;
         if (typeof GM_openInTab === 'function') {
-          GM_openInTab(a.href, { active: true, insert: true, setParent: true });
+          GM_openInTab(temporaryThreadUrl(a.href), { active: true, insert: true, setParent: true });
         } else {
-          window.open(a.href, '_blank', 'noopener');
+          window.open(temporaryThreadUrl(a.href), '_blank', 'noopener');
         }
       });
       a.after(button);
@@ -225,6 +228,74 @@
     });
     observer.observe(document.body, { childList: true, subtree: true });
   }
+
+
+  // 4) Temporary reading tabs: persist the role across navigation.
+  const READING_PARAM = '__sc_reading_tab';
+  const READING_KEY = 'swiftclickTemporaryReadingTab';
+
+  function temporaryThreadUrl(href) {
+    const url = new URL(href, location.href);
+    url.searchParams.set(READING_PARAM, '1');
+    return url.href;
+  }
+
+  function installCloseAndReturn() {
+    if (window.top !== window.self ||
+        !/^(www\.)?tivocommunity\.com$/i.test(location.hostname)) return;
+
+    const url = new URL(location.href);
+    const marked = url.searchParams.get(READING_PARAM) === '1';
+
+    function showButton() {
+      function mount() {
+        if (document.getElementById('sc-close-reading-tab')) return;
+        const button = document.createElement('button');
+        button.id = 'sc-close-reading-tab';
+        button.type = 'button';
+        button.title = 'Close this temporary tab and return to the previous tab';
+        button.setAttribute('aria-label', 'Close and return');
+        button.textContent = '×  Close & Return';
+        Object.assign(button.style, {
+          position: 'fixed', right: '16px', top: '50%',
+          transform: 'translateY(-50%)', zIndex: '2147483647',
+          background: '#79501e', color: '#fff', border: '1px solid #fff',
+          borderRadius: '8px', padding: '10px 14px',
+          font: '600 14px system-ui, sans-serif', cursor: 'pointer',
+          boxShadow: '0 2px 8px rgba(0,0,0,.25)'
+        });
+        button.addEventListener('click', event => {
+          if (!event.isTrusted) return;
+          event.preventDefault();
+          event.stopImmediatePropagation();
+          window.close();
+        });
+        document.body.appendChild(button);
+      }
+      if (document.body) mount();
+      else document.addEventListener('DOMContentLoaded', mount, { once: true });
+    }
+
+    GM_getTab(tab => {
+      tab = tab || {};
+      if (marked) {
+        tab[READING_KEY] = true;
+        GM_saveTab(tab, () => {
+          // Remove only our marker, preserving the original query and fragment.
+          const clean = new URL(location.href);
+          if (clean.searchParams.get(READING_PARAM) === '1') {
+            clean.searchParams.delete(READING_PARAM);
+            try { history.replaceState(history.state, '', clean.href); } catch {}
+          }
+          showButton();
+        });
+      } else if (tab[READING_KEY] === true) {
+        showButton();
+      }
+    });
+  }
+
+  installCloseAndReturn();
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', installThreadTabButtons, { once: true });

@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         TiVoCommunity: Force external links to new tab + fix right-click
 // @namespace    tedd.local
-// @version      5.1
+// @version      5.2
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/tivocommunity-external-links.user.js
 // @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/tivocommunity-external-links.user.js
-// @description  Left-click opens external links in a new tab (bypassing skim hijack). Right-click menu works and "Open in new tab" uses the clean URL.
+// @description  Left-click opens external links in a new tab (bypassing skim hijack). Right-click menu works and "Open in new tab" uses the clean URL. Hover over thread titles to open them in a new tab.
 // @match        https://www.tivocommunity.com/*
 // @match        https://tivocommunity.com/*
 // @match        https://cnn.com/*
@@ -107,6 +107,129 @@
     // Rewrite without blocking the menu.
     // This makes "Open Link in New Tab/Window" use the clean destination.
     a.setAttribute('href', cleanUrl);
+  }
+
+
+  // 3) Thread titles: reveal a separate new-tab button on hover or focus.
+  function installThreadTabButtons() {
+    if (!/^(www\.)?tivocommunity\.com$/i.test(location.hostname)) return;
+
+    const selector = '.structItem-title a[href], .articlePreview-title a[href], .contentRow-title a[href]';
+    const processed = new WeakSet();
+    const style = document.createElement('style');
+    style.textContent = `
+      .sc-thread-tab-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        vertical-align: middle;
+        width: 25px;
+        height: 24px;
+        margin: 0 0 0 4px;
+        padding: 3px;
+        border: 1px solid transparent;
+        border-radius: 4px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        opacity: 0;
+        pointer-events: none;
+        box-sizing: border-box;
+      }
+      a:hover + .sc-thread-tab-button,
+      a:focus + .sc-thread-tab-button,
+      .sc-thread-tab-button:hover,
+      .sc-thread-tab-button:focus {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .sc-thread-tab-button:hover,
+      .sc-thread-tab-button:focus-visible {
+        border-color: currentColor;
+        background: rgba(128,128,128,.12);
+      }
+      @media (hover: none) {
+        .sc-thread-tab-button { opacity: 1; pointer-events: auto; }
+      }
+    `;
+    (document.head || document.documentElement).appendChild(style);
+
+    function isThreadTitle(a) {
+      if (a.classList.contains('labelLink')) return false;
+      try {
+        const u = new URL(a.href, location.href);
+        return u.origin === location.origin &&
+          /(?:^|\/)threads\/[^/]+(?:\/|$)/i.test(u.pathname);
+      } catch { return false; }
+    }
+
+    function addButton(a) {
+      if (processed.has(a) || !isThreadTitle(a)) return;
+      if (a.nextElementSibling?.classList.contains('sc-thread-tab-button')) {
+        processed.add(a);
+        return;
+      }
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'sc-thread-tab-button';
+      button.title = 'Open thread in new tab';
+      button.setAttribute('aria-label', 'Open thread in new tab: ' + a.textContent.trim());
+      const ns = 'http://www.w3.org/2000/svg';
+      const svg = document.createElementNS(ns, 'svg');
+      for (const [key, value] of Object.entries({
+        width: '15', height: '15', viewBox: '0 0 24 24',
+        fill: 'none', stroke: 'currentColor', 'stroke-width': '2',
+        'stroke-linecap': 'round', 'stroke-linejoin': 'round',
+        'aria-hidden': 'true'
+      })) svg.setAttribute(key, value);
+      for (const d of [
+        'M13 5h6v6', 'M19 5l-9 9',
+        'M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5'
+      ]) {
+        const path = document.createElementNS(ns, 'path');
+        path.setAttribute('d', d);
+        svg.appendChild(path);
+      }
+      button.appendChild(svg);
+      // Keep the hover target continuous across the small space beside the title.
+      button.style.marginLeft = '0';
+      button.style.width = '29px';
+      button.style.paddingLeft = '7px';
+      button.addEventListener('click', ev => {
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        if (!isThreadTitle(a)) return;
+        if (typeof GM_openInTab === 'function') {
+          GM_openInTab(a.href, { active: true, insert: true, setParent: true });
+        } else {
+          window.open(a.href, '_blank', 'noopener');
+        }
+      });
+      a.after(button);
+      processed.add(a);
+    }
+
+    function scan(root) {
+      if (root.nodeType === 1 && root.matches(selector)) addButton(root);
+      root.querySelectorAll?.(selector).forEach(addButton);
+    }
+
+    scan(document);
+    // Also cover thread lists loaded or replaced by the forum after page load.
+    const observer = new MutationObserver(records => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node.nodeType === 1 && !node.classList.contains('sc-thread-tab-button')) scan(node);
+        }
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', installThreadTabButtons, { once: true });
+  } else {
+    installThreadTabButtons();
   }
 
   document.addEventListener('click', onClick, true);

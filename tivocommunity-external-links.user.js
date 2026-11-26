@@ -1,10 +1,10 @@
 // ==UserScript==
 // @name         TiVoCommunity: Force external links to new tab + fix right-click
 // @namespace    tedd.local
-// @version      5.5
+// @version      5.6
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/tivocommunity-external-links.user.js
 // @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/tivocommunity-external-links.user.js
-// @description  Left-click opens external links in a new tab (bypassing skim hijack). Right-click menu works and "Open in new tab" uses the clean URL. Hover over thread titles to open temporary reading tabs with Close & Return.
+// @description  Left-click opens external links in a new tab (bypassing skim hijack). Right-click menu works and "Open in new tab" uses the clean URL. Use the always-visible icon beside thread titles to open temporary reading tabs with Close & Return.
 // @match        https://www.tivocommunity.com/*
 // @match        https://tivocommunity.com/*
 // @match        https://cnn.com/*
@@ -113,7 +113,7 @@
   }
 
 
-  // 3) Thread titles: reveal a separate new-tab button on hover or focus.
+  // 3) Thread titles: display a separate, always-visible new-tab button.
   function installThreadTabButtons() {
     if (!/^(www\.)?tivocommunity\.com$/i.test(location.hostname)) return;
 
@@ -135,24 +135,12 @@
         background: transparent;
         color: inherit;
         cursor: pointer;
-        opacity: 0;
-        pointer-events: none;
         box-sizing: border-box;
-      }
-      a:hover + .sc-thread-tab-button,
-      a:focus + .sc-thread-tab-button,
-      .sc-thread-tab-button:hover,
-      .sc-thread-tab-button:focus {
-        opacity: 1;
-        pointer-events: auto;
       }
       .sc-thread-tab-button:hover,
       .sc-thread-tab-button:focus-visible {
         border-color: currentColor;
         background: rgba(128,128,128,.12);
-      }
-      @media (hover: none) {
-        .sc-thread-tab-button { opacity: 1; pointer-events: auto; }
       }
     `;
     (document.head || document.documentElement).appendChild(style);
@@ -194,7 +182,7 @@
         svg.appendChild(path);
       }
       button.appendChild(svg);
-      // Keep the hover target continuous across the small space beside the title.
+      // Preserve the existing icon size and spacing beside the title.
       button.style.marginLeft = '0';
       button.style.width = '29px';
       button.style.paddingLeft = '7px';

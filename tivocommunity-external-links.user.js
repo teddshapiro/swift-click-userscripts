@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TiVoCommunity: Force external links to new tab + fix right-click
 // @namespace    tedd.local
-// @version      5.3
+// @version      5.4
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/tivocommunity-external-links.user.js
 // @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/tivocommunity-external-links.user.js
 // @description  Left-click opens external links in a new tab (bypassing skim hijack). Right-click menu works and "Open in new tab" uses the clean URL. Hover over thread titles to open temporary reading tabs with Close & Return.
@@ -230,22 +230,19 @@
   }
 
 
-  // 4) Temporary reading tabs: persist the role across navigation.
-  const READING_PARAM = '__sc_reading_tab';
+  // 4) Initialize temporary tabs before following unread-post redirects.
   const READING_KEY = 'swiftclickTemporaryReadingTab';
+  const READING_HASH = '#sc-reading-target=';
 
   function temporaryThreadUrl(href) {
-    const url = new URL(href, location.href);
-    url.searchParams.set(READING_PARAM, '1');
-    return url.href;
+    const entry = new URL(location.href);
+    entry.hash = READING_HASH + encodeURIComponent(new URL(href, location.href).href);
+    return entry.href;
   }
 
   function installCloseAndReturn() {
     if (window.top !== window.self ||
         !/^(www\.)?tivocommunity\.com$/i.test(location.hostname)) return;
-
-    const url = new URL(location.href);
-    const marked = url.searchParams.get(READING_PARAM) === '1';
 
     function showButton() {
       function mount() {
@@ -257,12 +254,11 @@
         button.setAttribute('aria-label', 'Close and return');
         button.textContent = '×  Close & Return';
         Object.assign(button.style, {
-          position: 'fixed', right: '16px', top: '50%',
-          transform: 'translateY(-50%)', zIndex: '2147483647',
+          display: 'inline-flex', alignItems: 'center', flexShrink: '0',
           background: '#79501e', color: '#fff', border: '1px solid #fff',
-          borderRadius: '8px', padding: '10px 14px',
+          borderRadius: '6px', padding: '7px 12px',
           font: '600 14px system-ui, sans-serif', cursor: 'pointer',
-          boxShadow: '0 2px 8px rgba(0,0,0,.25)'
+          whiteSpace: 'nowrap', marginLeft: '12px', verticalAlign: 'middle'
         });
         button.addEventListener('click', event => {
           if (!event.isTrusted) return;
@@ -270,29 +266,60 @@
           event.stopImmediatePropagation();
           window.close();
         });
-        document.body.appendChild(button);
+        function place() {
+          const logo = document.querySelector('.p-nav-smallLogo') ;
+          const headerLogo = document.querySelector('.p-header-logo');
+          const visible = el => el && el.getClientRects().length && el.getBoundingClientRect().width > 0;
+          const anchor = visible(logo) ? logo : visible(headerLogo) ? headerLogo : null;
+          if (anchor && anchor.parentElement) {
+            Object.assign(button.style, {position:'relative', right:'auto', top:'auto', zIndex:'1'});
+            if (anchor.nextElementSibling !== button) anchor.after(button);
+          } else {
+            Object.assign(button.style, {position:'fixed', right:'12px', top:'12px', zIndex:'2147483647'});
+            if (button.parentElement !== document.body) document.body.appendChild(button);
+          }
+        }
+        place();
+        window.addEventListener('resize', place);
+        window.addEventListener('scroll', place, {passive:true});
       }
-      if (document.body) mount();
-      else document.addEventListener('DOMContentLoaded', mount, { once: true });
+      if (document.body && document.readyState !== 'loading') mount();
+      else document.addEventListener('DOMContentLoaded', mount, {once:true});
     }
 
-    GM_getTab(tab => {
-      tab = tab || {};
-      if (marked) {
-        tab[READING_KEY] = true;
-        GM_saveTab(tab, () => {
-          // Remove only our marker, preserving the original query and fragment.
-          const clean = new URL(location.href);
-          if (clean.searchParams.get(READING_PARAM) === '1') {
-            clean.searchParams.delete(READING_PARAM);
-            try { history.replaceState(history.state, '', clean.href); } catch {}
-          }
-          showButton();
-        });
-      } else if (tab[READING_KEY] === true) {
-        showButton();
+    if (location.hash.startsWith(READING_HASH)) {
+      let target;
+      try {
+        target = new URL(decodeURIComponent(location.hash.slice(READING_HASH.length)));
+        if (target.origin !== location.origin || !/(?:^|\/)threads\/[^/]+/i.test(target.pathname)) return;
+      } catch { return; }
+      let proceeded = false;
+      function proceed() {
+        if (proceeded) return;
+        proceeded = true;
+        location.replace(target.href);
       }
-    });
+      try { sessionStorage.setItem(READING_KEY, '1'); } catch {}
+      // The bootstrap page records the tab before the forum can redirect the thread URL.
+      setTimeout(proceed, 1500);
+      try {
+        GM_getTab(tab => {
+          tab = tab || {};
+          tab[READING_KEY] = true;
+          GM_saveTab(tab, proceed);
+        });
+      } catch { proceed(); }
+      return;
+    }
+
+    let fallback = false;
+    try { fallback = sessionStorage.getItem(READING_KEY) === '1'; } catch {}
+    if (fallback) showButton();
+    try {
+      GM_getTab(tab => {
+        if (tab && tab[READING_KEY] === true) showButton();
+      });
+    } catch {}
   }
 
   installCloseAndReturn();

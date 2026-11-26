@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TiVoCommunity: Force external links to new tab + fix right-click
 // @namespace    tedd.local
-// @version      5.4
+// @version      5.5
 // @updateURL    https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/tivocommunity-external-links.user.js
 // @downloadURL  https://raw.githubusercontent.com/teddshapiro/swift-click-userscripts/main/tivocommunity-external-links.user.js
 // @description  Left-click opens external links in a new tab (bypassing skim hijack). Right-click menu works and "Open in new tab" uses the clean URL. Hover over thread titles to open temporary reading tabs with Close & Return.
@@ -267,18 +267,21 @@
           window.close();
         });
         function place() {
-          const logo = document.querySelector('.p-nav-smallLogo') ;
-          const headerLogo = document.querySelector('.p-header-logo');
-          const visible = el => el && el.getClientRects().length && el.getBoundingClientRect().width > 0;
-          const anchor = visible(logo) ? logo : visible(headerLogo) ? headerLogo : null;
-          if (anchor && anchor.parentElement) {
-            Object.assign(button.style, {position:'relative', right:'auto', top:'auto', zIndex:'1'});
-            if (anchor.nextElementSibling !== button) anchor.after(button);
-          } else {
-            Object.assign(button.style, {position:'fixed', right:'12px', top:'12px', zIndex:'2147483647'});
-            if (button.parentElement !== document.body) document.body.appendChild(button);
-          }
+          // Position against the rendered logo, not its possibly zero-width/absolute wrapper.
+          const candidates = [...document.querySelectorAll(
+            '.p-nav-smallLogo img, .p-header-logo img, .p-nav-smallLogo svg, .p-header-logo svg, .p-nav-smallLogo, .p-header-logo'
+          )];
+          const rects = candidates.map(el => el.getBoundingClientRect()).filter(r =>
+            r.width > 0 && r.height > 0 && r.bottom > 0 && r.top < 160 && r.right > 0);
+          const logo = rects.sort((a,b) => b.right - a.right)[0];
+          const left = Math.max(180, logo ? logo.right + 14 : 180);
+          const top = logo ? Math.max(8, (logo.top + logo.bottom - button.offsetHeight) / 2) : 16;
+          Object.assign(button.style, {
+            position:'fixed', left: Math.min(left, Math.max(8, window.innerWidth - button.offsetWidth - 12)) + 'px',
+            right:'auto', top:top + 'px', marginLeft:'0', zIndex:'2147483647'
+          });
         }
+        document.body.appendChild(button);
         place();
         window.addEventListener('resize', place);
         window.addEventListener('scroll', place, {passive:true});

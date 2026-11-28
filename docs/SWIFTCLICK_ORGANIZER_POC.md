@@ -1146,3 +1146,7 @@ The owner reported positive initial Firefox testing of alpha.50 and explicitly a
 ## Alpha.51 — Mobile Site snapshot experiment (2026-11-28)
 
 Added opt-in Tampermonkey menu command **Export Mobile Site snapshot (JSON)**. It downloads locally a narrow JSON export of the user's profiles/categories, only links included in those profiles, their ordering, and Quick Links/subheadings. No storage modification, new permissions, network calls, token/settings export, message-body scraping or automatic upload. Private ChatGPT URLs are included intentionally and require user review. This is a one-way read-only snapshot for building a private mobile website; no live sync or public Site release is implied. The public guide remains alpha.50 until this experiment is reviewed.
+
+## Mobile Companion continuity record (2026-11-28)
+
+A complete feature handoff (design goals, private snapshot counts/schema, tested desktop export, privacy constraints, local prototype requirements, later iPhone deep-link tests, and next-chat prompt) is at [`AI_WORKSPACE_ORGANIZER_MOBILE_COMPANION_HANDOFF_2026-11-28.md`](AI_WORKSPACE_ORGANIZER_MOBILE_COMPANION_HANDOFF_2026-11-28.md). The owner's uploaded JSON is **not** stored in GitHub or the public user guide. First static mobile prototype has **not** yet been created or deployed.

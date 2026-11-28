@@ -23,6 +23,8 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 
 ## Experimental: AI Workspace Organizer
 
+- [Mobile Companion feature handoff (alpha.51 export + first-site design, Nov 28)](docs/AI_WORKSPACE_ORGANIZER_MOBILE_COMPANION_HANDOFF_2026-11-28.md)
+
 **AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.51** (opt-in Mobile Site snapshot export).
 
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)

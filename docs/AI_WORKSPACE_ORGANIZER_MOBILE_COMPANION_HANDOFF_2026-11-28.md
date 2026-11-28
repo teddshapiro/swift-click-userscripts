@@ -1,6 +1,6 @@
 # AI Workspace Organizer — Mobile Companion Handoff
 **Date:** November 28, 2026  
-**Status:** Local export completed; first mobile website NOT yet built or deployed.  
+**Status:** Local export completed; first offline mobile website prototype built and verified on November 28, 2026. Not hosted or deployed.  
 **Project:** Coding - TamperMonkey Scripts / AI Workspace Organizer by SwiftClick  
 **Source:** `teddshapiro/swift-click-userscripts`, dev branch `feat/swiftclick-organizer-poc-20261111`, draft PR #6 (unmerged).
 
@@ -83,8 +83,8 @@ Categories and item arrays are ordered as seen in the desktop export. Only profi
 
 ## Suggested development phases
 - **Phase 0 (completed):** safe desktop export command, schema, tested snapshot; user supplied file.
-- **Phase 1 (next):** inspect this exact JSON, build static mobile prototype, validate navigation and responsive layout locally. Return a downloadable preview for review before hosting.
-- **Phase 2:** decide hosting and privacy model; set up a private protected URL only with explicit owner authorization, verify access control and iPhone display.
+- **Phase 1 (built, awaiting owner visual review):** inspected the uploaded JSON; generated a responsive static site with private snapshot, profile selector, categories, detail navigation, search and ordered Quick Links. Local JavaScript smoke tests and asset/schema checks passed. See the local prototype artifact section below.
+- **Phase 2 (next after owner review):** decide hosting and privacy model; set up a private protected URL only with explicit owner authorization, verify access control and iPhone display.
 - **Phase 3:** test actual iOS deep-link behavior, Home Screen icon and app-like presentation; refine navigation/touch interaction.
 - **Phase 4 (optional):** design a repeatable Mobile Companion export / update prompt generator for general users.
 - **Phase 5 (future):** optional account-backed synchronization through a secure data service, which needs its own authentication and security review.
@@ -97,3 +97,11 @@ Categories and item arrays are ordered as seen in the desktop export. Only profi
 
 ## Handoff prompt for the next chat
 > Continue the AI Workspace Organizer **Mobile Companion** prototype using `docs/AI_WORKSPACE_ORGANIZER_MOBILE_COMPANION_HANDOFF_2026-11-28.md` in the SwiftClick userscripts development branch. Alpha.51 exports a read-only `swiftclick-mobile-site-snapshot` JSON schema v1, and I uploaded `swiftclick-mobile-site-2026-11-28.json` in the prior chat. Retrieve the attached JSON from our current Project files/attachments; if inaccessible, ask me to attach the same file. First build a polished **local mobile-first static prototype** populated from my actual exported data. Do not publicly deploy the private ChatGPT project/chat URLs without a separate privacy/access-control decision. Preserve project, chat and Quick Links URLs exactly, and treat launching the native ChatGPT iOS app as unverified until on-device tests. Draft PR #6 stays unmerged. After the local prototype is ready, help me review and test it before deciding whether and where to host it.
+
+## Local prototype artifact (created 2026-11-28)
+- The private, standalone, offline-capable HTML preview is a conversation attachment named `My-Organizer-Mobile-Companion-Preview.html`. It embeds the actual export as a JSON literal, so it must never be uploaded to a public server or GitHub. It is intentionally **not committed** with these public repository documents.
+- The package `My-Organizer-Mobile-Companion-Prototype.zip` contains `index.html`, `manifest.webmanifest`, PNG icons (180/192/512) and a `README.md` with local review and private hosting guidance. This ZIP is also **private** because it contains the embedded personal links.
+- Visual approach: SwiftClick-style dark navy and bright blue grid mark; mobile two-column category grid, bottom navigation for Categories/Quick Links, desktop navigation rail, actual profile selector, category detail screens, project/chat distinction and search across current profile plus Quick Links. The implementation uses `createElement` / `textContent` rather than string HTML injection.
+- Validation: exact schema and item counts preserved; all 34 ChatGPT destination URL paths and nine Quick Links confirmed valid HTTPS routes; ZIP integrity passed; JavaScript syntax checked with Node; simulated-DOM smoke tests passed for home/category navigation, quick links, search and profile switching. No remote fetches, CDNs or analytics. **Visual iPhone or full-browser acceptance testing has not occurred.**
+- In a new chat, retrieve the private ZIP/HTML conversation artifacts if available or rebuild from the original exported snapshot. Never assume prior sandbox paths persist. This handoff does not include private link values.
+- Manifest and Home Screen icons are prepared for eventual **protected HTTPS** hosting, not direct `file://` installation. iOS ChatGPT deep-link behavior remains unverified. No Cloudflare deployment or native ChatGPT Site creation occurred.

@@ -116,7 +116,7 @@ test('alpha.51 mobile snapshot exports only profile memberships and local links'
   const x=hooks.buildMobileSiteSnapshot(profiles,projects,chats,quick,'2026-11-28');
   assert.equal(x.format,'swiftclick-mobile-site-snapshot');
   assert.equal(x.schemaVersion,1);
-  assert.deepEqual(x.profiles[0].categories[0].items.map(v=>v.title),['Conversation','Project']);
+  assert.deepEqual(Array.from(x.profiles[0].categories[0].items,v=>v.title),['Conversation','Project']);
   assert.equal(x.profiles[0].categories[1].items.length,0);
   assert.equal(JSON.stringify(x).includes('Do not export'),false);
   assert.equal(x.quickLinks[0].kind,'heading');

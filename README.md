@@ -23,7 +23,7 @@ Each canonical file keeps a stable filename. Tampermonkey update metadata points
 
 ## Experimental: AI Workspace Organizer
 
-**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.50** (read project names from exact-ID sidebar button rows).
+**AI Workspace Organizer** is in a separate development branch and is **not a canonical `main` release**. The current experimental build is `swiftclick-organizer.user.js`, **0.1.0-alpha.51** (opt-in Mobile Site snapshot export).
 
 - [Current technical status and chronological PoC history](docs/SWIFTCLICK_ORGANIZER_POC.md)
 - [Alpha.34 development handoff (historical)](docs/SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md)
@@ -76,6 +76,10 @@ After alpha.49 prevented an incorrect generic `h1` greeting, the owner reported 
 Alpha.50 checks the native `#app-shell-sidebar` (or `aside.app-shell-left-panel`) for an **exact project ID match** and reads only that button row's title. Older project-anchor, explicit project-title and qualified tab-title fallbacks remain. If the current project's row is unmounted or inaccessible, the name stays empty for manual entry instead of guessing from another project or ChatGPT greeting. Saved names remain unchanged; no changes to grants, data storage, requests or background indexing. Regression tests verify exact matching and rejection of wrong IDs. This externally observed DOM structure still requires the owner's Firefox test.
 
 The public guide/Google Doc remain on the last reviewed alpha.48 preview pending owner acceptance.
+
+## Alpha.51 — Mobile Site JSON snapshot (development prototype, November 28, 2026)
+
+Adds a Tampermonkey menu command **Export Mobile Site snapshot (JSON)**. With explicit user confirmation, it downloads a local file containing profiles, categories, profile-specific saved project/chat links, category ordering, and Quick Links/subheadings. It excludes unsaved shortcuts, API secrets, tool settings, preferences, conversation bodies and usage history. No data is transmitted automatically, and storage is not changed. URLs and titles may be private, so the user should review the file before sharing it. The snapshot is not an import or sync feature; it can seed a separate mobile website. Keep the site private. Public userscript release remains separate.
 
 ## Reusable design reminder
 

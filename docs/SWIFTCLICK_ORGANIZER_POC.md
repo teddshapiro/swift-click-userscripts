@@ -1,12 +1,12 @@
 # AI Workspace Organizer — Technical Proof of Concept
 
-> **Current alpha.50 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
+> **Current alpha.51 development candidate (alpha.44 owner-approved on November 16, 2026):** The latest section below and actual development-branch code supersede the [alpha.34 handoff](SWIFTCLICK_ORGANIZER_HANDOFF_2026-11-14.md) on startup/storage behavior. Alpha.35 removes pre-V2 migration and legacy-mode writes while preserving Stage 1.5 explicit membership. Earlier alpha narratives remain historical. This build is experimental and has not been merged to `main`.
 
 **Cross-project standards derived from this PoC:** [Design Patterns — Organizer, Shortcut & Collection Tools (v0.1)](https://docs.google.com/document/d/1qmOF-Se8by2fFnUIFbx1e9QmpuGJ-H2605hagWHTUoE/edit?usp=drivesdk) in Google Drive → Web App Development Standards → 02 - Human-Centered Design. This is the reusable design checklist for similar products (including non-userscript products); the chronological sections here remain the implementation record. The checklist should be considered at the start of future collection/shortcut-organizer design discussions, not blindly applied.
 
 Status: experimental / development branch only  
 Tracking: [Issue #5](https://github.com/teddshapiro/swift-click-userscripts/issues/5)  
-Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.50)  
+Script: root-level `swiftclick-organizer.user.js` (0.1.0-alpha.51)  
 Branch: `feat/swiftclick-organizer-poc-20261111`
 
 ## Intent
@@ -1142,3 +1142,7 @@ The existing [editable Google Doc review copy](https://docs.google.com/document/
 ## Documentation alignment — alpha.50 project bookmark names (2026-11-23)
 
 The owner reported positive initial Firefox testing of alpha.50 and explicitly approved updating the website and editable Google Doc on that basis. This is acceptance **for documentation synchronization**, not a public-release decision. The `https://organizer.swiftclicktools.com/` static preview source, deployed Worker, and existing Google Doc review copy were updated to alpha.50: the bookmark and manual intake use only project-specific title evidence (exact project ID in the native sidebar, including button-based rows, then explicit project title / qualified browser title), leaving the field blank for manual entry when no trustworthy name is visible. Existing shortcut names are never silently overwritten; users are directed to the pencil editor to correct an older wrong name. The site retains `noindex,nofollow`, no installation URL, and the existing security/CSP behavior. PR #6 remains unmerged.
+
+## Alpha.51 — Mobile Site snapshot experiment (2026-11-28)
+
+Added opt-in Tampermonkey menu command **Export Mobile Site snapshot (JSON)**. It downloads locally a narrow JSON export of the user's profiles/categories, only links included in those profiles, their ordering, and Quick Links/subheadings. No storage modification, new permissions, network calls, token/settings export, message-body scraping or automatic upload. Private ChatGPT URLs are included intentionally and require user review. This is a one-way read-only snapshot for building a private mobile website; no live sync or public Site release is implied. The public guide remains alpha.50 until this experiment is reviewed.

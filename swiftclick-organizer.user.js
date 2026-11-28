@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AI Workspace Organizer by SwiftClick
 // @namespace    https://swiftclicktools.com/
-// @version      0.1.0-alpha.50
+// @version      0.1.0-alpha.51
 // @description  Organize ChatGPT projects, chats, and shortcuts with multiple local profiles.
 // @author       Swift Click / Tedd
 // @match        https://chatgpt.com/*
@@ -1080,6 +1080,37 @@
     return profileSnapshot(custom,{}, {}, []);
   }
 
+  // Explicit read-only export of user-selected references, not account data.
+  function buildMobileSiteSnapshot(state,projects,chats,quick,createdAt) {
+    if(!state || !Array.isArray(state.profiles))return null;
+    const saved=new Map();
+    for(const item of [...(Array.isArray(projects)?projects:[]),...(Array.isArray(chats)?chats:[])]) {
+      if(!item || !/^(project|chat):[a-zA-Z0-9-]+$/.test(String(item.key||'')) ||
+          typeof item.title!=='string' || typeof item.href!=='string')continue;
+      const dest=parseItemLink(item.href,item.title,'https://chatgpt.com');
+      if(dest && dest.key===item.key && dest.type===item.type)
+        saved.set(item.key,{key:item.key,type:item.type,title:item.title,url:dest.href});
+    }
+    const profiles=state.profiles.map(profile=>{
+      const members=new Set(profile.members||[]);
+      const categories=(profile.categories||[]).map(category=>{
+        const items=[...saved.values()].filter(item=>members.has(item.key) &&
+          (profile.assignments?.[item.key]||'uncategorized')===category.id);
+        const rank=new Map((profile.categoryOrders?.[category.id]||[]).map((key,i)=>[key,i]));
+        items.sort((a,b)=>(rank.get(a.key)??Number.MAX_SAFE_INTEGER)-
+          (rank.get(b.key)??Number.MAX_SAFE_INTEGER));
+        return {id:category.id,title:category.label,icon:category.icon,items};
+      });
+      return {id:profile.id,title:profile.name,categories};
+    });
+    const quickLinks=(Array.isArray(quick)?quick:[]).map(item=>
+      item.kind==='heading'?{kind:'heading',title:item.title}:
+      {kind:'link',title:item.title,icon:item.icon,url:item.href});
+    return {format:'swiftclick-mobile-site-snapshot',schemaVersion:1,
+      generatedAt:createdAt,activeProfileId:state.activeId,
+      defaultProfileId:state.defaultId,profiles,quickLinks};
+  }
+
   // Node regression tests opt in to helpers, bypassing browser initialization.
   if (typeof globalThis !== 'undefined' && globalThis.__SC_ORGANIZER_TEST_HOOKS__) {
     Object.assign(globalThis.__SC_ORGANIZER_TEST_HOOKS__, {
@@ -1091,7 +1122,7 @@
       continuityHandoffRequest:CONTINUITY_HANDOFF_REQUEST,planQuickLinksStartup,
       formatCategoryItemCounts,
       normalizeCategoryId, itemInCategory, sanitizeProfileAssignments, sanitizeSavedChat,
-      renameSavedShortcutModel,
+      renameSavedShortcutModel,buildMobileSiteSnapshot,
       cleanIntakeName, chooseProjectName, projectNameFromBrowserTitle, chooseCurrentProjectIntakeName,
       projectNameFromSidebarMarker,
       headerLauncherGeometry, projectIdFromMetadata, resolveMenuProjectKey, classifyMenuProject, sanitizeCategoryOrders,
@@ -5766,8 +5797,28 @@
     positionProjectMenuAction();
   }, 1000);
 
+  function exportMobileSiteSnapshot() {
+    if(quickLinksLocked){
+      window.alert('Mobile export is unavailable while Quick Links storage needs recovery.');
+      return;
+    }
+    if(!window.confirm('Export all Organizer profiles, categories and saved links to a local JSON file? ChatGPT links and titles may be private. Nothing is uploaded automatically.'))return;
+    const snapshot=buildMobileSiteSnapshot(profilesState,manualProjects,savedChats,
+      quickLinks,new Date().toISOString());
+    if(!snapshot)return;
+    const file=new Blob([JSON.stringify(snapshot,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(file);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download='swiftclick-mobile-site-'+new Date().toISOString().slice(0,10)+'.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(()=>URL.revokeObjectURL(url),30000);
+  }
   if (typeof GM_registerMenuCommand === 'function') {
     GM_registerMenuCommand('Open AI Workspace Organizer', show);
+    GM_registerMenuCommand('Export Mobile Site snapshot (JSON)', exportMobileSiteSnapshot);
   }
 
   positionLauncher();

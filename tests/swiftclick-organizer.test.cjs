@@ -101,6 +101,32 @@ test('alpha.50 recognizes ID-marked ChatGPT sidebar button project names',()=>{
   assert.match(script,/chooseCurrentProjectIntakeName\(\s*projectNameForExplicitIntake\(current\.key\)/);
 });
 
+test('alpha.51 mobile snapshot exports only profile memberships and local links',()=>{
+  const profiles={activeId:'profile-a',defaultId:'profile-a',profiles:[
+    {id:'profile-a',name:'Main',members:['project:g-p-a','chat:c-a'],
+    assignments:{'project:g-p-a':'work','chat:c-a':'work'},
+    categoryOrders:{work:['chat:c-a','project:g-p-a']},
+    categories:[{id:'work',label:'Work',icon:'📁'},{id:'uncategorized',label:'Uncategorized',icon:'📥'}]}]};
+  const projects=[{key:'project:g-p-a',type:'project',title:'Project',
+    href:origin+'/g/g-p-a/project'},{key:'project:g-p-private',type:'project',
+    title:'Do not export',href:origin+'/g/g-p-private/project'}];
+  const chats=[{key:'chat:c-a',type:'chat',title:'Conversation',href:origin+'/c/c-a'}];
+  const quick=[{kind:'heading',title:'Daily'},{kind:'link',title:'Example',
+    href:'https://example.com/',icon:'🔗'}];
+  const x=hooks.buildMobileSiteSnapshot(profiles,projects,chats,quick,'2026-11-28');
+  assert.equal(x.format,'swiftclick-mobile-site-snapshot');
+  assert.equal(x.schemaVersion,1);
+  assert.deepEqual(x.profiles[0].categories[0].items.map(v=>v.title),['Conversation','Project']);
+  assert.equal(x.profiles[0].categories[1].items.length,0);
+  assert.equal(JSON.stringify(x).includes('Do not export'),false);
+  assert.equal(x.quickLinks[0].kind,'heading');
+  assert.equal(x.quickLinks[1].url,'https://example.com/');
+  assert.equal(x.toolPrefs,undefined);
+  assert.match(script,/GM_registerMenuCommand\('Export Mobile Site snapshot \(JSON\)'/);
+  assert.match(script,/new Blob\(\[JSON\.stringify\(snapshot,null,2\)\]/);
+  assert.doesNotMatch(script,/\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
+});
+
 test('home auto-open gate excludes deep links', () => {
   assert.equal(hooks.isHomeRoute('/'), true);
   assert.equal(hooks.isHomeRoute(''), true);
@@ -2355,7 +2381,7 @@ test('Welcome can be manually reopened even with automatic popup Off, and modal 
 
 test('alpha.50 retains the final product identity in visible script metadata and UI',()=>{
   assert.match(script,/\/\/ @name\s+AI Workspace Organizer by SwiftClick/);
-  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.50/);
+  assert.match(script,/\/\/ @version\s+0\.1\.0-alpha\.51/);
   assert.match(script,/brand\.appendChild\(el\('div', 'brand', '▦  AI Workspace Organizer'\)\)/);
   assert.match(script,/by SwiftClick · A personal front door to ChatGPT/);
   assert.match(script,/launcherButton\.title = 'AI Workspace Organizer'/);
@@ -2400,7 +2426,7 @@ test('alpha.43 repositions only the bookmark widget and opens its editor upwards
 });
 
 test('script stays isolated from production distribution until review', () => {
-  assert.match(script, /@version\s+0\.1\.0-alpha\.50/);
+  assert.match(script, /@version\s+0\.1\.0-alpha\.51/);
   assert.doesNotMatch(script, /@updateURL|@downloadURL/);
   assert.doesNotMatch(script, /\.innerHTML\b|\.outerHTML\b|insertAdjacentHTML|document\.write\s*\(/);
   assert.doesNotMatch(script, /(?:fetch\s*\(|XMLHttpRequest|GM_xmlhttpRequest)/);
